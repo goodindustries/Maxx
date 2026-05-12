@@ -1,132 +1,83 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { analyzePrompt, skillSamples } from "./skill-engine.js";
+import { analyzePrompt } from "./skill-engine.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const basePort = Number(process.env.PORT || 4181);
+const port = Number(process.env.PORT || 4181);
 const host = process.env.HOST || "127.0.0.1";
 
-const mimeTypes = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-};
-
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, {
+function json(res, status, payload) {
+  res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*",
   });
   res.end(JSON.stringify(payload, null, 2));
 }
 
-function sendText(res, statusCode, text) {
-  res.writeHead(statusCode, {
-    "Content-Type": "text/plain; charset=utf-8",
-    "Cache-Control": "no-store",
-  });
-  res.end(text);
-}
-
 async function readBody(req) {
   const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
-  }
-
+  for await (const chunk of req) chunks.push(chunk);
   const text = Buffer.concat(chunks).toString("utf8");
-  if (!text) {
-    return {};
-  }
-
-  const contentType = req.headers["content-type"] || "";
-  if (contentType.includes("application/x-www-form-urlencoded")) {
+  if (!text) return {};
+  const ct = req.headers["content-type"] || "";
+  if (ct.includes("application/x-www-form-urlencoded")) {
     return Object.fromEntries(new URLSearchParams(text).entries());
   }
-
   return JSON.parse(text);
 }
 
-async function serveStatic(req, res) {
-  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
-  const filePath = path.resolve(__dirname, `.${pathname}`);
-
-  if (!filePath.startsWith(__dirname)) {
-    sendText(res, 403, "Forbidden");
-    return;
-  }
-
-  try {
-    const data = await readFile(filePath);
-    const ext = path.extname(filePath);
-    res.writeHead(200, {
-      "Content-Type": mimeTypes[ext] || "application/octet-stream",
-      "Cache-Control": "no-store",
-    });
-    res.end(data);
-  } catch {
-    sendText(res, 404, "Not found");
-  }
-}
-
 const server = createServer(async (req, res) => {
-  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (req.method === "GET" && requestUrl.pathname === "/api/health") {
-    sendJson(res, 200, { ok: true, status: "healthy" });
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+    });
+    res.end();
     return;
   }
 
-  if (req.method === "GET" && requestUrl.pathname === "/api/samples") {
-    sendJson(res, 200, { ok: true, samples: skillSamples });
+  if (req.method === "GET" && url.pathname === "/health") {
+    json(res, 200, { ok: true });
     return;
   }
 
-  if (req.method === "POST" && requestUrl.pathname === "/api/skill/optimize") {
+  // POST /optimize  — body: { prompt, provider?, framework?, language?, repoType? }
+  if (req.method === "POST" && url.pathname === "/optimize") {
+    let body;
     try {
-      const body = await readBody(req);
-      const prompt = String(body.prompt || "").trim();
-      if (!prompt) {
-        sendJson(res, 400, { ok: false, error: "Prompt is required" });
-        return;
-      }
-
-      const metadata = {
-        framework: body.framework || "",
-        language: body.language || "",
-        repoType: body.repoType || "",
-        modelType: body.modelType || "",
-      };
-
-      sendJson(res, 200, await analyzePrompt({ prompt, metadata }));
-    } catch (error) {
-      sendJson(res, 400, { ok: false, error: error.message || "Invalid JSON body" });
-    }
-    return;
-  }
-
-  await serveStatic(req, res);
-});
-
-function listen(port) {
-  server.once("error", (error) => {
-    if (error.code === "EADDRINUSE" && port < basePort + 20) {
-      listen(port + 1);
+      body = await readBody(req);
+    } catch {
+      json(res, 400, { ok: false, error: "invalid request body" });
       return;
     }
 
-    throw error;
-  });
+    const prompt = String(body.prompt || "").trim();
+    if (!prompt) {
+      json(res, 400, { ok: false, error: "prompt is required" });
+      return;
+    }
 
-  server.listen(port, host, () => {
-    process.stdout.write(`Maxx skill prototype listening on http://127.0.0.1:${port}\n`);
-  });
-}
+    try {
+      const result = await analyzePrompt({
+        prompt,
+        metadata: {
+          framework: body.framework || "",
+          language: body.language || "",
+          repoType: body.repoType || "",
+          provider: body.provider || "",
+        },
+      });
+      json(res, 200, result);
+    } catch (err) {
+      json(res, 500, { ok: false, error: err.message || "pipeline error" });
+    }
+    return;
+  }
 
-listen(basePort);
+  json(res, 404, { ok: false, error: "not found" });
+});
+
+server.listen(port, host, () => {
+  process.stdout.write(`maxx listening on http://${host}:${port}\n`);
+});
