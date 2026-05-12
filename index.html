@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maxx Developer Skill v1</title>
+    <meta
+      name="description"
+      content="Claude skill prototype for real-time prompt optimization."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" defer src="./app.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div class="brand-row">
+          <div class="brand-mark">MX</div>
+          <div>
+            <div class="brand-name">Maxx</div>
+            <div class="brand-subtitle">Developer Skill v1</div>
+          </div>
+        </div>
+
+        <div class="hero-copy">
+          <p class="eyebrow">Claude skill prototype</p>
+          <h1>Turn messy developer prompts into structured execution requests.</h1>
+          <p class="lead">
+            One job: clean up prompt structure before inference. No memory, no telemetry, no automation.
+          </p>
+        </div>
+
+        <div class="hero-metadata">
+          <span class="pill">Debugging</span>
+          <span class="pill">Architecture</span>
+          <span class="pill">Code generation</span>
+          <span class="pill">Refactor</span>
+          <span class="pill">Explanation</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="panel editor-panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Prompt input</p>
+              <h2>Messy developer prompt</h2>
+            </div>
+            <button class="ghost-button" type="button" id="copySampleButton">Load sample</button>
+          </div>
+
+          <label class="field">
+            <span>Prompt</span>
+            <textarea
+              id="promptInput"
+              rows="14"
+              placeholder="Paste the prompt you are about to send."
+            ></textarea>
+          </label>
+
+          <div class="meta-grid">
+            <label class="field">
+              <span>Framework</span>
+              <input id="frameworkInput" type="text" placeholder="React, Next, FastAPI..." />
+            </label>
+            <label class="field">
+              <span>Language</span>
+              <input id="languageInput" type="text" placeholder="TypeScript, Python..." />
+            </label>
+            <label class="field">
+              <span>Repo type</span>
+              <input id="repoTypeInput" type="text" placeholder="app, library, mono-repo..." />
+            </label>
+            <label class="field">
+              <span>Model type</span>
+              <input id="modelTypeInput" type="text" placeholder="Claude, GPT, local..." />
+            </label>
+          </div>
+
+          <div class="sample-row" id="sampleButtons"></div>
+
+          <div class="action-row">
+            <button class="primary-button" type="button" id="optimizeButton">Optimize prompt</button>
+            <button class="ghost-button" type="button" id="clearButton">Clear</button>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Task classification</p>
+              <h2>What Maxx thinks this prompt is</h2>
+            </div>
+          </div>
+          <div class="result-list" id="classificationList"></div>
+
+          <div class="section-block">
+            <div class="section-title">Problems detected</div>
+            <div class="result-list" id="problemsList"></div>
+          </div>
+
+          <div class="section-block">
+            <div class="section-title">Optimized prompt</div>
+            <div class="prompt-wrap">
+              <pre id="optimizedPrompt"></pre>
+              <button class="copy-button" type="button" id="copyOptimizedButton">Copy</button>
+            </div>
+          </div>
+
+          <div class="section-block">
+            <div class="section-title">Optimization notes</div>
+            <ul class="notes-list" id="notesList"></ul>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

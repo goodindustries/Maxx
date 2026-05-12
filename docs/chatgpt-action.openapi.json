@@ -1,0 +1,115 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Maxx ChatGPT App Backend",
+    "version": "1.0.0",
+    "description": "ChatGPT app backend for prompt coaching and OpenAI usage summaries."
+  },
+  "servers": [
+    {
+      "url": "https://YOUR-DOMAIN-HERE"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Healthy"
+          }
+        }
+      }
+    },
+    "/api/usage/summary": {
+      "get": {
+        "operationId": "getUsageSummary",
+        "security": [
+          {
+            "oauth2": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage summary"
+          }
+        }
+      }
+    },
+    "/api/openai/connect": {
+      "post": {
+        "operationId": "connectOpenAI",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "credential": { "type": "string" },
+                  "label": { "type": "string" }
+                },
+                "required": ["credential"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OpenAI connection established"
+          }
+        }
+      }
+    },
+    "/api/brain/optimize": {
+      "post": {
+        "operationId": "optimizePrompt",
+        "security": [
+          {
+            "oauth2": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": { "type": "string" },
+                  "skill": {
+                    "type": "string",
+                    "enum": ["developer", "founder", "research"]
+                  }
+                },
+                "required": ["prompt"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Optimized prompt"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://YOUR-DOMAIN-HERE/oauth/authorize",
+            "tokenUrl": "https://YOUR-DOMAIN-HERE/oauth/token",
+            "scopes": {
+              "read:usage": "Read usage summaries",
+              "optimize:prompt": "Optimize prompts"
+            }
+          }
+        }
+      }
+    }
+  }
+}

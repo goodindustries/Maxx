@@ -1,0 +1,12 @@
+{
+  "name": "maxx",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "maxx": "./cli.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "skill": "node cli.mjs"
+  }
+}
