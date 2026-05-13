@@ -4,7 +4,7 @@ import { correctGrammar } from "./pipeline/grammar.js";
 import { condensePrompt } from "./pipeline/condense.js";
 import { classifyIntent } from "./pipeline/intents.js";
 import { selectTemplate } from "./pipeline/templates.js";
-import { buildFallbackQuestion, compareQuality } from "./pipeline/scoring.js";
+import { buildFallbackQuestion, compareQuality, computePQS, computeEES, computeHCLS } from "./pipeline/scoring.js";
 
 const TECH_TAGS = [
   { label: "React frontend", patterns: [/\breact\b/i, /\bjsx\b/i, /\btsx\b/i] },
@@ -210,14 +210,20 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
   const quality = compareQuality(rawPrompt, optimizedPrompt);
   const missing = [];
 
-  if (!String(metadata.framework || "").trim() && !/\b(react|vue|svelte|next|node|express|fastapi|django|flutter|rails)\b/i.test(rawPrompt)) {
-    missing.push("framework");
-  }
-  if (!String(metadata.language || "").trim() && !/\b(javascript|typescript|python|go|rust|java|c\+\+|sql)\b/i.test(rawPrompt)) {
-    missing.push("language");
-  }
-  if (!/\b(node|browser|cli|server|desktop|mobile|bun|deno)\b/i.test(rawPrompt)) {
-    missing.push("runtime or environment");
+  // Tech-context slots — only flag when the intent is code/architecture related
+  const isTechIntent = ["fix", "create", "act", "plan", "organize"].includes(intent.primary.key);
+  const hasTechSignal = /\b(react|vue|svelte|next|node|express|fastapi|django|flutter|rails|javascript|typescript|python|go|rust|java|sql|api|backend|frontend|server|cli|database|auth|sync)\b/i.test(rawPrompt);
+
+  if (isTechIntent || hasTechSignal) {
+    if (!String(metadata.framework || "").trim() && !/\b(react|vue|svelte|next|node|express|fastapi|django|flutter|rails)\b/i.test(rawPrompt)) {
+      missing.push("framework");
+    }
+    if (!String(metadata.language || "").trim() && !/\b(javascript|typescript|python|go|rust|java|c\+\+|sql)\b/i.test(rawPrompt)) {
+      missing.push("language");
+    }
+    if (!/\b(node|browser|cli|server|desktop|mobile|bun|deno)\b/i.test(rawPrompt)) {
+      missing.push("runtime or environment");
+    }
   }
 
   const followUpQuestion = intent.confidence < 0.45 ? buildFallbackQuestion({ missing, intentLabel: intent.primary.label }) : "";
@@ -268,6 +274,10 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
     });
   }
 
+  const pqs   = compareQuality(rawPrompt, optimizedPrompt);
+  const ees   = computeEES(rawPrompt, optimizedPrompt);
+  const hcls  = computeHCLS({ confidence: intent.confidence, problems, missing });
+
   return {
     ok: true,
     pipeline: {
@@ -278,7 +288,6 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
       condensed,
       intent,
       template,
-      quality,
     },
     classification: {
       primary: intent.primary.label,
@@ -287,6 +296,11 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
       environment: gatherMetadata(metadata),
       confidence: intent.confidence,
       nearestExamples: intent.nearestExamples,
+    },
+    evaluation: {
+      pqs,
+      ees,
+      hcls,
     },
     problems,
     optimizedPrompt,
@@ -299,7 +313,7 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
     ],
     confidence: intent.confidence,
     followUpQuestion,
-    quality,
+    quality: pqs,
   };
 }
 

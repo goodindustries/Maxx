@@ -59,16 +59,26 @@ async function main() {
     return;
   }
 
-  // Plain mode: optimized prompt to stdout, diagnostics to stderr
-  if (result.followUpQuestion) {
-    process.stderr.write(`[maxx] low confidence — ${result.followUpQuestion}\n`);
-  }
-  if (result.problems?.length) {
-    for (const p of result.problems) {
-      process.stderr.write(`[maxx] ${p.title}: ${p.action}\n`);
-    }
+  // Session report to stderr, optimized prompt to stdout
+  const { pqs, ees, hcls } = result.evaluation;
+  const sign  = (n) => (n >= 0 ? `+${n}` : `${n}`);
+  const signP = (n) => (n >= 0 ? `+${n}%` : `${n}%`);
+  const STATE_LABEL = { green: "Green ✓", yellow: "Yellow ⚠", red: "Red ✗" };
+
+  const lines = [
+    "─────────────────────────────────────────",
+    `  Intent:          ${result.classification.primary}  (${Math.round(result.confidence * 100)}% confidence)`,
+    `  Prompt Quality:  ${pqs.before} → ${pqs.after}  (${signP(pqs.deltaPercent)})`,
+    `  Tokens:          ${ees.rawTokens} raw → ${ees.optimizedTokens} structured  (${sign(ees.delta)})`,
+    `  Cognitive:       ${STATE_LABEL[hcls.state]}`,
+    "─────────────────────────────────────────",
+  ];
+
+  if (hcls.signals.length) {
+    lines.splice(lines.length - 1, 0, ...hcls.signals.map((s) => `  ⚑  ${s}`));
   }
 
+  process.stderr.write(lines.join("\n") + "\n\n");
   process.stdout.write(result.optimizedPrompt + "\n");
 }
 
