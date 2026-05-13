@@ -129,10 +129,10 @@ export const INTENT_LIBRARY = [
 const KEYWORD_RULES = {
   write: {
     normal: [
-      /\b(write|draft|compose|email|letter|note|memo|announcement|caption|bio|wording)\b/i,
+      /\b(write|draft|compose|word|email|letter|note|memo|announcement|caption|bio|wording)\b/i,
       /\b(reword|rephrase|rewrite|paraphrase)\b/i,
       /\b(response|reply|respond|follow.?up)\b/i,
-      /\b(message|text)\b.{0,30}\b(to|for|my|the)\b/i,
+      /\b(message|text|send)\b.{0,30}\b(to|for|my|the)\b/i,
     ],
     phrase: [
       /\bhelp me (ask|tell|say|word|phrase|message|text|write|communicate)\b/i,
@@ -150,7 +150,15 @@ const KEYWORD_RULES = {
     phrase: [
       /\bwhich (is|are|would be|should i|one (is|would))\b/i,
       /\b(better|best|smarter|wiser|worse|right choice)\b.{0,50}\b(or|between|than|vs)\b/i,
+      // "is react or vue better" — better can come after the or
+      /\b(is|are)\b.{0,60}\b(better|worse|best|faster|smarter|right|the way to go)\b/i,
       /\bshould i\b.{0,60}\bor\b/i,
+      /\bwhat should i (use|choose|pick|go with|do)\b/i,
+      // "dont know which one to do/pick/choose", "too many options/ideas"
+      /\bdon'?t know (which|what|whether|if)\b/i,
+      /\btoo many (options?|ideas?|choices?|directions?|things?)\b/i,
+      /\bwhich (one|path|direction|option|approach) (to|should|would)\b/i,
+      /\bstuck (between|on|because|deciding)\b/i,
       /\b(buying|keeping|switching|staying|going with|using)\b.{0,40}\bor\b/i,
       /\bis it (worth|better|smarter|a good idea)\b/i,
     ],
@@ -169,6 +177,9 @@ const KEYWORD_RULES = {
       /\bhelp me understand\b/i,
       /\bwhat'?s? the difference (between|in)\b/i,
       /\bexplain.{0,30}(like|as if|to a)\b/i,
+      // "never really got it", "always confused by", "can't grasp"
+      /\b(never\s+(?:really\s+)?got|can'?t\s+(?:quite\s+)?grasp|always\s+confused\s+by)\b/i,
+      /\b(want to|trying to)\s+(understand|learn|get|grasp)\b/i,
     ],
   },
   plan: {
@@ -206,12 +217,17 @@ const KEYWORD_RULES = {
       /\b\d+\s*(ideas?|examples?|options?|suggestions?|titles?|names?|variations?)\b/i,
       /\b(ten|five|three|twenty|fifty)\s*(ideas?|examples?|options?|suggestions?|titles?)\b/i,
       /\b(list of|set of|bunch of).{0,20}(ideas?|examples?|options?)\b/i,
+      // "give me ideas for", "make me some posts"
+      /\bgive me\b.{0,30}\b(ideas?|suggestions?|options?|examples?|posts?|content|copy|variations?)\b/i,
+      /\bmake me\b.{0,30}\b(some|a few|several)?\s*(posts?|content|copies?|ads?|ideas?|variations?)\b/i,
     ],
   },
   fix: {
     normal: [
       /\b(fix|debug|broken|error|failing|failure|bug|issue|problem|wrong|broke)\b/i,
       /\b(root cause|symptoms?|crash|exception|repair|patch|resolve|troubleshoot)\b/i,
+      // performance degradation is a fix target even without "broken"
+      /\b(slow|sluggish|hanging|timeout|lag|latency|perf)\b/i,
     ],
     phrase: [
       /\b(not working|doesn'?t work|won'?t work|stopped working)\b/i,
@@ -220,6 +236,9 @@ const KEYWORD_RULES = {
       /\b(sounds?|looks?|feels?|seems?) (weak|bad|off|wrong|generic|bland|terrible|broken)\b/i,
       /\bwhy (is|does|won'?t|can'?t).{0,40}(work|working|broken|failing)\b/i,
       /\b(weak|generic|bland|bad).{0,30}(resume|email|writing|copy|output|response|prompt)\b/i,
+      // "really slow lately", "wasn't like this before" — regression pattern
+      /\b(slow|sluggish|hanging)\b.{0,40}\b(lately|before|used to|now|suddenly)\b/i,
+      /\bwasn'?t like this\b/i,
     ],
   },
   extract: {
@@ -231,8 +250,10 @@ const KEYWORD_RULES = {
     phrase: [
       /\bpull.{0,30}(items?|points?|dates?|names?|deadlines?|decisions?)\b/i,
       /\b(get|find|list|give me).{0,20}(the|all|every|any).{0,20}(items?|points?|dates?|names?|deadlines?)\b/i,
-      /\bfrom (these|this|the) (notes?|text|document|email|message|thread|meeting)\b/i,
+      /\bfrom (these|this|the|my) (notes?|text|document|email|message|thread|meeting)\b/i,
       /\b(what|which).{0,20}(mentioned|listed|said|noted|decided)\b/i,
+      // "get the important/key stuff from my notes"
+      /\bget.{0,20}(important|key|main|critical|relevant).{0,20}(stuff|things?|info|information|content|data)\b/i,
     ],
   },
   organize: {
@@ -262,6 +283,8 @@ const KEYWORD_RULES = {
   },
 };
 
+export { KEYWORD_RULES };
+
 function keywordScore(text, intentKey) {
   const rules = KEYWORD_RULES[intentKey];
   if (!rules) return 0;
@@ -271,28 +294,34 @@ function keywordScore(text, intentKey) {
   return score;
 }
 
+let _libraryCache = buildLibraryVectors();
+
 async function buildLibraryVectors(options = {}) {
-  const vectors = [];
-  for (const intent of INTENT_LIBRARY) {
-    const template = selectTemplate(intent.key);
-    const text = [
-      intent.label,
-      templateDescription(template),
-      ...intent.examples,
-      ...template.requestedOutput,
-    ].join("\n");
-    vectors.push({
-      ...intent,
-      template,
-      vector: await embedText(text, options),
-    });
-  }
-  return vectors;
+  return Promise.all(
+    INTENT_LIBRARY.map(async (intent) => {
+      const template = selectTemplate(intent.key);
+      const text = [
+        intent.label,
+        templateDescription(template),
+        ...intent.examples,
+        ...template.requestedOutput,
+      ].join("\n");
+      return { ...intent, template, vector: await embedText(text, options) };
+    }),
+  );
+}
+
+function isDefaultOptions(options) {
+  return !options.embeddingUrl && !options.embeddingModel && !options.dimensions;
 }
 
 export async function classifyIntent(text, options = {}) {
-  const promptVector = await embedText(text, options);
-  const library = await buildLibraryVectors(options);
+  const [promptVector, library] = await Promise.all([
+    embedText(text, options),
+    isDefaultOptions(options)
+      ? (_libraryCache ??= buildLibraryVectors(options))
+      : buildLibraryVectors(options),
+  ]);
 
   const ranked = library
     .map((intent) => {

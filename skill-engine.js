@@ -4,7 +4,7 @@ import { correctGrammar } from "./pipeline/grammar.js";
 import { condensePrompt } from "./pipeline/condense.js";
 import { classifyIntent } from "./pipeline/intents.js";
 import { selectTemplate } from "./pipeline/templates.js";
-import { buildFallbackQuestion, compareQuality, computePQS, computeEES, computeHCLS } from "./pipeline/scoring.js";
+import { buildFallbackQuestion, buildClarifyingQuestion, compareQuality, computePQSTrace, computePQS, computeEES, computeHCLS } from "./pipeline/scoring.js";
 
 const TECH_TAGS = [
   { label: "React frontend", patterns: [/\breact\b/i, /\bjsx\b/i, /\btsx\b/i] },
@@ -145,6 +145,55 @@ function fillFieldValues({ intent, cleanText, condensed, metadata }) {
     steps: "Break the work into concrete steps.",
   };
 
+  // Intent-specific field overrides
+  if (intent.primary.key === "write") {
+    // Recipient: extract "my landlord", "to the team", "for a client"
+    // Stop before prepositions so we don't capture "landlord about"
+    const recipientPatterns = [
+      /\bmy\s+(\w+)/i,
+      /\bto\s+(?:a\s+|an\s+|the\s+)?(\w+)\b/i,
+      /\bfor\s+(?:a\s+|an\s+|the\s+)?(\w+)\b/i,
+    ];
+    for (const pat of recipientPatterns) {
+      const m = cleanText.match(pat);
+      if (m && !/^(me|us|you|them|it|this|that|the|about|from|with|of|at)\b/i.test(m[1])) {
+        shared.recipient = m[1].trim();
+        break;
+      }
+    }
+
+    // Tone: infer from "without sounding X" or "don't sound X"
+    const negTone = cleanText.match(/\bwithout\s+sounding\s+(\w+)/i)
+                 || cleanText.match(/\bdon'?t\s+(?:want\s+to\s+)?sound\s+(\w+)/i);
+    if (negTone) {
+      shared.tone = `not ${negTone[1]}, respectful`;
+    }
+
+    // Purpose: strip "help me [verb]" prefix and "without X" tail so the goal is isolated
+    const purposeCore = cleanText
+      .replace(/^help\s+me\s+\w+\s*/i, "")
+      .replace(/\s+without\s+.+$/i, "")
+      .trim();
+    if (purposeCore.length > 3) {
+      shared.purpose = purposeCore;
+    }
+
+    // Constraints: extract only the constraint clause, not the full sentence
+    const withoutClause = cleanText.match(/\bwithout\s+(.+?)(?:[.,]|$)/i);
+    // Capture the verb ("sound", "seem") separately so we can reconstruct grammatically
+    const dontClause    = cleanText.match(/\bdon'?t\s+(sound|seem|come\s+across\s+as)\s+(.+?)(?:[.,]|$)/i);
+    if (withoutClause) {
+      // "without sounding X" → "Avoid sounding X" (not "Do not sounding X")
+      shared.constraints = `Avoid ${withoutClause[1].trim()}.`;
+    } else if (dontClause) {
+      // "don't sound mad" → "Do not sound mad."
+      shared.constraints = `Do not ${dontClause[1]} ${dontClause[2].trim()}.`;
+    } else if (constraintSentences.length === 1 && constraintSentences[0].trim() === cleanText.trim()) {
+      // Whole sentence was flagged as constraint only because of incidental keyword — don't leak it
+      shared.constraints = "Preserve the user's intent.";
+    }
+  }
+
   const values = {};
   for (const field of fields) {
     values[field] = shared[field] || cleanText;
@@ -205,13 +254,59 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
   const condensed = condensePrompt(grammar.text);
   const intent = await classifyIntent(condensed.text || grammar.text || cleaned, options);
   const template = selectTemplate(intent.primary.key);
+
+  // Low-confidence path: don't rewrite, return a targeted clarifying question
+  if (intent.confidence < 0.35) {
+    const clarifyingQuestion = buildClarifyingQuestion(rawPrompt);
+    const pqsBefore = computePQSTrace(rawPrompt);
+    const ees  = computeEES(rawPrompt, rawPrompt);
+    const hcls = { state: "red", signals: ["unclear intent — not enough signal to rewrite safely"] };
+    const pqs  = {
+      before: pqsBefore.score,
+      after: pqsBefore.score,
+      delta: 0,
+      deltaPercent: 0,
+      dimensions: { before: pqsBefore.dimensions, after: pqsBefore.dimensions },
+      dimensionDelta: Object.fromEntries(Object.keys(pqsBefore.dimensions).map((k) => [k, 0])),
+      trace: { before: pqsBefore.rulesFired, after: pqsBefore.rulesFired },
+    };
+    return {
+      ok: true,
+      unclear: true,
+      pipeline: { rawPrompt, normalized, cleaned: grammar.text || cleaned, grammar, condensed, intent, template },
+      classification: {
+        primary: "Unclear",
+        secondary: [],
+        tags: [],
+        environment: [],
+        confidence: intent.confidence,
+        nearestExamples: intent.nearestExamples,
+      },
+      evaluation: { pqs, ees, hcls },
+      problems: [{
+        key: "low_confidence",
+        title: "Intent unclear",
+        detail: `Classifier confidence ${Math.round(intent.confidence * 100)}% is below the rewrite threshold (35%).`,
+        action: clarifyingQuestion,
+      }],
+      clarifyingQuestion,
+      optimizedPrompt: null,
+      fields: null,
+      notes: [`Intent unclear at ${Math.round(intent.confidence * 100)}% confidence. Rewrite skipped.`],
+      confidence: intent.confidence,
+      followUpQuestion: clarifyingQuestion,
+      quality: pqs,
+    };
+  }
+
   const fields = fillFieldValues({ intent, cleanText: grammar.text || cleaned, condensed, metadata });
   const optimizedPrompt = buildOptimizedPrompt({ intent, template, fields, metadata, condensed });
   const quality = compareQuality(rawPrompt, optimizedPrompt);
   const missing = [];
 
-  // Tech-context slots — only flag when the intent is code/architecture related
-  const isTechIntent = ["fix", "create", "act", "plan", "organize"].includes(intent.primary.key);
+  // Tech-context slots — only flag when intent is inherently code-execution related
+  // plan/create/organize are generic; they only need tech context when tech words are present
+  const isTechIntent = ["fix", "act"].includes(intent.primary.key);
   const hasTechSignal = /\b(react|vue|svelte|next|node|express|fastapi|django|flutter|rails|javascript|typescript|python|go|rust|java|sql|api|backend|frontend|server|cli|database|auth|sync)\b/i.test(rawPrompt);
 
   if (isTechIntent || hasTechSignal) {
@@ -297,13 +392,10 @@ export async function analyzePrompt({ prompt, metadata = {}, options = {} }) {
       confidence: intent.confidence,
       nearestExamples: intent.nearestExamples,
     },
-    evaluation: {
-      pqs,
-      ees,
-      hcls,
-    },
+    evaluation: { pqs, ees, hcls },
     problems,
     optimizedPrompt,
+    fields,
     notes: [
       `Primary intent: ${intent.primary.label}.`,
       intent.secondary.length ? `Secondary intent: ${intent.secondary.map((item) => item.label).join(", ")}.` : "No strong secondary intent cluster detected.",

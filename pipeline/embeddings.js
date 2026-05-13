@@ -74,11 +74,7 @@ export async function embedText(text, options = {}) {
 }
 
 export async function embedTexts(texts, options = {}) {
-  const embeddings = [];
-  for (const text of texts) {
-    embeddings.push(await embedText(text, options));
-  }
-  return embeddings;
+  return Promise.all(texts.map((text) => embedText(text, options)));
 }
 
 export function cosineSimilarity(a, b) {

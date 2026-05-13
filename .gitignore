@@ -1,3 +1,7 @@
+node_modules/
+data/
+evals/data/
+evals/results/latest.json
 *.gem
 *.rbc
 /.config

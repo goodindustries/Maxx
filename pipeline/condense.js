@@ -8,7 +8,7 @@ const IMPORTANT_PATTERNS = [
   /\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b/i,
 ];
 
-function scoreSentence(sentence) {
+export function scoreSentence(sentence) {
   let score = 0;
   for (const pattern of IMPORTANT_PATTERNS) {
     if (pattern.test(sentence)) {

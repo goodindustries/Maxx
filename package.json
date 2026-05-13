@@ -6,7 +6,17 @@
     "maxx": "./cli.mjs"
   },
   "scripts": {
-    "start": "node server.mjs",
-    "skill": "node cli.mjs"
+    "start": "node --disable-warning=ExperimentalWarning server.mjs",
+    "start:best": "OLLAMA_MODEL=qwen3.5:9b node --disable-warning=ExperimentalWarning server.mjs",
+    "eval": "promptfoo eval -c evals/promptfooconfig.yaml",
+    "eval:json": "promptfoo eval -c evals/promptfooconfig.yaml -o evals/results/latest.json",
+    "eval:view": "promptfoo view",
+    "eval:compare": "node evals/compare-results.mjs",
+    "prompts:generate": "node evals/generate-prompts.mjs",
+    "bench:run": "node evals/run-benchmark.mjs",
+    "bench:analyze": "node evals/analyze.mjs"
+  },
+  "devDependencies": {
+    "promptfoo": "latest"
   }
 }

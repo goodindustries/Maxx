@@ -4,7 +4,7 @@ const LEADIN_PATTERNS = [
   /^(hey|hi|hello|yo)\b[\s,]*/i,
   /^(claude|chatgpt|maxx)\b[\s,]*/i,
   /^(can you|could you|would you|please)\b[\s,]*/i,
-  /^(i was wondering(?: if)?|i’m wondering(?: if)?|i am wondering(?: if)?|i need|i want to|im trying to|i'm trying to)\b[\s,]*/i,
+  /^(i was wondering(?: if)?|i’m wondering(?: if)?|i am wondering(?: if)?|i need|i want to|im trying to|i’m trying to)\b[\s,]*/i,
 ];
 
 const HEDGE_PATTERNS = [

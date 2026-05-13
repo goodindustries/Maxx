@@ -1,0 +1,50 @@
+description: "Maxx before/after prompt quality benchmark"
+
+# Requires: `npm start` running on port 4187 and Ollama on 11434.
+# Run: npm run eval:json && npm run eval:compare
+# View: npm run eval:view
+#
+# To use Ollama for llm-rubric grading instead of OpenAI:
+#   defaultTest:
+#     options:
+#       provider: ollama:qwen3:1.7b
+
+providers:
+  - file://providers/raw-provider.mjs
+  - file://providers/maxx-provider.mjs
+
+prompts:
+  - "{{prompt}}"
+
+tests:
+  # ── Sample tests with llm-rubric (requires OPENAI_API_KEY or a grader provider)
+  - vars:
+      prompt: "make this better"
+    assert:
+      - type: llm-rubric
+        value: "The answer should ask what 'this' refers to rather than guessing or refusing."
+      - type: javascript
+        value: "output.length > 20"
+
+  - vars:
+      prompt: "help me ask my landlord about paying rent a few days late without sounding irresponsible"
+    assert:
+      - type: llm-rubric
+        value: "The output should be a usable message that sounds responsible, respectful, and not desperate."
+      - type: javascript
+        value: "output.toLowerCase().includes('rent')"
+
+  - vars:
+      prompt: "which is smarter right now, buying a new car or keeping my old one"
+    assert:
+      - type: llm-rubric
+        value: "The answer should identify missing decision criteria (budget, reliability, age of vehicle) before recommending."
+
+  - vars:
+      prompt: "i have too many ideas and dont know which one to do"
+    assert:
+      - type: llm-rubric
+        value: "The answer should offer a framework or decision criteria, not generic motivational advice."
+
+  # ── Full 30-prompt benchmark
+  - file://tests/messy-prompts.yaml
