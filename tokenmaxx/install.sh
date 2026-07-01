@@ -1,37 +1,57 @@
 #!/usr/bin/env bash
-# Install the tokenmaxx skill into ~/.claude/skills.
-# Symlinks this directory so repo edits stay live. Pass --copy to hard-copy instead.
+# maxx installer — wires the statusline + /maxx skill into Claude Code.
+#   ./install.sh          copy files into ~/.claude (real install)
+#   ./install.sh --link   symlink instead (dev: repo edits stay live)
+# Idempotent. Backs up settings.json. Needs python3 (statusline) + node (skill).
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST="$HOME/.claude/skills/tokenmaxx"
-MODE="${1:-symlink}"
+CLAUDE="$HOME/.claude"
+SKILL="$CLAUDE/skills/maxx"
+ENDPOINT="${MAXX_ENDPOINT:-https://api.meetmaxx.co}"
+MODE="${1:-copy}"
 
-mkdir -p "$HOME/.claude/skills"
+command -v python3 >/dev/null || { echo "maxx needs python3 on PATH." >&2; exit 1; }
+mkdir -p "$SKILL" "$HOME/.tokenmaxx"
 
-if [ -e "$DEST" ] || [ -L "$DEST" ]; then
-  echo "removing existing $DEST"
-  rm -rf "$DEST"
-fi
+# place a file: link or copy, skipping when src and dst are already the same
+place() {
+  [ "$1" -ef "$2" ] 2>/dev/null && return 0
+  rm -f "$2"
+  if [ "$MODE" = "--link" ]; then ln -s "$1" "$2"; else cp "$1" "$2"; fi
+}
+place "$SRC/statusline.py" "$CLAUDE/statusline.py"
+place "$SRC/statusline.py" "$SKILL/statusline.py"
+place "$SRC/SKILL.md"      "$SKILL/SKILL.md"
+place "$SRC/tracker.mjs"   "$SKILL/tracker.mjs"
 
-if [ "$MODE" = "--copy" ]; then
-  cp -R "$SRC" "$DEST"
-  echo "copied tokenmaxx skill → $DEST"
-else
-  ln -s "$SRC" "$DEST"
-  echo "linked tokenmaxx skill → $DEST"
-fi
+# wire the statusLine into settings.json (backup first)
+[ -f "$CLAUDE/settings.json" ] && cp "$CLAUDE/settings.json" "$CLAUDE/settings.json.bak-maxx"
+python3 - "$CLAUDE/settings.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]; d = {}
+try: d = json.load(open(p))
+except Exception: pass
+d["statusLine"] = {"type": "command",
+                   "command": "python3 " + os.path.expanduser("~/.claude/statusline.py"),
+                   "padding": 0, "refreshInterval": 1}
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(d, open(p, "w"), indent=2)
+PY
 
-# --- statusline: live context gauge + flair nudges ---
-SL="$HOME/.claude/statusline.py"
-[ -e "$SL" ] || [ -L "$SL" ] && rm -f "$SL"
-if [ "$MODE" = "--copy" ]; then
-  cp "$SRC/statusline.py" "$SL"; echo "copied statusline → $SL"
-else
-  ln -s "$SRC/statusline.py" "$SL"; echo "linked statusline → $SL"
-fi
-echo
-echo "to activate the statusline, add this to ~/.claude/settings.json:"
-echo '  "statusLine": { "type": "command", "command": "python3 '"$SL"'", "padding": 0 }'
-echo
-echo "run /tokenmaxx in Claude Code (restart the session if it doesn't appear)."
+# seed config (don't clobber existing keys)
+python3 - "$ENDPOINT" <<'PY'
+import json, os, sys
+p = os.path.expanduser("~/.tokenmaxx/config.json"); c = {}
+try: c = json.load(open(p))
+except Exception: pass
+c.setdefault("endpoint", sys.argv[1])
+c.setdefault("ticker", {}).setdefault("speed", 1)
+json.dump(c, open(p, "w"), indent=2)
+PY
+
+echo "maxx installed ($MODE)."
+echo "  statusline -> $CLAUDE/statusline.py"
+echo "  skill      -> $SKILL   (/maxx)"
+echo "  endpoint   -> $ENDPOINT"
+echo "Start a new Claude Code session to see the bar."
