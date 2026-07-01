@@ -22,7 +22,7 @@ Run modes:
   --scan         rescan ~/.claude/projects, refresh the all-time token cache, exit
   --demo [N] [W] print N animated frames at width W (default 12, COLUMNS) with mock data
 """
-import sys, json, os, datetime, time, subprocess, glob, shutil, urllib.request
+import sys, json, os, datetime, time, subprocess, glob, shutil, urllib.request, re, random
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
 CACHE = os.path.expanduser("~/.claude/.tokenmaxx-cache.json")
@@ -36,6 +36,21 @@ def big(n):
     if n >= 1e9:  return f"{n/1e9:.1f}B"
     if n >= 1e6:  return f"{n/1e6:.0f}M"
     return f"{n/1e3:.0f}K"
+
+# ─── brand palette (truecolor; tuned for a light terminal bg) ───────────────────
+# One signature accent + neutral hierarchy. Value = ink (pops), label = dim (recedes).
+BRAND  = (198, 88, 42)    # terracotta — the one signature color
+INK    = (58, 52, 46)     # near-black warm — the values that matter
+DIM    = (158, 150, 142)  # muted gray — labels + context recede
+TRACK  = (220, 214, 206)  # gauge empty
+WARN   = (190, 120, 30)   # amber
+DANGER = (188, 52, 40)    # brick red
+def rgb(t, s): return f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m{s}\x1b[0m"
+def gbar(frac, w=14):
+    frac = max(0.0, min(1.0, frac))
+    fill = round(frac * w)
+    col = DANGER if frac >= 0.80 else (WARN if frac >= 0.60 else BRAND)
+    return rgb(col, "█" * fill) + rgb(TRACK, "█" * (w - fill))
 
 # ─── display width (emoji/CJK render 2 cols; getting this wrong = wrapping) ─────
 def _wide(o):
@@ -84,6 +99,26 @@ def maybe_refresh(ts):
 def load_tm_config():
     try: return json.load(open(TM_CONFIG)) or {}
     except Exception: return {}
+
+# ─── live state: commands + endpoints write here, the statusline reads it every ──
+# tick (~1s), so `/tokenmaxx <thing>` shows up in the bar in real time. This is the
+# widget bus. SECURITY: sanitize() strips ANSI/control chars — remote or user
+# content must never inject terminal escapes, and we never execute fetched code.
+STATE = os.path.expanduser("~/.tokenmaxx/state.json")
+FISH = ["><>", "<><", "><(((°>", "<°)))><", "></(((º>"]
+def sanitize(s, limit=48):
+    s = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', str(s))          # strip CSI escapes
+    s = "".join(ch for ch in s if ch >= " " and ch != "\x7f")  # drop control chars
+    return s[:limit]
+def read_state():
+    try: return json.load(open(STATE)) or {}
+    except Exception: return {}
+def set_state(**kw):
+    st = read_state(); st.update(kw)
+    try:
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        tmp = STATE + ".tmp"; json.dump(st, open(tmp, "w")); os.replace(tmp, STATE)
+    except Exception: pass
 
 # ─── width ─────────────────────────────────────────────────────────────────────
 def term_width(cfg):
@@ -240,6 +275,30 @@ def maybe_fetch_discovery(cfg, ttl=1800):
     except Exception:
         pass
 
+# ─── today endpoint poll (the live data channel: network → state.json → bar) ────
+TODAY_MARK = os.path.expanduser("~/.tokenmaxx/.today-fetch")
+def maybe_fetch_today(cfg, ttl=60):
+    ep = (cfg.get("endpoint") or "").rstrip("/")
+    if not ep: return
+    try:
+        if time.time() - os.path.getmtime(TODAY_MARK) < ttl: return
+    except Exception: pass
+    try:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--fetch-today"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+    except Exception: pass
+
+def fetch_today(cfg):
+    ep = (cfg.get("endpoint") or "").rstrip("/")
+    if not ep: return
+    req = urllib.request.Request(ep + "/today", headers={"User-Agent": "tokenmaxx"})
+    with urllib.request.urlopen(req, timeout=6) as r:
+        d = json.load(r)
+    set_state(widget=sanitize(d.get("widget") or ""), banner=sanitize(d.get("banner") or ""))
+    try: open(TODAY_MARK, "w").write(str(time.time()))
+    except Exception: pass
+
 def life_items(now, dur_h):
     out = []
     if 1 <= now.hour < 5:                     out.append("🌙 it's late — tokens keep till morning")
@@ -340,6 +399,69 @@ def fill_lines(cols):
         return fillch * left + lab + fillch * (pad - left)
     return [c("36", ruler), c("35", band("line 2", "░")), c("33", band("line 3 · ticker", "▓"))]
 
+# ─── presence: the campfire strip (SIMULATED crowd — swap for a real feed later) ─
+# YOLO mode: fabricated live count + activity so we can feel the "you're not alone"
+# design. A real presence backend replaces presence()/presence_activity() by reading
+# a cached presence.json, same pattern as discovery. Nothing here is real yet.
+AV_ROSTER = [("JM", 203), ("MI", 75), ("SM", 140), ("LK", 71), ("AR", 179), ("RE", 168)]
+ACTIVITY = [
+    "sam unblocked a nasty bug 🎉", "jordan shipped a Discord bot", "mia hit a 30-day streak 🔥",
+    "alex cleared 1M tokens today", "priya's cache-hit hit 92%", "a dev in Tokyo just went live",
+    "reo refactored the whole pipeline", "lin and sam paired for 3h",
+]
+def avatar(init, color):
+    plain = f" {init} "
+    return (plain, f"\x1b[48;5;{color};38;5;231m{plain}\x1b[0m")  # bg color, near-white initials
+
+def presence(now):
+    t = int(now.timestamp())
+    count = 328 + (t // 11) % 42          # drifts up over time — "many coming in"
+    k = 3 + (t // 5) % 3                   # show 3-5 avatars
+    return count, AV_ROSTER[:k]
+
+def presence_activity(now):
+    t = int(now.timestamp()); n = len(ACTIVITY)
+    return [f"↗ {ACTIVITY[(t // 7 + i) % n]}" for i in range(3)]
+
+def campfire_strip(now, cols):
+    count, avs = presence(now)
+    act = presence_activity(now)[0]
+    warm = "38;5;173"
+    parts = [("🔥 ", c(warm, "🔥 "))]
+    for init, col in avs:
+        parts.append(avatar(init, col))
+    parts.append((f" you + {count} others live", c(warm, f" you + {count} others live")))
+    parts.append((f"  ·  {act}", c("38;5;180", f"  ·  {act}")))
+    return join_fit(parts, cols, sep="")
+
+# ─── Maxx the dog (3-line mascot; ASCII-only so it renders in any font) ─────────
+DOG_FACES = {
+    "idle":  [" /^-^\\ ", "( o o )", " \\_u_/ "],
+    "alert": [" /^!^\\ ", "( O O )", " \\_o_/ "],
+    "happy": [" /^-^\\ ", "( ^ ^ )", " \\_v_/ "],
+}
+def dog(mood="idle", name="Maxx", tail=""):
+    f = DOG_FACES.get(mood, DOG_FACES["idle"])
+    l1 = rgb(BRAND, f[0])
+    l2 = rgb(BRAND, f[1]) + "   " + rgb(INK, name) + (("   " + rgb(DIM, tail)) if tail else "")
+    l3 = rgb(BRAND, f[2])
+    return "\n".join([l1, l2, l3])
+
+# ─── the M — Maxx's brand mark, down the left of the last 2 rows ────────────────
+# Style is itself a widget: pick locally (config "mark") or push it from the
+# endpoint (state "mark"). All render in any font; make new M's from ascii, block,
+# box, whatever — swap freely.
+MARKS = {
+    "box":   ["┃╲╱┃", "┃  ┃"],
+    "ascii": ["|\\/|", "|  |"],
+    "block": ["█▄█", "█ █"],
+    "bold":  ["▛▄▜", "▌ ▐"],
+    "peaks": ["/\\/\\", " || "],
+}
+def mark(cfg):
+    name = sanitize(read_state().get("mark") or "") or cfg.get("mark") or "box"
+    return MARKS.get(name, MARKS["box"])
+
 # ─── assembly ──────────────────────────────────────────────────────────────────
 def render(data, alltime, now, offset, cfg):
     cols = term_width(cfg)
@@ -362,7 +484,6 @@ def render(data, alltime, now, offset, cfg):
     ws = data.get("workspace") or {}
     proj = os.path.basename(ws.get("project_dir") or ws.get("current_dir") or "")
     la, lr = cost.get("total_lines_added"), cost.get("total_lines_removed")
-    rk = rank_seg()
     live = cached_live()
 
     # cockpit parts in priority order (needs first → truncation sheds wants)
@@ -372,8 +493,9 @@ def render(data, alltime, now, offset, cfg):
         parts.append((wtxt, c(coach[0], wtxt)))
     if usd is not None: parts.append((f"${usd:.2f}", c("90", f"${usd:.2f}")))
     parts.append((model, c("36", model)))
-    if rk: parts.append((rk, c("33", rk)))
     if proj: parts.append((proj, c("35", proj)))
+    widget = sanitize(read_state().get("fish") or read_state().get("widget") or "")
+    if widget: parts.append((widget, rgb(BRAND, widget)))  # the live widget slot
     if live > 1: parts.append((f"👥 {live} live", c("34", f"👥 {live} live")))
     if la or lr: parts.append((f"+{la or 0}/-{lr or 0}", c("90", f"+{la or 0}/-{lr or 0}")))
 
@@ -383,21 +505,37 @@ def render(data, alltime, now, offset, cfg):
 
     line1 = join_fit(parts, cols)
 
-    # ── narrow: two lines, discovery realm survives as one rotating item ──
+    presence_on = (cfg.get("presence") or {}).get("enabled", True)
+
+    # ── narrow: two lines, campfire strip is the hero (urgent coach already on line 1) ──
     if cols < 90:
-        if coach and not coach[2]:
+        if presence_on:
+            line2 = campfire_strip(now, cols)
+        elif coach and not coach[2]:
             line2 = c(coach[0], trunc(coach[1], cols))
         else:
             items = ticker_items(now, dur_h, alltime, cfg)
-            item = items[offset % len(items)]
-            line2 = c(RAINBOW[offset % len(RAINBOW)], trunc(item, cols))
+            line2 = c("90", trunc(items[offset % len(items)], cols))
         return line1 + "\n" + line2
 
-    # ── wide: three lines, scrolling ticker ──
-    line2 = c(coach[0], coach[1]) if (coach and not coach[2]) else c("90", TIPS[(int(now.timestamp()) // 20) % len(TIPS)])
+    # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
+    mk = mark(cfg)
+    mkw = disp_width(mk[0]) + 1                # mark width + one space
+    body_w = max(10, cols - mkw)
+    if presence_on:
+        body2 = campfire_strip(now, body_w)
+    elif coach and not coach[2]:
+        body2 = c(coach[0], trunc(coach[1], body_w))
+    else:
+        body2 = c("90", trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], body_w))
+    line2 = rgb(BRAND, mk[0]) + " " + body2
     items = ticker_items(now, dur_h, alltime, cfg)
-    win = marquee(items, max(20, cols - 3), offset)
-    line3 = c("90", "⚡ ") + c(RAINBOW[offset % len(RAINBOW)], win)
+    if presence_on:
+        items = presence_activity(now) + items          # mix live activity into the realm
+    if coach and not coach[2]:
+        items = [coach[1]] + items                       # keep the non-urgent nudge visible
+    win = marquee(items, max(10, body_w), offset)
+    line3 = rgb(BRAND, mk[1]) + " " + c("90", win)
     return "\n".join([line1, line2, line3])
 
 def main():
@@ -406,6 +544,7 @@ def main():
     cfg = load_tm_config()
     alltime, ts = load_cache(); maybe_refresh(ts)
     maybe_fetch_discovery(cfg)
+    maybe_fetch_today(cfg)
     now = datetime.datetime.now()
     try: speed = float(cfg.get("ticker", {}).get("speed", 3))  # chars/sec — our knob
     except Exception: speed = 3.0
@@ -448,10 +587,29 @@ if __name__ == "__main__":
     elif "--fetch-discovery" in sys.argv:
         try: fetch_discovery(load_tm_config())
         except Exception as e: sys.stderr.write(f"tokenmaxx discovery: {e}\n")
+    elif "--fetch-today" in sys.argv:
+        try: fetch_today(load_tm_config())
+        except Exception as e: sys.stderr.write(f"tokenmaxx today: {e}\n")
     elif "--fill" in sys.argv:
         nums = [int(a) for a in sys.argv if a.isdigit()]
         if nums: os.environ["COLUMNS"] = str(nums[0])
         print("\n".join(fill_lines(term_width(load_tm_config()))))
+    elif "--dog" in sys.argv:
+        mood = "idle"
+        for m in ("idle", "alert", "happy"):
+            if m in sys.argv: mood = m
+        print(dog(mood, tail="woof"))
+    elif "fish" in sys.argv:
+        f = random.choice(FISH)
+        set_state(fish=f)
+        print(f"today's fish: {f}  (now live in your statusline)")
+    elif "widget" in sys.argv:
+        # `widget "text"` — set an arbitrary live widget (proves the endpoint path)
+        i = sys.argv.index("widget")
+        set_state(widget=sanitize(sys.argv[i + 1]) if i + 1 < len(sys.argv) else "")
+        print("widget set (live next tick)")
+    elif "clear" in sys.argv:
+        set_state(fish="", widget=""); print("widgets cleared")
     elif "--demo" in sys.argv:
         nums = [int(a) for a in sys.argv if a.isdigit()]
         n = nums[0] if len(nums) >= 1 else 12
