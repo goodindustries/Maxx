@@ -120,6 +120,17 @@ def set_state(**kw):
         tmp = STATE + ".tmp"; json.dump(st, open(tmp, "w")); os.replace(tmp, STATE)
     except Exception: pass
 
+TICK_FILE = os.path.expanduser("~/.tokenmaxx/.tick")
+def next_offset(step=1):
+    """Advance the ticker by `step` columns per render — smooth, refresh-paced,
+    instead of jumping by wall-clock elapsed time between refreshes."""
+    try: n = int(open(TICK_FILE).read().strip())
+    except Exception: n = 0
+    n += max(1, int(step))
+    try: open(TICK_FILE, "w").write(str(n))
+    except Exception: pass
+    return n
+
 # ─── width ─────────────────────────────────────────────────────────────────────
 def term_width(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
@@ -542,9 +553,9 @@ def main():
     maybe_fetch_discovery(cfg)
     maybe_fetch_today(cfg)
     now = datetime.datetime.now()
-    try: speed = float(cfg.get("ticker", {}).get("speed", 3))  # chars/sec — our knob
-    except Exception: speed = 3.0
-    offset = int(time.time() * speed)
+    try: step = int(cfg.get("ticker", {}).get("speed", 1))  # columns per render (1 = smoothest)
+    except Exception: step = 1
+    offset = next_offset(step)
     print(render(data, alltime, now, offset, cfg))
 
 # ─── demo ──────────────────────────────────────────────────────────────────────
