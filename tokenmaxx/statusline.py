@@ -473,6 +473,28 @@ def mark(cfg):
     name = sanitize(read_state().get("mark") or "") or cfg.get("mark") or "box"
     return MARKS.get(name, MARKS["box"])
 
+# ─── figlet wordmark (vendored pyfiglet; lazy — never loaded on the render path) ─
+_FIGLET = None
+def figlet(text, font="smshadow"):
+    """Render a wordmark via the vendored pyfiglet (self-contained, no pip), or
+    None if unavailable. Imported lazily so the every-tick bar never pays for it."""
+    global _FIGLET
+    if _FIGLET is None:
+        _FIGLET = False
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.path.join(here, "vendor"),
+                     os.path.expanduser("~/.tokenmaxx/vendor"),
+                     os.path.expanduser("~/.claude/skills/maxx/vendor")):
+            if os.path.isdir(cand):
+                if cand not in sys.path: sys.path.insert(0, cand)
+                try:
+                    import pyfiglet; _FIGLET = pyfiglet
+                except Exception: _FIGLET = False
+                break
+    if not _FIGLET: return None
+    try: return _FIGLET.figlet_format(text, font=font).rstrip("\n")
+    except Exception: return None
+
 # ─── assembly ──────────────────────────────────────────────────────────────────
 def render(data, alltime, now, offset, cfg):
     cols = term_width(cfg)
@@ -606,6 +628,12 @@ if __name__ == "__main__":
         for m in ("idle", "alert", "happy"):
             if m in sys.argv: mood = m
         print(dog(mood, tail="woof"))
+    elif "--banner" in sys.argv:
+        i = sys.argv.index("--banner"); rest = sys.argv[i + 1:]
+        font = rest[0] if rest else "smshadow"
+        text = " ".join(rest[1:]) if len(rest) > 1 else "MAXX"
+        out = figlet(text, font)
+        print(out if out is not None else f"(figlet unavailable / font '{font}' not vendored)")
     elif "fish" in sys.argv:
         f = random.choice(FISH)
         set_state(fish=f)

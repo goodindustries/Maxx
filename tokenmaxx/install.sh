@@ -25,6 +25,12 @@ place "$SRC/statusline.py" "$SKILL/statusline.py"
 place "$SRC/SKILL.md"      "$SKILL/SKILL.md"
 place "$SRC/tracker.mjs"   "$SKILL/tracker.mjs"
 
+# vendored figlet (self-contained wordmarks — no pip, no network)
+if [ -d "$SRC/vendor" ]; then
+  rm -rf "$HOME/.tokenmaxx/vendor"
+  cp -R "$SRC/vendor" "$HOME/.tokenmaxx/vendor"
+fi
+
 # wire the statusLine into settings.json (backup first)
 [ -f "$CLAUDE/settings.json" ] && cp "$CLAUDE/settings.json" "$CLAUDE/settings.json.bak-maxx"
 python3 - "$CLAUDE/settings.json" <<'PY'
