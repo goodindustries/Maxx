@@ -184,48 +184,48 @@ def read_last_usage(tpath):
     return out
 
 def gauge(data, ctx_fallback=0):
-    """Returns (color, text, pct). Prefer stdin context_window; fall back to tail."""
+    """Returns (plain, colored, pct). Dim label, ink value, terracotta bar."""
     cw = data.get("context_window") or {}
     m = data.get("model") or {}
     size = cw.get("context_window_size") or (200_000 if "haiku" in str(m.get("id", "")).lower() else 1_000_000)
     pct = cw.get("used_percentage")
     if pct is None:
-        used = usage["ctx"]
+        used = ctx_fallback
         pct = (used / size * 100) if size else 0
     else:
         used = round(size * pct / 100)
-    frac = min(pct / 100, 1.0)
-    col = "31;1" if pct >= 80 else ("33" if pct >= 60 else "32")
-    filled = round(frac * 10)
-    bar = "█" * filled + "░" * (10 - filled)
-    return col, f"ctx {k(used)}/{k(size)} {bar}", pct
+    us, sz = k(used), k(size)
+    plain = f"ctx {us}/{sz} " + "█" * 14
+    colored = rgb(DIM, "ctx ") + rgb(INK, us) + rgb(DIM, "/" + sz) + " " + gbar(pct / 100)
+    return plain, colored, pct
 
 # ─── coach (line 2 / inline) ───────────────────────────────────────────────────
 TIPS = [
-    "💡 /compact when the gauge goes amber",
-    "💡 keep stable context up top — that's what caches",
-    "🧼 tokenmaxx: cleaner runs, not bigger burns",
-    "💡 Haiku for grunt work, Opus for the hard reasoning",
+    "/compact when the gauge turns amber",
+    "keep stable context up top — that's what caches",
+    "cleaner runs, not bigger burns",
+    "Haiku for grunt work, Opus for hard reasoning",
 ]
+def coach_col(level): return DANGER if level == "danger" else WARN
 
 def build_coach(pct, cache_hit):
     """Highest-priority nudge, or None when running clean.
-    (color, long_text, urgent, short_text) — short is used on narrow lines."""
+    (level, long_text, urgent, short_text) — level in {danger,warn}; no emoji."""
     if pct >= 80:
-        return ("31;1", "⚠ ctx heavy — /compact to reclaim room", True, "⚠ /compact now")
+        return ("danger", "context heavy — /compact to reclaim room", True, "/compact now")
     if pct >= 60:
-        return ("33", "ctx filling up — /compact soon", False, "ctx full soon")
+        return ("warn", "context filling — /compact soon", False, "ctx filling")
     if cache_hit is not None and cache_hit < 0.30 and pct > 5:
         p = round(cache_hit * 100)
-        return ("33", f"cache-hit {p}% — repriming context; keep stable stuff up top", False, f"cache {p}%")
+        return ("warn", f"cache-hit {p}% — reprime, keep stable context up top", False, f"cache {p}%")
     return None
 
 # ─── ticker (line 3 / rotating item) ───────────────────────────────────────────
 DISCOVERY_FALLBACK = [
-    "📰 Opus 4.8 + Sonnet 5 top the 2026 coding boards",
-    "🔥 trending: ripgrep-mcp · gbrain · tokenmaxx",
-    "🧰 try: /compact then reprime to lift cache-hit",
-    "🌍 devs in 40+ countries are tokenmaxxing",
+    "Opus 4.8 + Sonnet 5 top the 2026 coding boards",
+    "trending: ripgrep-mcp · gbrain · maxx",
+    "try: /compact then reprime to lift cache-hit",
+    "devs in 40+ countries are maxxing",
 ]
 def discovery_items():
     try:
@@ -253,7 +253,7 @@ def fetch_discovery(cfg=None):
         if not t: continue
         pts = h.get("points") or 0
         if len(t) > 68: t = t[:67] + "…"
-        items.append(f"📰 {t} · {pts}pts")
+        items.append(f"{t} · {pts}pts")
     if items:
         tmp = DISCOVERY + ".tmp"
         json.dump(items[:10], open(tmp, "w"))
@@ -301,10 +301,10 @@ def fetch_today(cfg):
 
 def life_items(now, dur_h):
     out = []
-    if 1 <= now.hour < 5:                     out.append("🌙 it's late — tokens keep till morning")
-    if dur_h >= 3:                            out.append("🌱 3h deep — go touch grass")
-    if now.weekday() == 6:                    out.append("📞 it's Sunday — call your mom")
-    if now.weekday() == 4 and now.hour >= 16: out.append("🍺 Friday evening — wrap it up")
+    if 1 <= now.hour < 5:                     out.append("it's late — tokens keep till morning")
+    if dur_h >= 3:                            out.append("3h deep — go touch grass")
+    if now.weekday() == 6:                    out.append("it's Sunday — call your mom")
+    if now.weekday() == 4 and now.hour >= 16: out.append("Friday evening — wrap it up")
     return out
 
 def milestone_items(alltime):
@@ -313,11 +313,11 @@ def milestone_items(alltime):
         thr = [1e9, 2e9, 5e9, 1e10, 2.5e10, 5e10, 1e11, 2.5e11, 5e11, 1e12]
         crossed = [t for t in thr if alltime >= t]
         if crossed and alltime < crossed[-1] * 1.10:
-            out.append(f"🎉 just crossed {big(crossed[-1])} tokens!")
-        out.append(f"🏆 {big(alltime)} tokens all-time")
+            out.append(f"just crossed {big(crossed[-1])} tokens")
+        out.append(f"{big(alltime)} tokens all-time")
     return out
 
-NYAN = ["🌈▬▬▬(=^･ω･^=)", "🌈═▬▬(=^･ω･^=)", "🌈▬═▬(=^･ω･^=)", "🌈▬▬═(=^･ω･^=)"]
+NYAN = ["≈≈≈(=^.^=)", "≈≈=(=^.^=)", "≈=≈(=^.^=)", "=≈≈(=^.^=)"]
 def nyan(offset): return NYAN[offset % len(NYAN)]
 RAINBOW = ["31", "33", "32", "36", "34", "35"]
 
@@ -473,7 +473,7 @@ def render(data, alltime, now, offset, cfg):
     cu = (data.get("context_window") or {}).get("current_usage") or {}
     ci = (cu.get("input_tokens", 0) or 0) + (cu.get("cache_creation_input_tokens", 0) or 0) + (cu.get("cache_read_input_tokens", 0) or 0)
     cache_hit = ((cu.get("cache_read_input_tokens", 0) or 0) / ci) if ci else None
-    gcol, gtext, pct = gauge(data)
+    gplain, gcolored, pct = gauge(data)
     coach = build_coach(pct, cache_hit)
 
     cost = data.get("cost") or {}
@@ -483,21 +483,17 @@ def render(data, alltime, now, offset, cfg):
     model = m.get("display_name") or m.get("id", "?")
     ws = data.get("workspace") or {}
     proj = os.path.basename(ws.get("project_dir") or ws.get("current_dir") or "")
-    la, lr = cost.get("total_lines_added"), cost.get("total_lines_removed")
-    live = cached_live()
-
-    # cockpit parts in priority order (needs first → truncation sheds wants)
-    parts = [(gtext, c(gcol, gtext))]
-    if coach and coach[2]:  # urgent warning beats cost — active danger is a need, rides line 1
-        wtxt = coach[3] if cols < 100 else coach[1]  # short form on narrow panes
-        parts.append((wtxt, c(coach[0], wtxt)))
-    if usd is not None: parts.append((f"${usd:.2f}", c("90", f"${usd:.2f}")))
-    parts.append((model, c("36", model)))
-    if proj: parts.append((proj, c("35", proj)))
+    # cockpit parts, priority order (needs first → truncation sheds the rest).
+    # One palette: dim labels, ink values, terracotta = the single accent. No emoji.
+    parts = [(gplain, gcolored)]
+    if coach and coach[2]:  # urgent warning beats cost — active danger rides line 1
+        wtxt = coach[3] if cols < 100 else coach[1]
+        parts.append((wtxt, rgb(coach_col(coach[0]), wtxt)))
+    if usd is not None: parts.append((f"${usd:.2f}", rgb(DIM, "$") + rgb(INK, f"{usd:.2f}")))
+    parts.append((model, rgb(DIM, model)))
+    if proj: parts.append((proj, rgb(BRAND, proj)))
     widget = sanitize(read_state().get("fish") or read_state().get("widget") or "")
     if widget: parts.append((widget, rgb(BRAND, widget)))  # the live widget slot
-    if live > 1: parts.append((f"👥 {live} live", c("34", f"👥 {live} live")))
-    if la or lr: parts.append((f"+{la or 0}/-{lr or 0}", c("90", f"+{la or 0}/-{lr or 0}")))
 
     # ── tiny: one line ──
     if cols < 60:
@@ -512,10 +508,10 @@ def render(data, alltime, now, offset, cfg):
         if presence_on:
             line2 = campfire_strip(now, cols)
         elif coach and not coach[2]:
-            line2 = c(coach[0], trunc(coach[1], cols))
+            line2 = rgb(coach_col(coach[0]), trunc(coach[1], cols))
         else:
             items = ticker_items(now, dur_h, alltime, cfg)
-            line2 = c("90", trunc(items[offset % len(items)], cols))
+            line2 = rgb(DIM, trunc(items[offset % len(items)], cols))
         return line1 + "\n" + line2
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
@@ -525,9 +521,9 @@ def render(data, alltime, now, offset, cfg):
     if presence_on:
         body2 = campfire_strip(now, body_w)
     elif coach and not coach[2]:
-        body2 = c(coach[0], trunc(coach[1], body_w))
+        body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w))
     else:
-        body2 = c("90", trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], body_w))
+        body2 = rgb(DIM, trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], body_w))
     line2 = rgb(BRAND, mk[0]) + " " + body2
     items = ticker_items(now, dur_h, alltime, cfg)
     if presence_on:
@@ -535,7 +531,7 @@ def render(data, alltime, now, offset, cfg):
     if coach and not coach[2]:
         items = [coach[1]] + items                       # keep the non-urgent nudge visible
     win = marquee(items, max(10, body_w), offset)
-    line3 = rgb(BRAND, mk[1]) + " " + c("90", win)
+    line3 = rgb(BRAND, mk[1]) + " " + rgb(DIM, win)
     return "\n".join([line1, line2, line3])
 
 def main():
