@@ -264,6 +264,55 @@ def cache_baseline(min_n=200):
     except Exception: pass
     return None
 
+# ─── the real compact cliff: learned from Claude Code's own compaction records ────
+# Every auto-compact writes a `compact_boundary` with compactMetadata.trigger + the
+# exact preTokens it fired at. So we don't guess 85% — we read where auto-compact
+# ACTUALLY fires for you, per window size, and warn against that.
+def do_cliff_scan():
+    buckets = {}
+    for f in glob.glob(os.path.join(PROJECTS, "**", "*.jsonl"), recursive=True):
+        try: fh = open(f)
+        except Exception: continue
+        for line in fh:
+            if 'compact_boundary' not in line: continue
+            try: d = json.loads(line)
+            except Exception: continue
+            m = d.get("compactMetadata") or {}
+            if m.get("trigger") != "auto": continue
+            pre = m.get("preTokens")
+            if not pre: continue
+            w = 1_000_000 if pre > 210_000 else 200_000
+            buckets.setdefault(w, []).append(pre / w * 100)
+    cliff = {}
+    for w, fr in buckets.items():
+        fr.sort()
+        cliff[str(w)] = round(fr[len(fr) // 2], 1)   # median — robust to the odd early auto-fire
+    try: p = json.load(open(PROFILE))
+    except Exception: p = {}
+    p["auto_cliff"] = cliff; p["cliff_ts"] = int(time.time())
+    try:
+        os.makedirs(os.path.dirname(PROFILE), exist_ok=True)
+        tmp = PROFILE + ".tmp"; json.dump(p, open(tmp, "w")); os.replace(tmp, PROFILE)
+    except Exception: pass
+
+def cliff_for(window):
+    """The compact cliff % for this window — learned from your auto-compacts if we've
+    seen any, else a window-aware default (1M fires ~100%, 200K ~83%). Small margin
+    so we warn just before, not after."""
+    default = 95.0 if window >= 500_000 else 82.0
+    try:
+        p = json.load(open(PROFILE))
+        c = (p.get("auto_cliff") or {}).get(str(window))
+        if c: return max(50.0, c - 2.0)
+        if time.time() - p.get("cliff_ts", 0) > 86400: raise Exception  # stale → refresh
+    except Exception:
+        try:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "--cliff-scan"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+        except Exception: pass
+    return default
+
 # ─── dev-state: branch (free, from .git/HEAD) + dirty count (cached) + path ───────
 def repo_root(start):
     """Walk up from `start` to the dir holding .git (dir or worktree file)."""
@@ -473,21 +522,21 @@ def tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols)
         segs.append(rgb(DIM, "$") + rgb(INK, f"{usd:.0f}" if usd >= 10 else f"{usd:.2f}"))
     return trunc(rgb(DIM, "  ·  ").join(segs), cols)
 
-def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None):
+def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None, cliff=92):
     """The efficiency coach: highest-priority nudge from the signals the bar sees.
     (level, long_text, urgent, short_text) — level in {danger,warn,info,good}.
     Grounded in the real token levers: compact timing, cache-hits, model routing.
-    `runway` = projected turns to the compact cliff (None if unknown/stable)."""
+    `runway` = turns to the compact cliff; `cliff` = YOUR learned auto-compact %."""
     p = round(cache_hit * 100) if cache_hit is not None else None
     burn = (usd / dur_h) if (usd and dur_h and dur_h > 0) else None   # $/hr
     is_opus = "opus" in str(model).lower()
 
-    # 1. context — time-critical. Auto-compact near the top is costly + lossy;
-    #    compacting at a clean boundary is cheaper and keeps quality. When we can
-    #    project a runway, tell them exactly how many turns they have.
-    if pct >= 85:
+    # 1. context — time-critical, measured against YOUR real auto-compact wall (not a
+    #    guessed 85%). Auto-compact at the top is costly + lossy; a clean boundary is
+    #    cheaper. When we can project a runway, say exactly how many turns are left.
+    if pct >= cliff - 2:
         return ("danger", "context near auto-compact — /compact now at a clean point", True, "/compact now")
-    if pct >= 65:
+    if (runway is not None and runway <= 12) or pct >= cliff - 18:
         if runway is not None and runway <= 12:
             plural = "" if runway == 1 else "s"
             return ("warn", f"~{runway} turn{plural} to the compact cliff — /compact at your next task boundary",
@@ -812,7 +861,7 @@ def figlet(text, font="smshadow"):
     except Exception: return None
 
 # ─── assembly ──────────────────────────────────────────────────────────────────
-def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False, cache_base=None):
+def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False, cache_base=None, cliff=92):
     cols = term_width(cfg)
     if cfg.get("test_fill"):
         return "\n".join(fill_lines(cols))
@@ -829,7 +878,7 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     dur_h = (cost.get("total_duration_ms") or 0) / 3_600_000
     m = data.get("model") or {}
     model = m.get("display_name") or m.get("id", "?")
-    coach = build_coach(pct, cache_hit, usd, dur_h, model, runway)   # efficiency coach: ctx + cache + burn + runway
+    coach = build_coach(pct, cache_hit, usd, dur_h, model, runway, cliff)   # coach vs YOUR learned cliff
     ws = data.get("workspace") or {}
     proj_dir = ws.get("project_dir") or ws.get("current_dir") or ""
     proj = os.path.basename(proj_dir)
@@ -931,10 +980,14 @@ def main():
     try: step = int(cfg.get("ticker", {}).get("speed", 1))  # columns per render (1 = smoothest)
     except Exception: step = 1
     offset = next_offset(step)
-    # sample ctx% + cache (real path only — demo never calls main) → runway + baseline
+    # sample ctx% + cache (real path only — demo never calls main). The cliff is
+    # LEARNED from your auto-compacts (cliff_for), not a guessed 85%.
     cw = data.get("context_window") or {}
+    m = data.get("model") or {}
+    window = cw.get("context_window_size") or (200_000 if "haiku" in str(m.get("id", "")).lower() else 1_000_000)
+    cliff = cliff_for(window)
     pct_now = cw.get("used_percentage")
-    runway = ctx_runway(sample_ctx(pct_now, data.get("transcript_path"))) if pct_now is not None else None
+    runway = ctx_runway(sample_ctx(pct_now, data.get("transcript_path")), cliff) if pct_now is not None else None
     cu = cw.get("current_usage") or {}
     ci = (cu.get("input_tokens", 0) or 0) + (cu.get("cache_creation_input_tokens", 0) or 0) + (cu.get("cache_read_input_tokens", 0) or 0)
     ch = ((cu.get("cache_read_input_tokens", 0) or 0) / ci) if ci else None
@@ -942,18 +995,18 @@ def main():
     cbase = cache_baseline()
     mode, cols = layout(cfg)
     if mode == "tight":                                          # one health-first line
-        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway, cache_base=cbase)
+        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway, cache_base=cbase, cliff=cliff)
         print(paint(out, cols))
     elif mode == "expanded":                                     # 5-line panel, M full-height right
-        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway, cache_base=cbase)
+        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway, cache_base=cbase, cliff=cliff)
         print("\n".join(boxed_M(out.split("\n"), cols, tick=offset)))   # offset drives the shine sweep
     elif mode == "box":                                          # compact framed panel
-        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase)
+        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase, cliff=cliff)
         bevel = read_state().get("box_bevel")
         if bevel is None: bevel = cfg.get("box_bevel", True)
         print("\n".join(boxed(out.split("\n"), cols, bool(bevel))))
     else:                                                        # bare painted band
-        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase)
+        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase, cliff=cliff)
         print("\n".join(paint(l, cols) for l in out.split("\n")))
 
 # ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──
@@ -1043,6 +1096,8 @@ if __name__ == "__main__":
     elif "--git-scan" in sys.argv:
         i = sys.argv.index("--git-scan")
         if i + 1 < len(sys.argv): do_git_scan(sys.argv[i + 1])
+    elif "--cliff-scan" in sys.argv:
+        do_cliff_scan()
     elif "--fetch-discovery" in sys.argv:
         try: fetch_discovery(load_tm_config())
         except Exception as e: sys.stderr.write(f"tokenmaxx discovery: {e}\n")
