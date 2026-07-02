@@ -197,6 +197,16 @@ def set_state(**kw):
         tmp = STATE + ".tmp"; json.dump(st, open(tmp, "w")); os.replace(tmp, STATE)
     except Exception: pass
 
+def brain_advice(ttl=300):
+    """The brain's live verdict (from the transcript-watching hook), if fresh. This
+    is the companion's real-time voice — content-aware, so it beats the heuristic
+    coach when present."""
+    st = read_state()
+    a = sanitize(st.get("advice") or "", 80)
+    try: fresh = (time.time() * 1000 - float(st.get("advice_ts", 0))) < ttl * 1000
+    except Exception: fresh = False
+    return a if (a and fresh) else None
+
 TICK_FILE = os.path.expanduser("~/.tokenmaxx/.tick")
 def next_offset(step=1):
     """Advance the ticker by `step` columns per render — smooth, refresh-paced,
@@ -879,6 +889,9 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     m = data.get("model") or {}
     model = m.get("display_name") or m.get("id", "?")
     coach = build_coach(pct, cache_hit, usd, dur_h, model, runway, cliff)   # coach vs YOUR learned cliff
+    adv = brain_advice()                                     # the brain's live, content-aware nudge
+    if adv and not (coach and coach[2]):                    # it beats the generic coach, but not an urgent compact
+        coach = ("warn", adv, False, "brain")
     ws = data.get("workspace") or {}
     proj_dir = ws.get("project_dir") or ws.get("current_dir") or ""
     proj = os.path.basename(proj_dir)
