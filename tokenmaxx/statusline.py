@@ -111,16 +111,18 @@ def m_mark_row(r, border=False, bcol=None):
     return out
 
 def boxed_M(lines, inner):
-    """5-line panel: rounded beveled box with the full-height M enclosed on the
-    right (variant B). `lines` = up to 3 content lines of width `inner`."""
-    lines = (list(lines) + ["", ""])[:3]
+    """Expanded panel: rounded beveled box, five content rows, with the full-height
+    M enclosed on the right spanning the content rows. `lines` = up to 5 content
+    lines of width `inner`. Total height is 7 (top border + 5 + bottom border)."""
+    lines = (list(lines) + [""] * 5)[:5]
     band = lambda s: f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}\x1b[0m"
     hi = _hsl(_H, 0.28, 0.66); sh = _hsl(_H, 0.55, 0.30)      # bevel: lit / shadow
-    out = [band(rgb(hi, "╭" + "─" * (inner + 2)) + m_mark_row(0, True, hi) + rgb(hi, "─") + rgb(sh, "╮"))]
-    for i in range(3):
+    innerW = inner + 13                                        # ' ' + text + ' ' + M(10) + ' '
+    out = [band(rgb(hi, "╭" + "─" * innerW + "╮"))]
+    for i in range(5):
         pad = " " * max(0, inner - disp_width(_ANSI.sub('', lines[i])))
-        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i + 1) + " " + rgb(sh, "│")))
-    out.append(band(rgb(hi, "╰" + "─" * (inner + 2)) + m_mark_row(4, True, sh) + rgb(sh, "─" + "╯")))
+        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i) + " " + rgb(sh, "│")))
+    out.append(band(rgb(sh, "╰" + "─" * innerW + "╯")))
     return out
 
 # ─── all-time token cache (background-refreshed, never blocks render) ───────────
@@ -683,32 +685,40 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False):
             line2 = rgb(DIM, trunc(items[offset % len(items)], cols))
         return line1 + "\n" + line2
 
-    # ── wide: cockpit up top, then two body rows. The M rides the left here; in
-    #    expanded mode (mark_left=False) it's drawn full-height on the right instead.
-    if mark_left:
-        mk = mark(cfg)
-        mL2, mL3, mkw_plain = framed_mark(cfg, mk)
-        mkw = mkw_plain + 1                    # framed mark width + one space
-    else:
-        mL2 = mL3 = ""; mkw = 0
+    # ── expanded: five content rows; the M is drawn full-height on the right ──
+    if not mark_left:
+        w = cols
+        r2 = (rgb(coach_col(coach[0]), trunc(coach[1], w)) if (coach and not coach[2])
+              else rgb(DIM, trunc("cleaner runs, not bigger burns", w)))
+        p = f"{round(cache_hit * 100)}%" if cache_hit is not None else "—"
+        burn = f" · ${usd / dur_h:.0f}/hr" if (usd and dur_h > 0) else ""
+        spend = f" · ${usd:.2f} session" if usd is not None else ""
+        r3 = rgb(DIM, trunc(f"{big(alltime)} all-time · cache {p}{burn}{spend}", w))
+        di = ticker_items(now, dur_h, alltime, cfg)
+        r4 = rgb(DIM, marquee(di, max(10, w), offset))
+        r5 = campfire_strip(now, w) if presence_on else rgb(DIM, trunc(TIPS[1], w))
+        return "\n".join([line1, r2, r3, r4, r5])
+
+    # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
+    mk = mark(cfg)
+    mL2, mL3, mkw_plain = framed_mark(cfg, mk)
+    mkw = mkw_plain + 1                        # framed mark width + one space
     body_w = max(10, cols - mkw)
     coach_on_2 = False
-    if (not mark_left) and coach and not coach[2]:
-        body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w)); coach_on_2 = True  # expanded: coach up front
-    elif presence_on:
+    if presence_on:
         body2 = campfire_strip(now, body_w)
     elif coach and not coach[2]:
         body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w)); coach_on_2 = True
     else:
         body2 = rgb(DIM, trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], body_w))
-    line2 = (mL2 + " " + body2) if mark_left else body2
+    line2 = mL2 + " " + body2
     items = ticker_items(now, dur_h, alltime, cfg)
     if presence_on:
         items = presence_activity(now) + items          # mix live activity into the realm
     if coach and not coach[2] and not coach_on_2:
         items = [coach[1]] + items                       # nudge in the ticker only if not on row 2
     win = marquee(items, max(10, body_w), offset)
-    line3 = (mL3 + " " + rgb(DIM, win)) if mark_left else rgb(DIM, win)
+    line3 = mL3 + " " + rgb(DIM, win)
     return "\n".join([line1, line2, line3])
 
 def main():
