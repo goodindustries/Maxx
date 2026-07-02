@@ -990,19 +990,30 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     # Surgical/hybrid: r1 cockpit+branch · r2 coach · r3 dev+token state · r4 the one
     # flair slot · r5 tip. Every fixed row saves the user a turn (dev-state or coach).
     if not mark_left:
-        # ── verticalized: ctx is a thermometer down the left; news crawls top→bottom ──
-        w = cols - 2                              # reserve the 2-col vertical gauge
-        # cockpit WITHOUT the horizontal bar (ctx bar is vertical now); keep the number
-        ctxpart = (f"ctx {int(pct)}%", rgb(DIM, "ctx ") + rgb(INK, f"{int(pct)}%"))
-        line1x = join_fit([parts[0], ctxpart] + parts[2:], w)
-        # r2: coach nudge, else the dev-state ("don't ask Claude" row)
+        # ── verticalized, VIBE-CODER priority: QUOTA is the main gauge (hitting it slows
+        #    you), a second EFFICIENCY gauge flags running hot (wasting quota). ctx is a
+        #    dim number — auto-compact owns that wall, so it isn't the vibe coder's fight.
+        w = cols - 3                              # two vertical gauges + a space
+        qp = (quota or {}).get("pct")
+        eff = cache_hit                           # efficiency ≈ cache-hit (the biggest lever)
+        cparts = [parts[0]]                       # the health dot
+        if qp is not None:
+            qcol = RED if qp >= 0.9 else (AMBER if qp >= 0.75 else GREEN)
+            cparts.append((f"quota {int(qp*100)}%", rgb(DIM, "quota ") + rgb(qcol, f"{int(qp*100)}%")))
+        if eff is not None:
+            ecol = GREEN if eff >= 0.85 else (AMBER if eff >= 0.6 else RED)
+            hot = "" if eff >= 0.6 else " hot"
+            cparts.append((f"eff {int(eff*100)}%{hot}", rgb(DIM, "eff ") + rgb(ecol, f"{int(eff*100)}%{hot}")))
+        cparts += [p for p in parts[2:] if not p[0].startswith("q ")]   # $, model, branch (drop dup quota)
+        cparts.append((f"ctx {int(pct)}%", rgb(DIM, f"ctx {int(pct)}%")))   # ctx demoted, dim
+        line1x = join_fit(cparts, w)
+        # r2: coach nudge, else the dev-state ("don't ask Claude") row
         if coach and not coach[2]:
             r2 = rgb(coach_col(coach[0]), trunc(coach[1], w))
         else:
             bits = []
             sp = path_in_repo(ws.get("current_dir") or proj_dir, root, proj)
             if sp: bits.append(sp)
-            if cache_hit is not None: bits.append(f"cache {round(cache_hit * 100)}%")
             bits.append(f"{big(alltime)} all-time")
             r2 = rgb(DIM, trunc(" · ".join(bits), w))
         # r3–r5: news stacked, crawling top→bottom (a new item enters the top each ~3 renders)
@@ -1011,11 +1022,12 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         n = max(1, len(di)); base = offset // 3
         nrow = lambda i: rgb(DIM, "▸ ") + rgb(INK, trunc(di[(base - i) % n], w - 2))
         content = [line1x, r2, nrow(0), nrow(1), nrow(2)]
-        # vertical ctx thermometer down the left edge, filled bottom-up
-        fill = round(pct / 100 * 5)
-        gcol = DANGER if pct >= cliff - 2 else (WARN if pct >= cliff - 18 else BRAND)
-        gcell = lambda i: rgb(gcol if (5 - i) <= fill else TRACK, "█")
-        return "\n".join(gcell(i) + " " + content[i] for i in range(5))
+        # two vertical thermometers down the left: QUOTA (main) + EFFICIENCY
+        qf = round((qp or 0) * 5); qgc = RED if (qp or 0) >= 0.9 else (AMBER if (qp or 0) >= 0.75 else GREEN)
+        ef = round((eff or 0) * 5); egc = GREEN if (eff or 0) >= 0.85 else (AMBER if (eff or 0) >= 0.6 else RED)
+        qc = lambda i: rgb(qgc if (5 - i) <= qf else TRACK, "█")
+        ec = lambda i: rgb(egc if (5 - i) <= ef else TRACK, "█")
+        return "\n".join(qc(i) + ec(i) + " " + content[i] for i in range(5))
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
     mk = mark(cfg)
