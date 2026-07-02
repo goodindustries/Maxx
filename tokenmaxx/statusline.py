@@ -99,28 +99,33 @@ def boxed(lines, inner, bevel=True):
 
 # ─── expanded 5-line panel: the wordmark M enclosed full-height on the right ─────
 MMARK = ("█   █", "██ ██", "█ █ █", "█   █", "█   █")   # the M, 5 rows, on-cells = █
-def m_mark_row(r, border=False, bcol=None):
-    """One row of the full-height M (2-col square pixels). Beveled: each pixel gets a
-    lit left face + shadowed right face over a top-lit row ramp, so the blocks read
-    as raised cubes. Border rows fill off-cells with dashes to keep the frame."""
-    base = 0.64 - 0.24 * (r / 4.0)                      # top rows lighter, base darker
-    lit = _hsl(_H, 0.50, min(0.90, base + 0.12))        # left face (catches light)
-    dk  = _hsl(_H, 0.64, max(0.16, base - 0.13))        # right face (in shadow)
+def m_mark_row(r, phase=0.0, border=False, bcol=None):
+    """One row of the full-height M as beveled 3D tiles — each pixel a raised cube
+    (lit left face, shadowed right face) — with a slow specular shine sweeping
+    diagonally across as `phase` advances each render. Border rows fill off-cells
+    with dashes to keep the frame."""
+    base = 0.58 - 0.20 * (r / 4.0)                       # tile depth: top rows lighter
     out = ""
-    for ch in MMARK[r]:
-        if ch == "█":   out += rgb(lit, "█") + rgb(dk, "█")
-        elif border:    out += rgb(bcol, "──")
-        else:           out += "  "
+    for c, ch in enumerate(MMARK[r]):
+        if ch != "█":
+            out += rgb(bcol, "──") if border else "  "
+            continue
+        shine = max(0.0, 1.0 - abs((c - r) - phase) / 1.8)   # moving diagonal light band
+        l = base + 0.34 * shine
+        lit = _hsl(_H, 0.55, min(0.96, l + 0.11))        # tile top-left face (catches light)
+        dk  = _hsl(_H, 0.66, max(0.13, l - 0.16))        # tile bottom-right face (shadow)
+        out += rgb(lit, "█") + rgb(dk, "█")
     return out
 
-def boxed_M(lines, inner):
+def boxed_M(lines, inner, tick=0):
     """Expanded panel: rounded beveled box, five content rows, with the full-height
-    M enclosed on the right spanning the content rows. Depth comes from shading: a
-    vertical background gradient (lit from above) under the bevel + top-lit M, so the
-    whole tile reads as a raised 3D surface. Total height is 7 (borders + 5 rows)."""
+    tiled M enclosed on the right. Depth comes from shading: a vertical background
+    gradient (lit from above) + beveled M tiles + a slow shine sweeping across the M
+    as `tick` advances. Total height is 7 (borders + 5 rows)."""
     lines = (list(lines) + [""] * 5)[:5]
     hi = _hsl(_H, 0.28, 0.66); sh = _hsl(_H, 0.55, 0.30)      # bevel: lit / shadow
     innerW = inner + 13                                        # ' ' + text + ' ' + M(10) + ' '
+    phase = ((tick % 14) / 14.0) * 12.0 - 6.0                 # shine sweeps across ~ every 14 renders
     # domed shading: bright highlight lip under the top edge → deep shadow at the
     # base. The non-linear ramp (brighter row 0-1, darker row 5-6) reads as a raised
     # bezel catching light from above; tune the 7 stops to taste.
@@ -131,7 +136,7 @@ def boxed_M(lines, inner):
     out = [band(rgb(hi, "╭" + "─" * innerW + "╮"), 0)]
     for i in range(5):
         pad = " " * max(0, inner - disp_width(_ANSI.sub('', lines[i])))
-        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i) + " " + rgb(sh, "│"), i + 1))
+        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i, phase) + " " + rgb(sh, "│"), i + 1))
     out.append(band(rgb(sh, "╰" + "─" * innerW + "╯"), 6))
     return out
 
@@ -788,7 +793,7 @@ def main():
     mode, cols = layout(cfg)
     if mode == "expanded":                                       # 5-line panel, M full-height right
         out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway)
-        print("\n".join(boxed_M(out.split("\n"), cols)))
+        print("\n".join(boxed_M(out.split("\n"), cols, tick=offset)))   # offset drives the shine sweep
     elif mode == "box":                                          # compact framed panel
         out = render(data, alltime, now, offset, cfg, runway=runway)
         bevel = read_state().get("box_bevel")
