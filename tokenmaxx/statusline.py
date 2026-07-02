@@ -742,8 +742,8 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
               else rgb(DIM, trunc("cleaner runs, not bigger burns", w)))
         p = f"{round(cache_hit * 100)}%" if cache_hit is not None else "—"
         burn = f" · ${usd / dur_h:.0f}/hr" if (usd and dur_h > 0) else ""
-        spend = f" · ${usd:.2f} session" if usd is not None else ""
-        r3 = rgb(DIM, trunc(f"{big(alltime)} all-time · cache {p}{burn}{spend}", w))
+        rw = f" · ~{runway} turns to compact" if runway is not None else ""   # always-on runway
+        r3 = rgb(DIM, trunc(f"{big(alltime)} all-time · cache {p}{burn}{rw}", w))
         di = ticker_items(now, dur_h, alltime, cfg)
         r4 = rgb(DIM, marquee(di, max(10, w), offset))
         r5 = campfire_strip(now, w) if presence_on else rgb(DIM, trunc(TIPS[1], w))
