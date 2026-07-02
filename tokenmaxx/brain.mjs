@@ -18,13 +18,16 @@ import { createReadStream, readFileSync, writeFileSync, mkdirSync, statSync } fr
 import { readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const HOME = homedir();
 const STATE = path.join(HOME, ".tokenmaxx", "state.json");
 const PROJECTS = path.join(HOME, ".claude", "projects");
+const JUDGE_MARK = path.join(HOME, ".tokenmaxx", ".brain-judge");
 const WINDOW = 50;            // how many recent transcript messages the brain looks at
+const CADENCE_MS = 5 * 60 * 1000;   // think (Haiku) at most this often, in the background
 
 // ─── locate the session transcript ───────────────────────────────────────────
 async function newest(dir) {
@@ -101,13 +104,25 @@ function reflexes(turns) {
 }
 
 // ─── judgment — the smart layer (cheap Haiku via your existing claude CLI) ────
+// A reasoned read, not a rule-match. Content-light: tool names + basenames only.
 function judge(turns) {
-  // compact, content-light digest: just the shape of recent actions
-  const acts = turns.slice(-WINDOW).flatMap(t => t.tools.map(x => x.name + (x.path ? " " + path.basename(x.path) : x.cmd ? " $" : ""))).join(", ");
-  const prompt = `You are a build coach watching a coding session. Recent tool actions: ${acts}. In <=12 words, is the dev making progress or stuck/spinning, and one concrete nudge. No preamble.`;
-  const r = spawnSync("claude", ["-p", "--model", "claude-haiku-4-5", prompt], { encoding: "utf8", timeout: 30000 });
-  if (r.status === 0 && r.stdout) return r.stdout.trim().slice(0, 120);
-  return null;
+  const acts = turns.slice(-WINDOW).flatMap(t => t.tools.map(x => x.name + (x.path ? " " + path.basename(x.path) : x.cmd ? " $cmd" : ""))).join(", ");
+  if (!acts) return null;
+  const prompt = `You are a senior engineer watching a coding session over the shoulder. Recent tool actions, oldest first: ${acts}. Reply ONE short line, max 14 words: if they're stuck or spinning, name the likely fix; if they're wasting tokens (re-reading, not delegating a big search to a subagent, pasting), name it; otherwise reply exactly "ok". No preamble, no quotes.`;
+  // MAXX_BRAIN_CHILD flags claude's own Stop hook so a nested brain bails (no recursion).
+  const r = spawnSync("claude", ["-p", "--model", "haiku", prompt],
+                      { encoding: "utf8", timeout: 45000, env: { ...process.env, MAXX_BRAIN_CHILD: "1" } });
+  if (r.status !== 0 || !r.stdout) return null;
+  const t = r.stdout.trim().replace(/^["']+|["']+$/g, "");
+  if (!t || /^ok\b/i.test(t) || t.length > 100) return null;   // "ok" → stay quiet
+  return t.slice(0, 90);
+}
+function dueForJudge() {
+  try { return Date.now() - Number(readFileSync(JUDGE_MARK, "utf8")) > CADENCE_MS; }
+  catch { return true; }
+}
+function markJudged() {
+  try { mkdirSync(path.dirname(JUDGE_MARK), { recursive: true }); writeFileSync(JUDGE_MARK, String(Date.now())); } catch {}
 }
 
 // ─── write the verdict to the state bus (the face reads this) ─────────────────
@@ -119,6 +134,9 @@ function publish(advice) {
 }
 
 async function main() {
+  // Recursion guard: the judge shells out to `claude -p`, whose session could fire
+  // the Stop hook again. Any brain spawned under a judge sees this env and bails.
+  if (process.env.MAXX_BRAIN_CHILD) process.exit(0);
   const argv = process.argv.slice(2);
   const dry = argv.includes("--dry"), doJudge = argv.includes("--judge");
   let file = null;
@@ -127,17 +145,33 @@ async function main() {
     try { const h = JSON.parse(readFileSync(0, "utf8")); file = h.transcript_path; } catch {}
   }
   if (!file) file = await newest(PROJECTS);
-  if (!file) { process.stderr.write("brain: no transcript\n"); process.exit(0); }
+  if (!file) process.exit(0);
 
   const turns = await feed(file);
-  const signals = reflexes(turns);
-  let advice = signals[0]?.msg || null;
-  if (doJudge && (!advice || signals[0].sev < 2)) {   // escalate to Haiku when reflexes are quiet/ambiguous
+
+  // JUDGE MODE — spawned detached on a cadence. Slow (a Haiku call), off the hook
+  // path, so it never blocks your turn. Thinks, then updates the bus.
+  if (doJudge) {
     const j = judge(turns);
-    if (j) advice = j;
+    if (j && !dry) publish(j);
+    if (dry) console.log(JSON.stringify({ mode: "judge", thought: j }, null, 2));
+    return;
   }
 
-  console.log(JSON.stringify({ turns: turns.length, signals, advice }, null, 2));
+  // REFLEX MODE — the hook, every turn. Fast heuristics, publish immediately.
+  const signals = reflexes(turns);
+  const advice = signals[0]?.msg || null;
   if (!dry && advice) publish(advice);
+  if (dry) console.log(JSON.stringify({ turns: turns.length, signals, advice }, null, 2));
+
+  // Cadence: when the reflexes are quiet, let the brain THINK in the background.
+  const strong = signals[0] && signals[0].sev >= 3;
+  if (!dry && !strong && dueForJudge()) {
+    markJudged();
+    try {
+      spawn(process.execPath, [fileURLToPath(import.meta.url), "--judge", "--file", file],
+            { detached: true, stdio: "ignore" }).unref();
+    } catch {}
+  }
 }
 main().catch(e => { process.stderr.write("brain: " + e.message + "\n"); process.exit(0); });
