@@ -118,10 +118,12 @@ def boxed_M(lines, inner):
     lines = (list(lines) + [""] * 5)[:5]
     hi = _hsl(_H, 0.28, 0.66); sh = _hsl(_H, 0.55, 0.30)      # bevel: lit / shadow
     innerW = inner + 13                                        # ' ' + text + ' ' + M(10) + ' '
-    N = 7
-    def band(s, i):                                            # per-row bg: light top → dark base
-        l = 0.955 - 0.085 * (i / (N - 1))
-        b = _hsl(_H, 0.42, l)
+    # domed shading: bright highlight lip under the top edge → deep shadow at the
+    # base. The non-linear ramp (brighter row 0-1, darker row 5-6) reads as a raised
+    # bezel catching light from above; tune the 7 stops to taste.
+    RAMP = (0.965, 0.95, 0.925, 0.90, 0.875, 0.85, 0.825)
+    def band(s, i):
+        b = _hsl(_H, 0.42, RAMP[i])
         return f"\x1b[48;2;{b[0]};{b[1]};{b[2]}m{s}\x1b[0m"
     out = [band(rgb(hi, "╭" + "─" * innerW + "╮"), 0)]
     for i in range(5):
