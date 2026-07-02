@@ -369,10 +369,30 @@ def do_git_scan(root):
                              capture_output=True, text=True, timeout=5).stdout
         count = sum(1 for l in out.splitlines() if l.strip())
     except Exception: count = None
+    head = None
+    try:  # HEAD sha — a change means a commit landed = a task boundary (compact-worthy)
+        head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=5).stdout.strip() or None
+    except Exception: pass
     try:
         p = _git_cache(root); os.makedirs(os.path.dirname(p), exist_ok=True)
-        tmp = p + ".tmp"; json.dump({"dirty": count, "ts": int(time.time())}, open(tmp, "w")); os.replace(tmp, p)
+        tmp = p + ".tmp"; json.dump({"dirty": count, "head": head, "ts": int(time.time())}, open(tmp, "w")); os.replace(tmp, p)
     except Exception: pass
+
+def git_head(root):
+    try: return json.load(open(_git_cache(root))).get("head")
+    except Exception: return None
+
+def commit_boundary(root, window=150):
+    """True if a new commit landed recently — a clean moment to compact. Tracks the
+    last-seen HEAD in state; a change stamps a boundary we honor for `window` secs."""
+    head = git_head(root) if root else None
+    if not head: return False
+    st = read_state(); last = st.get("last_head")
+    if last != head:
+        set_state(last_head=head, boundary_ts=(time.time() if last else 0))
+    try: return (time.time() - float(read_state().get("boundary_ts", 0))) < window
+    except Exception: return False
 
 def short_path(p, keep=2):
     """~-relative cwd; if deep, elide to …/last-two so it stays honest and short."""
@@ -546,8 +566,6 @@ def health(coach, runway, cache_hit=None, cache_base=None, quota=None):
         return "●", RED, coach[3]
     if qp is not None and qp >= 0.75:                         # AMBER — quota getting close
         return "●", AMBER, (f"quota {int(qp*100)}% · ~{qm}m" if qm else f"quota {int(qp*100)}%")
-    if runway is not None and runway <= 10:                   # AMBER — compact cliff close
-        return "●", AMBER, f"compact in ~{runway}"
     if cache_base is not None and cache_hit is not None and cache_hit < cache_base - 0.15:
         return "●", AMBER, "cache below your usual"           # AMBER — off YOUR normal
     if coach and coach[0] == "warn":                          # AMBER — other caution
@@ -564,26 +582,21 @@ def tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols,
         segs.append(rgb(DIM, "$") + rgb(INK, f"{usd:.0f}" if usd >= 10 else f"{usd:.2f}"))
     return trunc(rgb(DIM, "  ·  ").join(segs), cols)
 
-def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None, cliff=92):
+def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None, cliff=92, just_committed=False):
     """The efficiency coach: highest-priority nudge from the signals the bar sees.
     (level, long_text, urgent, short_text) — level in {danger,warn,info,good}.
-    Grounded in the real token levers: compact timing, cache-hits, model routing.
-    `runway` = turns to the compact cliff; `cliff` = YOUR learned auto-compact %."""
+    Compact timing is BOUNDARY-based, not a countdown: a commit while context is
+    heavy is the clean moment. Context isn't a wall (auto-compact handles that) — it's
+    weight, and the boundary is when to shed it."""
     p = round(cache_hit * 100) if cache_hit is not None else None
     burn = (usd / dur_h) if (usd and dur_h and dur_h > 0) else None   # $/hr
     is_opus = "opus" in str(model).lower()
 
-    # 1. context — time-critical, measured against YOUR real auto-compact wall (not a
-    #    guessed 85%). Auto-compact at the top is costly + lossy; a clean boundary is
-    #    cheaper. When we can project a runway, say exactly how many turns are left.
-    if pct >= cliff - 2:
+    # 1. compact TIMING — sense the boundary, don't count to a wall.
+    if pct >= cliff - 2:                                      # last-resort safety net near the real wall
         return ("danger", "context near auto-compact — /compact now at a clean point", True, "/compact now")
-    if (runway is not None and runway <= 12) or pct >= cliff - 18:
-        if runway is not None and runway <= 12:
-            plural = "" if runway == 1 else "s"
-            return ("warn", f"~{runway} turn{plural} to the compact cliff — /compact at your next task boundary",
-                    False, f"compact ~{runway}t")
-        return ("warn", "context filling — /compact at the next task boundary", False, f"ctx {int(pct)}%")
+    if just_committed and pct >= 50:                          # a commit + heavy context = the clean moment
+        return ("good", "just shipped + context heavy — clean moment to /compact", False, "compact?")
 
     # 2. cache-hit — the biggest cost lever. Cache reads are ~10x cheaper than
     #    fresh input; a low rate means the prefix is churning or the session idled.
@@ -920,10 +933,6 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     dur_h = (cost.get("total_duration_ms") or 0) / 3_600_000
     m = data.get("model") or {}
     model = m.get("display_name") or m.get("id", "?")
-    coach = build_coach(pct, cache_hit, usd, dur_h, model, runway, cliff)   # coach vs YOUR learned cliff
-    adv = brain_advice()                                     # the brain's live, content-aware nudge
-    if adv and not (coach and coach[2]):                    # it beats the generic coach, but not an urgent compact
-        coach = ("warn", adv, False, "brain")
     ws = data.get("workspace") or {}
     proj_dir = ws.get("project_dir") or ws.get("current_dir") or ""
     proj = os.path.basename(proj_dir)
@@ -931,6 +940,11 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     root = repo_root(proj_dir)
     gbranch = git_branch(root) if root else None
     gdirty = git_dirty(root) if root else None
+    just_committed = commit_boundary(root)        # a fresh commit = a compact-worthy boundary
+    coach = build_coach(pct, cache_hit, usd, dur_h, model, runway, cliff, just_committed)   # boundary-timed compact
+    adv = brain_advice()                                     # the brain's live, content-aware nudge
+    if adv and not (coach and coach[2]):                    # it beats the generic coach, but not an urgent compact
+        coach = ("warn", adv, False, "brain")
     if tight:                                     # health-first single line — the answer, not data
         return tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols, quota)
     # health dot leads the cockpit — the green glance. Numbers follow, not the other way.
