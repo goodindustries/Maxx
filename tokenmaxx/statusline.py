@@ -253,18 +253,39 @@ TIPS = [
     "cleaner runs, not bigger burns",
     "Haiku for grunt work, Opus for hard reasoning",
 ]
-def coach_col(level): return DANGER if level == "danger" else WARN
+def coach_col(level):
+    return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
 
-def build_coach(pct, cache_hit):
-    """Highest-priority nudge, or None when running clean.
-    (level, long_text, urgent, short_text) — level in {danger,warn}; no emoji."""
-    if pct >= 80:
-        return ("danger", "context heavy — /compact to reclaim room", True, "/compact now")
-    if pct >= 60:
-        return ("warn", "context filling — /compact soon", False, "ctx filling")
-    if cache_hit is not None and cache_hit < 0.30 and pct > 5:
-        p = round(cache_hit * 100)
-        return ("warn", f"cache-hit {p}% — reprime, keep stable context up top", False, f"cache {p}%")
+def build_coach(pct, cache_hit, usd=None, dur_h=0, model=""):
+    """The efficiency coach: highest-priority nudge from the signals the bar sees.
+    (level, long_text, urgent, short_text) — level in {danger,warn,info,good}.
+    Grounded in the real token levers: compact timing, cache-hits, model routing."""
+    p = round(cache_hit * 100) if cache_hit is not None else None
+    burn = (usd / dur_h) if (usd and dur_h and dur_h > 0) else None   # $/hr
+    is_opus = "opus" in str(model).lower()
+
+    # 1. context — time-critical. Auto-compact near the top is costly + lossy;
+    #    compacting at a clean boundary is cheaper and keeps quality.
+    if pct >= 85:
+        return ("danger", "context near auto-compact — /compact now at a clean point", True, "/compact now")
+    if pct >= 65:
+        return ("warn", "context filling — /compact at the next task boundary", False, f"ctx {int(pct)}%")
+
+    # 2. cache-hit — the biggest cost lever. Cache reads are ~10x cheaper than
+    #    fresh input; a low rate means the prefix is churning or the session idled.
+    if p is not None and pct > 5:
+        if cache_hit < 0.50:
+            return ("warn", f"cache-hit {p}% — warm cache reads ~10x cheaper; avoid 5-min idle gaps", False, f"cache {p}%")
+        if cache_hit < 0.70:
+            return ("info", f"cache-hit {p}% — keep stable context up top to lift it", False, f"cache {p}%")
+
+    # 3. burn rate + model routing — Opus is ~5x Sonnet, ~15x Haiku per token.
+    if burn is not None and burn >= 12 and is_opus:
+        return ("info", f"${burn:.0f}/hr on Opus — send grunt work to Haiku, keep Opus for hard reasoning", False, f"${burn:.0f}/hr")
+
+    # 4. running clean — reinforce good behaviour instead of only nagging.
+    if p is not None and cache_hit >= 0.85 and pct < 55:
+        return ("good", f"cache-hit {p}% · running clean", False, "clean")
     return None
 
 # ─── ticker (line 3 / rotating item) ───────────────────────────────────────────
@@ -579,13 +600,13 @@ def render(data, alltime, now, offset, cfg):
     ci = (cu.get("input_tokens", 0) or 0) + (cu.get("cache_creation_input_tokens", 0) or 0) + (cu.get("cache_read_input_tokens", 0) or 0)
     cache_hit = ((cu.get("cache_read_input_tokens", 0) or 0) / ci) if ci else None
     gplain, gcolored, pct = gauge(data)
-    coach = build_coach(pct, cache_hit)
 
     cost = data.get("cost") or {}
     usd = cost.get("total_cost_usd")
     dur_h = (cost.get("total_duration_ms") or 0) / 3_600_000
     m = data.get("model") or {}
     model = m.get("display_name") or m.get("id", "?")
+    coach = build_coach(pct, cache_hit, usd, dur_h, model)   # efficiency coach: ctx + cache + burn
     ws = data.get("workspace") or {}
     proj = os.path.basename(ws.get("project_dir") or ws.get("current_dir") or "")
     # cockpit parts, priority order (needs first → truncation sheds the rest).
