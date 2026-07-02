@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	colorful "github.com/lucasb-eyer/go-colorful"
 	"github.com/muesli/termenv"
 )
 
@@ -70,6 +73,55 @@ var (
 // fg renders text in a color on the panel background (so the band stays unbroken).
 func fg(c lipgloss.Color, s string) string {
 	return lipgloss.NewStyle().Foreground(c).Background(BG).Render(s)
+}
+
+// shade nudges a color's lightness (±) for gradients / sheen.
+func shade(c lipgloss.Color, dl float64) lipgloss.Color {
+	cc, err := colorful.Hex(string(c))
+	if err != nil {
+		return c
+	}
+	h, s, l := cc.Hsl()
+	l = math.Max(0, math.Min(1, l+dl))
+	return lipgloss.Color(colorful.Hsl(h, s, l).Hex())
+}
+
+// mMark: the beveled M — each block gets a top-lit vertical ramp plus a shine that
+// sweeps diagonally with `phase` (time-driven), so it reads as tiled 2.5D depth.
+var mPattern = []string{"█   █", "██ ██", "█ █ █", "█   █", "█   █"}
+
+func mMarkRows(phase float64) []string {
+	out := make([]string, 5)
+	for r := 0; r < 5; r++ {
+		var b strings.Builder
+		for c, ch := range mPattern[r] {
+			if ch != '█' {
+				b.WriteString(fg(BG, " "))
+				continue
+			}
+			base := 0.62 - 0.22*(float64(r)/4.0) // top lighter, bottom darker
+			shine := math.Max(0, 1-math.Abs((float64(c)-float64(r))-phase)/1.8)
+			l := math.Min(0.97, base+0.26*shine)
+			b.WriteString(fg(hsl(270, 0.55, l), "█"))
+		}
+		out[r] = b.String()
+	}
+	return out
+}
+
+// spawn the (heavy) quota scan in the background when its cache is stale.
+func maybeSpawnScans() {
+	win := filepath.Join(home(), ".tokenmaxx", "window.json")
+	if fi, err := os.Stat(win); err == nil && time.Since(fi.ModTime()) < 120*time.Second {
+		return
+	}
+	limit := filepath.Join(home(), ".claude", "skills", "maxx", "limit.mjs")
+	if _, err := os.Stat(limit); err != nil {
+		return
+	}
+	cmd := exec.Command("node", limit)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = cmd.Start()
 }
 
 // ─── inputs ─────────────────────────────────────────────────────────────────────
@@ -188,7 +240,16 @@ func bar(frac float64, width int, col lipgloss.Color) string {
 		frac = 1
 	}
 	fl := int(math.Round(frac * float64(width)))
-	return fg(col, strings.Repeat("█", fl)) + fg(TRACK, strings.Repeat("░", width-fl))
+	var b strings.Builder
+	for i := 0; i < fl; i++ { // dark→light sheen across the fill
+		t := 0.0
+		if fl > 1 {
+			t = float64(i) / float64(fl-1)
+		}
+		b.WriteString(fg(shade(col, -0.10+0.18*t), "█"))
+	}
+	b.WriteString(fg(TRACK, strings.Repeat("░", width-fl)))
+	return b.String()
 }
 
 func trunc(s string, w int) string {
@@ -202,10 +263,9 @@ func trunc(s string, w int) string {
 	return string(r[:w-1]) + "…"
 }
 
-var mMark = []string{"█   █", "██ ██", "█ █ █", "█   █", "█   █"}
-
 func main() {
 	lipgloss.SetColorProfile(termenv.TrueColor)
+	maybeSpawnScans() // keep the quota cache fresh
 
 	var p Payload
 	json.NewDecoder(os.Stdin).Decode(&p)
@@ -266,6 +326,19 @@ func main() {
 		hcol = AMBER
 	}
 
+	// narrow terminal: one compact line, no panes (avoids a broken 3-column layout)
+	if cols < 88 {
+		l := fg(hcol, "●")
+		if haveQuota {
+			l += " " + bar(quota, 5, qcol) + fg(qcol, fmt.Sprintf(" %d%%", int(quota*100)))
+		}
+		l += fg(DIM, "  ") + fg(tcol, tword)
+		ct, cc := coachLine(st, cache, ctxPct)
+		l += fg(DIM, "  ") + fg(cc, trunc(ct, cols-22))
+		fmt.Println(lipgloss.NewStyle().Background(BG).Render(l))
+		return
+	}
+
 	// ── pane widths ──
 	inner := cols - 4
 	mW := 6
@@ -319,11 +392,8 @@ func main() {
 		return lipgloss.NewStyle().Width(w).Height(5).Background(BG)
 	}
 	sep := pane(1).Foreground(DIM).Render(strings.Repeat("│\n", 4) + "│")
-	mBody := make([]string, 5)
-	for i, r := range mMark {
-		mBody[i] = fg(BRAND, r)
-	}
-	mBlock := pane(mW).Align(lipgloss.Right).Render(strings.Join(mBody, "\n"))
+	phase := float64(time.Now().Unix()%8) - 4 // shine sweep, advances each tick
+	mBlock := pane(mW).Align(lipgloss.Right).Render(strings.Join(mMarkRows(phase), "\n"))
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top,
 		pane(cw).Render(console), sep,
