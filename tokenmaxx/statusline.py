@@ -82,16 +82,19 @@ def paint(s, cols):
     pad = " " * max(0, cols - disp_width(_ANSI.sub('', s)))
     return f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}{pad}\x1b[0m"
 
-def boxed(lines, inner):
-    """Frame the painted band in a rounded border box (muted purple on the band).
-    `inner` is the content width; the box adds 2 border cols + 2 padding cols."""
+def boxed(lines, inner, bevel=True):
+    """Frame the painted band in a rounded border box. `bevel` gives it Game Boy
+    depth: a soft-lit top/left edge over a deep bottom/right shadow, so the panel
+    reads as a raised tile (light source top-left). `inner` = content width."""
     W = inner + 4
     band = lambda s: f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}\x1b[0m"
-    out = [band(rgb(DIM, "╭" + "─" * (W - 2) + "╮"))]
+    hi = _hsl(_H, 0.30, 0.64) if bevel else DIM     # top + left  (catches light)
+    sh = _hsl(_H, 0.52, 0.32) if bevel else DIM     # bottom + right (in shadow)
+    out = [band(rgb(hi, "╭" + "─" * (W - 2) + "╮"))]
     for l in lines:
         pad = " " * max(0, inner - disp_width(_ANSI.sub('', l)))
-        out.append(band(rgb(DIM, "│") + " " + l + pad + " " + rgb(DIM, "│")))
-    out.append(band(rgb(DIM, "╰" + "─" * (W - 2) + "╯")))
+        out.append(band(rgb(hi, "│") + " " + l + pad + " " + rgb(sh, "│")))
+    out.append(band(rgb(sh, "╰" + "─" * (W - 2) + "╯")))
     return out
 
 # ─── all-time token cache (background-refreshed, never blocks render) ───────────
@@ -652,7 +655,9 @@ def main():
     out = render(data, alltime, now, offset, cfg)
     lines = out.split("\n")
     if box_enabled(cfg):
-        print("\n".join(boxed(lines, cols)))                    # framed panel
+        bevel = read_state().get("box_bevel")
+        if bevel is None: bevel = cfg.get("box_bevel", True)
+        print("\n".join(boxed(lines, cols, bool(bevel))))        # framed panel (bevel = GB depth)
     else:
         print("\n".join(paint(l, cols) for l in lines))         # bare painted band
 
