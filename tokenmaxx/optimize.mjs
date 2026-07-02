@@ -133,6 +133,19 @@ function analyze({ turns, project }) {
   const burnHr = durMs > 0 ? tot.cost / (durMs / 3.6e6) : 0;
   const grand = inputSide + tot.output;
 
+  // ── compact runway: context fill velocity → turns to the auto-compact cliff ──
+  const ctxSeries = turns.map((t) => t.input + t.cc + t.cr);   // context sent per turn
+  const curCtx = ctxSeries[ctxSeries.length - 1] || 0;
+  const domFam = [...byFam.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "opus";
+  const window = domFam === "haiku" ? 200_000 : peakCtx > 210_000 ? 1_000_000 : 200_000;
+  const recent = ctxSeries.slice(-10);
+  const deltas = [];
+  for (let i = 1; i < recent.length; i++) { const d = recent[i] - recent[i - 1]; if (d > 0) deltas.push(d); }
+  const vel = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : 0;  // tokens/turn
+  const cliff = 0.85 * window;
+  const turnsToCliff = vel > 0 ? Math.max(0, Math.round((cliff - curCtx) / vel)) : null;
+  const runway = { curCtx, curPct: curCtx / window, window, velPct: vel / window, turnsToCliff, overCliff: curCtx >= cliff };
+
   const findings = [];
   if (reprimeSavings > 0.01)
     findings.push({ key: "cache", save: reprimeSavings, est: false,
@@ -142,16 +155,12 @@ function analyze({ turns, project }) {
     findings.push({ key: "model", save: gruntSavings, est: true,
       title: "possible grunt work on Opus",
       detail: `${gruntTurns} Opus turn${gruntTurns === 1 ? "" : "s"} had small output — some may be mechanical (search, renames, edits) that Haiku does ~15× cheaper. Upper bound: short output can also be a tool call after real reasoning, so treat this as a ceiling, not a bill.` });
-  if (peakCtx >= 700_000)
-    findings.push({ key: "compact", save: 0, est: false,
-      title: `context peaked at ${human(peakCtx)}`,
-      detail: `You ran near the auto-compact cliff. /compact at a task boundary before ~85% — a planned compact is cheaper and keeps quality vs. an emergency one mid-task.` });
   findings.sort((a, b) => b.save - a.save);
 
   const solid = reprimeSavings;                       // measured, not heuristic
   const estimate = gruntSavings;                      // upper-bound
   return {
-    project, turns: turns.length, durMs, burnHr, peakCtx,
+    project, turns: turns.length, durMs, burnHr, peakCtx, runway,
     cacheHit, cost: tot.cost, grand, breakdown: tot,
     models: [...byFam.entries()].map(([f, tokens]) => ({ family: f, tokens })).sort((a, b) => b.tokens - a.tokens),
     findings, solid, estimate,
@@ -193,6 +202,17 @@ function report(a, color) {
   L.push("  " + c(D, "where the tokens went"));
   for (const [label, v, note] of rows)
     L.push("    " + c(D, label) + " " + c(P, bar(v / g)) + " " + c(I, `${((v / g) * 100).toFixed(0)}%`.padStart(4)) + (note ? c(D, "  " + note) : ""));
+  L.push("");
+  // compact runway — the "when to compact" answer
+  const rw = a.runway;
+  L.push("  " + c(D, "compact runway"));
+  L.push("    " + c(D, "current ctx ") + c(P, bar(rw.curPct)) + " " + c(I + B, `${(rw.curPct * 100).toFixed(0)}%`)
+    + c(D, `  (${human(rw.curCtx)} / ${human(rw.window)})`) + (rw.velPct > 0 ? c(D, `   filling ~${(rw.velPct * 100).toFixed(1)}%/turn`) : ""));
+  let advice;
+  if (rw.overCliff) advice = "over the 85% cliff — /compact now, at the first clean break.";
+  else if (rw.turnsToCliff === null) advice = "context is stable — compact whenever you switch tasks.";
+  else advice = `~${rw.turnsToCliff} turn${rw.turnsToCliff === 1 ? "" : "s"} to the 85% cliff. Best compact: your next task boundary within ~${rw.turnsToCliff}.`;
+  L.push("    " + c(P + B, "→ ") + c(I, advice));
   L.push("");
   if (a.findings.length) {
     L.push("  " + c(D, "findings ") + c(D, "(ranked by $ saved)"));
