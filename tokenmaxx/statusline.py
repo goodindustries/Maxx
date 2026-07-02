@@ -112,17 +112,22 @@ def m_mark_row(r, border=False, bcol=None):
 
 def boxed_M(lines, inner):
     """Expanded panel: rounded beveled box, five content rows, with the full-height
-    M enclosed on the right spanning the content rows. `lines` = up to 5 content
-    lines of width `inner`. Total height is 7 (top border + 5 + bottom border)."""
+    M enclosed on the right spanning the content rows. Depth comes from shading: a
+    vertical background gradient (lit from above) under the bevel + top-lit M, so the
+    whole tile reads as a raised 3D surface. Total height is 7 (borders + 5 rows)."""
     lines = (list(lines) + [""] * 5)[:5]
-    band = lambda s: f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}\x1b[0m"
     hi = _hsl(_H, 0.28, 0.66); sh = _hsl(_H, 0.55, 0.30)      # bevel: lit / shadow
     innerW = inner + 13                                        # ' ' + text + ' ' + M(10) + ' '
-    out = [band(rgb(hi, "╭" + "─" * innerW + "╮"))]
+    N = 7
+    def band(s, i):                                            # per-row bg: light top → dark base
+        l = 0.955 - 0.085 * (i / (N - 1))
+        b = _hsl(_H, 0.42, l)
+        return f"\x1b[48;2;{b[0]};{b[1]};{b[2]}m{s}\x1b[0m"
+    out = [band(rgb(hi, "╭" + "─" * innerW + "╮"), 0)]
     for i in range(5):
         pad = " " * max(0, inner - disp_width(_ANSI.sub('', lines[i])))
-        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i) + " " + rgb(sh, "│")))
-    out.append(band(rgb(sh, "╰" + "─" * innerW + "╯")))
+        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i) + " " + rgb(sh, "│"), i + 1))
+    out.append(band(rgb(sh, "╰" + "─" * innerW + "╯"), 6))
     return out
 
 # ─── all-time token cache (background-refreshed, never blocks render) ───────────
