@@ -332,10 +332,17 @@ def expanded_on(cfg):
     if v is None: v = cfg.get("expanded", True)
     return bool(v)
 
+def tight_on(cfg):
+    v = read_state().get("tight")
+    if v is None: v = cfg.get("tight", False)
+    return bool(v)
+
 def layout(cfg):
-    """(mode, inner_width). mode: 'expanded' (5-line M panel), 'box' (compact
-    framed), or 'bare'. Expanded needs room for content + the 10-col M."""
+    """(mode, inner_width). mode: 'tight' (one health line), 'expanded' (5-line M
+    panel), 'box' (compact framed), or 'bare'. Tight wins when opted in."""
     w = _raw_cols(cfg)
+    if tight_on(cfg):
+        return "tight", w
     if not box_enabled(cfg):
         return "bare", w
     if expanded_on(cfg) and w >= 80:
@@ -415,6 +422,27 @@ TIPS = [
 ]
 def coach_col(level):
     return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
+
+def health(coach, runway):
+    """One glance: (glyph, color, answer). Lead with the action if there is one, else
+    the runway (the wall ahead), else 'clean'. The user reads a judgment, not data."""
+    if coach and coach[2]:                       # urgent action
+        return "✖", DANGER, coach[3]
+    if coach and coach[0] == "warn":
+        return "▲", WARN, coach[3]
+    if runway is not None:
+        return "●", BRAND, f"{runway} to compact"
+    return "●", BRAND, "running clean"
+
+def tight_line(coach, runway, cache_hit, gbranch, gdirty, usd, cols):
+    """The health-first single line: ● answer · branch · $ — judgments, numbers recede."""
+    glyph, col, ans = health(coach, runway)
+    segs = [rgb(col, glyph + " ") + rgb(INK, ans)]
+    if gbranch:
+        segs.append(rgb(DIM, gbranch) + (rgb(WARN, f" ±{gdirty}") if gdirty else ""))
+    if usd is not None:
+        segs.append(rgb(DIM, "$") + rgb(INK, f"{usd:.0f}" if usd >= 10 else f"{usd:.2f}"))
+    return trunc(rgb(DIM, "  ·  ").join(segs), cols)
 
 def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None):
     """The efficiency coach: highest-priority nudge from the signals the bar sees.
@@ -755,7 +783,7 @@ def figlet(text, font="smshadow"):
     except Exception: return None
 
 # ─── assembly ──────────────────────────────────────────────────────────────────
-def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None):
+def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False):
     cols = term_width(cfg)
     if cfg.get("test_fill"):
         return "\n".join(fill_lines(cols))
@@ -780,6 +808,8 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     root = repo_root(proj_dir)
     gbranch = git_branch(root) if root else None
     gdirty = git_dirty(root) if root else None
+    if tight:                                     # health-first single line — the answer, not data
+        return tight_line(coach, runway, cache_hit, gbranch, gdirty, usd, cols)
     # cockpit parts, priority order (needs first → truncation sheds the rest).
     # One palette: dim labels, ink values, brand = the accent. No emoji.
     parts = [(gplain, gcolored)]
@@ -875,7 +905,10 @@ def main():
     pct_now = (data.get("context_window") or {}).get("used_percentage")
     runway = ctx_runway(sample_ctx(pct_now, data.get("transcript_path"))) if pct_now is not None else None
     mode, cols = layout(cfg)
-    if mode == "expanded":                                       # 5-line panel, M full-height right
+    if mode == "tight":                                          # one health-first line
+        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway)
+        print(paint(out, cols))
+    elif mode == "expanded":                                     # 5-line panel, M full-height right
         out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway)
         print("\n".join(boxed_M(out.split("\n"), cols, tick=offset)))   # offset drives the shine sweep
     elif mode == "box":                                          # compact framed panel
