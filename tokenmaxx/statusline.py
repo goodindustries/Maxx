@@ -97,6 +97,32 @@ def boxed(lines, inner, bevel=True):
     out.append(band(rgb(sh, "╰" + "─" * (W - 2) + "╯")))
     return out
 
+# ─── expanded 5-line panel: the wordmark M enclosed full-height on the right ─────
+MMARK = ("█   █", "██ ██", "█ █ █", "█   █", "█   █")   # the M, 5 rows, on-cells = █
+def m_mark_row(r, border=False, bcol=None):
+    """One row of the full-height M (2-col square pixels), top-lit shaded. On the
+    box's border rows, off-cells become dashes so the frame stays continuous."""
+    on = _hsl(_H, 0.60, 0.66 - 0.26 * (r / 4.0))       # lit at top, shadowed at base
+    out = ""
+    for ch in MMARK[r]:
+        if ch == "█":   out += rgb(on, "██")
+        elif border:    out += rgb(bcol, "──")
+        else:           out += "  "
+    return out
+
+def boxed_M(lines, inner):
+    """5-line panel: rounded beveled box with the full-height M enclosed on the
+    right (variant B). `lines` = up to 3 content lines of width `inner`."""
+    lines = (list(lines) + ["", ""])[:3]
+    band = lambda s: f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}\x1b[0m"
+    hi = _hsl(_H, 0.28, 0.66); sh = _hsl(_H, 0.55, 0.30)      # bevel: lit / shadow
+    out = [band(rgb(hi, "╭" + "─" * (inner + 2)) + m_mark_row(0, True, hi) + rgb(hi, "─") + rgb(sh, "╮"))]
+    for i in range(3):
+        pad = " " * max(0, inner - disp_width(_ANSI.sub('', lines[i])))
+        out.append(band(rgb(hi, "│") + " " + lines[i] + pad + " " + m_mark_row(i + 1) + " " + rgb(sh, "│")))
+    out.append(band(rgb(hi, "╰" + "─" * (inner + 2)) + m_mark_row(4, True, sh) + rgb(sh, "─" + "╯")))
+    return out
+
 # ─── all-time token cache (background-refreshed, never blocks render) ───────────
 def do_scan():
     total = 0
@@ -162,7 +188,7 @@ def next_offset(step=1):
     return n
 
 # ─── width ─────────────────────────────────────────────────────────────────────
-def term_width(cfg):
+def _raw_cols(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
     # adds its own "…". Reserve a margin so our lines fit inside the real box.
     tk = cfg.get("ticker", {})
@@ -177,13 +203,30 @@ def term_width(cfg):
         try: raw = shutil.get_terminal_size((100, 24)).columns
         except Exception: raw = 100
     if raw <= 10: raw = 100
-    w = max(20, raw - margin)
-    return max(16, w - 4) if box_enabled(cfg) else w
+    return max(20, raw - margin)
 
 def box_enabled(cfg):
     v = read_state().get("box")
     if v is None: v = cfg.get("box", True)
     return bool(v)
+
+def expanded_on(cfg):
+    v = read_state().get("expanded")
+    if v is None: v = cfg.get("expanded", True)
+    return bool(v)
+
+def layout(cfg):
+    """(mode, inner_width). mode: 'expanded' (5-line M panel), 'box' (compact
+    framed), or 'bare'. Expanded needs room for content + the 10-col M."""
+    w = _raw_cols(cfg)
+    if not box_enabled(cfg):
+        return "bare", w
+    if expanded_on(cfg) and w >= 80:
+        return "expanded", max(40, w - 15)     # reserve border+pad+M+gap
+    return "box", max(16, w - 4)
+
+def term_width(cfg):
+    return layout(cfg)[1]
 
 # ─── cockpit data ──────────────────────────────────────────────────────────────
 def rank_seg():
@@ -589,7 +632,7 @@ def figlet(text, font="smshadow"):
     except Exception: return None
 
 # ─── assembly ──────────────────────────────────────────────────────────────────
-def render(data, alltime, now, offset, cfg):
+def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False):
     cols = term_width(cfg)
     if cfg.get("test_fill"):
         return "\n".join(fill_lines(cols))
@@ -622,7 +665,7 @@ def render(data, alltime, now, offset, cfg):
     if widget: parts.append((widget, rgb(BRAND, widget)))  # the live widget slot
 
     # ── tiny: one line ──
-    if cols < 60:
+    if cols < 60 and not force_wide:
         return join_fit(parts, cols)
 
     line1 = join_fit(parts, cols)
@@ -630,7 +673,7 @@ def render(data, alltime, now, offset, cfg):
     presence_on = (cfg.get("presence") or {}).get("enabled", True)
 
     # ── narrow: two lines, campfire strip is the hero (urgent coach already on line 1) ──
-    if cols < 90:
+    if cols < 90 and not force_wide:
         if presence_on:
             line2 = campfire_strip(now, cols)
         elif coach and not coach[2]:
@@ -640,25 +683,32 @@ def render(data, alltime, now, offset, cfg):
             line2 = rgb(DIM, trunc(items[offset % len(items)], cols))
         return line1 + "\n" + line2
 
-    # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
-    mk = mark(cfg)
-    mL2, mL3, mkw_plain = framed_mark(cfg, mk)
-    mkw = mkw_plain + 1                        # framed mark width + one space
+    # ── wide: cockpit up top, then two body rows. The M rides the left here; in
+    #    expanded mode (mark_left=False) it's drawn full-height on the right instead.
+    if mark_left:
+        mk = mark(cfg)
+        mL2, mL3, mkw_plain = framed_mark(cfg, mk)
+        mkw = mkw_plain + 1                    # framed mark width + one space
+    else:
+        mL2 = mL3 = ""; mkw = 0
     body_w = max(10, cols - mkw)
-    if presence_on:
+    coach_on_2 = False
+    if (not mark_left) and coach and not coach[2]:
+        body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w)); coach_on_2 = True  # expanded: coach up front
+    elif presence_on:
         body2 = campfire_strip(now, body_w)
     elif coach and not coach[2]:
-        body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w))
+        body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w)); coach_on_2 = True
     else:
         body2 = rgb(DIM, trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], body_w))
-    line2 = mL2 + " " + body2
+    line2 = (mL2 + " " + body2) if mark_left else body2
     items = ticker_items(now, dur_h, alltime, cfg)
     if presence_on:
         items = presence_activity(now) + items          # mix live activity into the realm
-    if coach and not coach[2]:
-        items = [coach[1]] + items                       # keep the non-urgent nudge visible
+    if coach and not coach[2] and not coach_on_2:
+        items = [coach[1]] + items                       # nudge in the ticker only if not on row 2
     win = marquee(items, max(10, body_w), offset)
-    line3 = mL3 + " " + rgb(DIM, win)
+    line3 = (mL3 + " " + rgb(DIM, win)) if mark_left else rgb(DIM, win)
     return "\n".join([line1, line2, line3])
 
 def main():
@@ -672,15 +722,18 @@ def main():
     try: step = int(cfg.get("ticker", {}).get("speed", 1))  # columns per render (1 = smoothest)
     except Exception: step = 1
     offset = next_offset(step)
-    cols = term_width(cfg)
-    out = render(data, alltime, now, offset, cfg)
-    lines = out.split("\n")
-    if box_enabled(cfg):
+    mode, cols = layout(cfg)
+    if mode == "expanded":                                       # 5-line panel, M full-height right
+        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True)
+        print("\n".join(boxed_M(out.split("\n"), cols)))
+    elif mode == "box":                                          # compact framed panel
+        out = render(data, alltime, now, offset, cfg)
         bevel = read_state().get("box_bevel")
         if bevel is None: bevel = cfg.get("box_bevel", True)
-        print("\n".join(boxed(lines, cols, bool(bevel))))        # framed panel (bevel = GB depth)
-    else:
-        print("\n".join(paint(l, cols) for l in lines))         # bare painted band
+        print("\n".join(boxed(out.split("\n"), cols, bool(bevel))))
+    else:                                                        # bare painted band
+        out = render(data, alltime, now, offset, cfg)
+        print("\n".join(paint(l, cols) for l in out.split("\n")))
 
 # ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──
 # Four figlet angles (isometric1..4) cycled = the M tumbling in 3D. One-shot only —
