@@ -104,16 +104,16 @@ def m_mark_row(r, phase=0.0, border=False, bcol=None):
     (lit left face, shadowed right face) — with a slow specular shine sweeping
     diagonally across as `phase` advances each render. Border rows fill off-cells
     with dashes to keep the frame."""
-    base = 0.58 - 0.20 * (r / 4.0)                       # tile depth: top rows lighter
+    base = 0.55 - 0.20 * (r / 4.0)                       # tile depth: top rows lighter
     out = ""
     for c, ch in enumerate(MMARK[r]):
         if ch != "█":
             out += rgb(bcol, "──") if border else "  "
             continue
         shine = max(0.0, 1.0 - abs((c - r) - phase) / 1.8)   # moving diagonal light band
-        l = base + 0.34 * shine
-        lit = _hsl(_H, 0.55, min(0.96, l + 0.11))        # tile top-left face (catches light)
-        dk  = _hsl(_H, 0.66, max(0.13, l - 0.16))        # tile bottom-right face (shadow)
+        l = base + 0.32 * shine
+        lit = _hsl(_H, 0.52, min(0.97, l + 0.18))        # tile top-left face (bright — thicker bevel)
+        dk  = _hsl(_H, 0.70, max(0.09, l - 0.26))        # tile bottom-right face (deep shadow)
         out += rgb(lit, "█") + rgb(dk, "█")
     return out
 
@@ -125,7 +125,7 @@ def boxed_M(lines, inner, tick=0):
     lines = (list(lines) + [""] * 5)[:5]
     hi = _hsl(_H, 0.28, 0.66); sh = _hsl(_H, 0.55, 0.30)      # bevel: lit / shadow
     innerW = inner + 13                                        # ' ' + text + ' ' + M(10) + ' '
-    phase = ((tick % 14) / 14.0) * 12.0 - 6.0                 # shine sweeps across ~ every 14 renders
+    phase = ((tick % 28) / 28.0) * 12.0 - 6.0                 # shine sweeps across ~ every 28 renders (slow glint)
     # domed shading: bright highlight lip under the top edge → deep shadow at the
     # base. The non-linear ramp (brighter row 0-1, darker row 5-6) reads as a raised
     # bezel catching light from above; tune the 7 stops to taste.
