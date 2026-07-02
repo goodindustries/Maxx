@@ -100,12 +100,15 @@ def boxed(lines, inner, bevel=True):
 # ─── expanded 5-line panel: the wordmark M enclosed full-height on the right ─────
 MMARK = ("█   █", "██ ██", "█ █ █", "█   █", "█   █")   # the M, 5 rows, on-cells = █
 def m_mark_row(r, border=False, bcol=None):
-    """One row of the full-height M (2-col square pixels), top-lit shaded. On the
-    box's border rows, off-cells become dashes so the frame stays continuous."""
-    on = _hsl(_H, 0.60, 0.66 - 0.26 * (r / 4.0))       # lit at top, shadowed at base
+    """One row of the full-height M (2-col square pixels). Beveled: each pixel gets a
+    lit left face + shadowed right face over a top-lit row ramp, so the blocks read
+    as raised cubes. Border rows fill off-cells with dashes to keep the frame."""
+    base = 0.64 - 0.24 * (r / 4.0)                      # top rows lighter, base darker
+    lit = _hsl(_H, 0.50, min(0.90, base + 0.12))        # left face (catches light)
+    dk  = _hsl(_H, 0.64, max(0.16, base - 0.13))        # right face (in shadow)
     out = ""
     for ch in MMARK[r]:
-        if ch == "█":   out += rgb(on, "██")
+        if ch == "█":   out += rgb(lit, "█") + rgb(dk, "█")
         elif border:    out += rgb(bcol, "──")
         else:           out += "  "
     return out
