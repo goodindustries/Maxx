@@ -488,6 +488,23 @@ def mark(cfg):
     name = sanitize(read_state().get("mark") or "") or cfg.get("mark") or "blocky"
     return MARKS.get(name, MARKS["blocky"])
 
+def framed_mark(cfg, mk):
+    """Wrap the M in a container so it reads as a mark, not loose blocks. Returns
+    (line2, line3, plain_width). 'rails' (default) = brand half-block rails hugging
+    the M; 'chip' = knockout M on a filled brand tile; 'none' = bare."""
+    style = sanitize(read_state().get("mark_frame") or "") or cfg.get("mark_frame") or "rails"
+    if style == "none":
+        return rgb(BRAND, mk[0]), rgb(BRAND, mk[1]), disp_width(mk[0])
+    if style == "chip":
+        # brand tile + light knockout M; end by restoring the band bg so paint() holds
+        def chip(r):
+            return (f"\x1b[48;2;{BRAND[0]};{BRAND[1]};{BRAND[2]}m"
+                    f"\x1b[38;2;{BG[0]};{BG[1]};{BG[2]}m {r} "
+                    f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m\x1b[39m")
+        return chip(mk[0]), chip(mk[1]), disp_width(f" {mk[0]} ")
+    return (rgb(BRAND, "▐" + mk[0] + "▌"), rgb(BRAND, "▐" + mk[1] + "▌"),
+            disp_width("▐" + mk[0] + "▌"))
+
 # ─── figlet wordmark (vendored pyfiglet; lazy — never loaded on the render path) ─
 _FIGLET = None
 def figlet(text, font="smshadow"):
@@ -564,7 +581,8 @@ def render(data, alltime, now, offset, cfg):
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
     mk = mark(cfg)
-    mkw = disp_width(mk[0]) + 1                # mark width + one space
+    mL2, mL3, mkw_plain = framed_mark(cfg, mk)
+    mkw = mkw_plain + 1                        # framed mark width + one space
     body_w = max(10, cols - mkw)
     if presence_on:
         body2 = campfire_strip(now, body_w)
@@ -572,14 +590,14 @@ def render(data, alltime, now, offset, cfg):
         body2 = rgb(coach_col(coach[0]), trunc(coach[1], body_w))
     else:
         body2 = rgb(DIM, trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], body_w))
-    line2 = rgb(BRAND, mk[0]) + " " + body2
+    line2 = mL2 + " " + body2
     items = ticker_items(now, dur_h, alltime, cfg)
     if presence_on:
         items = presence_activity(now) + items          # mix live activity into the realm
     if coach and not coach[2]:
         items = [coach[1]] + items                       # keep the non-urgent nudge visible
     win = marquee(items, max(10, body_w), offset)
-    line3 = rgb(BRAND, mk[1]) + " " + rgb(DIM, win)
+    line3 = mL3 + " " + rgb(DIM, win)
     return "\n".join([line1, line2, line3])
 
 def main():
