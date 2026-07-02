@@ -16,6 +16,7 @@ Reads only token/usage metadata — never prompt or message content.
 ```
 /maxx            # print the usage card
 /maxx json       # print the raw stats payload (JSON)
+/maxx optimize   # analyze your latest session: where tokens went + ranked $ fixes
 ```
 
 ## What to do
@@ -24,10 +25,15 @@ Reads only token/usage metadata — never prompt or message content.
    The canonical installed path is `~/.claude/skills/maxx/tracker.mjs`.
 
 2. Run it:
-   - Card:  `node ~/.claude/skills/maxx/tracker.mjs`
-   - JSON:  `node ~/.claude/skills/maxx/tracker.mjs --json`
+   - Card:      `node ~/.claude/skills/maxx/tracker.mjs`
+   - JSON:      `node ~/.claude/skills/maxx/tracker.mjs --json`
+   - Optimize:  `node ~/.claude/skills/maxx/optimize.mjs`   (when the user says `optimize`)
 
    Pass `--dir PATH` to point at a non-default projects directory.
+
+   `optimize` analyzes the most recent session transcript and prints where the
+   tokens went plus fixes ranked by dollars saved. Show its output verbatim. It
+   reads usage/timing/model metadata only — never prompt or message content.
 
 3. Show the tracker's output to the user verbatim (it is already formatted).
    If they asked for `json`, run with `--json`.

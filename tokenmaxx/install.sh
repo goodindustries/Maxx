@@ -24,6 +24,7 @@ place "$SRC/statusline.py" "$CLAUDE/statusline.py"
 place "$SRC/statusline.py" "$SKILL/statusline.py"
 place "$SRC/SKILL.md"      "$SKILL/SKILL.md"
 place "$SRC/tracker.mjs"   "$SKILL/tracker.mjs"
+place "$SRC/optimize.mjs"  "$SKILL/optimize.mjs"
 
 # vendored figlet (self-contained wordmarks — no pip, no network)
 if [ -d "$SRC/vendor" ]; then
