@@ -238,6 +238,72 @@ def ctx_runway(hist, cliff=85):
     if vel < 0.1: return None
     return max(0, round((cliff - pts[-1]) / vel))
 
+# ─── dev-state: branch (free, from .git/HEAD) + dirty count (cached) + path ───────
+def repo_root(start):
+    """Walk up from `start` to the dir holding .git (dir or worktree file)."""
+    d = start
+    for _ in range(6):
+        if not d: break
+        if os.path.exists(os.path.join(d, ".git")): return d
+        nd = os.path.dirname(d)
+        if nd == d: break
+        d = nd
+    return None
+
+def git_branch(root):
+    """Current branch straight from .git/HEAD — no subprocess. Short sha if detached."""
+    try:
+        g = os.path.join(root, ".git")
+        if os.path.isfile(g):                        # worktree: .git is a 'gitdir:' pointer
+            p = open(g).read().strip()
+            if p.startswith("gitdir: "): g = p[8:]
+        head = open(os.path.join(g, "HEAD")).read().strip()
+        if head.startswith("ref: refs/heads/"): return head[len("ref: refs/heads/"):]
+        return head[:7] if head else None
+    except Exception: return None
+
+def _git_cache(root):
+    base = re.sub(r'[^A-Za-z0-9_-]', '', root)[-40:] or "root"
+    return os.path.expanduser("~/.tokenmaxx/.git-" + base)
+def git_dirty(root, ttl=8):
+    """Cached count of dirty files; spawns a detached refresh when stale."""
+    count, ts = None, 0
+    try:
+        d = json.load(open(_git_cache(root))); count = d.get("dirty"); ts = d.get("ts", 0)
+    except Exception: pass
+    if time.time() - ts > ttl:
+        try:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "--git-scan", root],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+        except Exception: pass
+    return count
+def do_git_scan(root):
+    try:
+        out = subprocess.run(["git", "-C", root, "status", "--porcelain"],
+                             capture_output=True, text=True, timeout=5).stdout
+        count = sum(1 for l in out.splitlines() if l.strip())
+    except Exception: count = None
+    try:
+        p = _git_cache(root); os.makedirs(os.path.dirname(p), exist_ok=True)
+        tmp = p + ".tmp"; json.dump({"dirty": count, "ts": int(time.time())}, open(tmp, "w")); os.replace(tmp, p)
+    except Exception: pass
+
+def short_path(p, keep=2):
+    """~-relative cwd; if deep, elide to …/last-two so it stays honest and short."""
+    if not p: return ""
+    p = p.replace(os.path.expanduser("~"), "~")
+    segs = [s for s in p.split(os.sep) if s]
+    if len(segs) <= keep + 1: return p
+    return "…/" + os.sep.join(segs[-keep:])
+
+def path_in_repo(cur, root, proj):
+    """Repo-relative cwd (proj/sub…), or the elided ~-path when not in a repo."""
+    if root and cur and cur.startswith(root):
+        rel = cur[len(root):].strip(os.sep)
+        return proj + "/" + rel if rel else proj
+    return short_path(cur)
+
 # ─── width ─────────────────────────────────────────────────────────────────────
 def _raw_cols(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
@@ -708,9 +774,14 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     model = m.get("display_name") or m.get("id", "?")
     coach = build_coach(pct, cache_hit, usd, dur_h, model, runway)   # efficiency coach: ctx + cache + burn + runway
     ws = data.get("workspace") or {}
-    proj = os.path.basename(ws.get("project_dir") or ws.get("current_dir") or "")
+    proj_dir = ws.get("project_dir") or ws.get("current_dir") or ""
+    proj = os.path.basename(proj_dir)
+    # dev-state (cheap): branch from .git/HEAD, dirty count from a cached git status
+    root = repo_root(proj_dir)
+    gbranch = git_branch(root) if root else None
+    gdirty = git_dirty(root) if root else None
     # cockpit parts, priority order (needs first → truncation sheds the rest).
-    # One palette: dim labels, ink values, terracotta = the single accent. No emoji.
+    # One palette: dim labels, ink values, brand = the accent. No emoji.
     parts = [(gplain, gcolored)]
     if coach and coach[2]:  # urgent warning beats cost — active danger rides line 1
         wtxt = coach[3] if cols < 100 else coach[1]
@@ -718,6 +789,9 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     if usd is not None: parts.append((f"${usd:.2f}", rgb(DIM, "$") + rgb(INK, f"{usd:.2f}")))
     parts.append((model, rgb(DIM, model)))
     if proj: parts.append((proj, rgb(BRAND, proj)))
+    if gbranch:  # branch ±dirty — dev-state so the user never asks Claude "what branch"
+        dtxt = f" ±{gdirty}" if gdirty else ""
+        parts.append((gbranch + dtxt, rgb(DIM, gbranch) + (rgb(WARN, dtxt) if gdirty else "")))
     widget = sanitize(read_state().get("fish") or read_state().get("widget") or "")
     if widget: parts.append((widget, rgb(BRAND, widget)))  # the live widget slot
 
@@ -741,17 +815,27 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         return line1 + "\n" + line2
 
     # ── expanded: five content rows; the M is drawn full-height on the right ──
+    # Surgical/hybrid: r1 cockpit+branch · r2 coach · r3 dev+token state · r4 the one
+    # flair slot · r5 tip. Every fixed row saves the user a turn (dev-state or coach).
     if not mark_left:
         w = cols
         r2 = (rgb(coach_col(coach[0]), trunc(coach[1], w)) if (coach and not coach[2])
               else rgb(DIM, trunc("cleaner runs, not bigger burns", w)))
+        # r3: path · token state — the "don't ask Claude" row (branch±dirty is on r1)
+        bits = []
+        sp = path_in_repo(ws.get("current_dir") or proj_dir, root, proj)
+        if sp: bits.append(sp)
         p = f"{round(cache_hit * 100)}%" if cache_hit is not None else "—"
-        burn = f" · ${usd / dur_h:.0f}/hr" if (usd and dur_h > 0) else ""
-        rw = f" · ~{runway} turns to compact" if runway is not None else ""   # always-on runway
-        r3 = rgb(DIM, trunc(f"{big(alltime)} all-time · cache {p}{burn}{rw}", w))
+        bits.append(f"cache {p}")
+        if runway is not None: bits.append(f"~{runway} to compact")
+        bits.append(f"{big(alltime)} all-time")
+        r3 = rgb(DIM, trunc(" · ".join(bits), w))
+        # r4: the single flair slot (rotating discovery / presence)
         di = ticker_items(now, dur_h, alltime, cfg)
+        if presence_on: di = presence_activity(now) + di
         r4 = rgb(DIM, marquee(di, max(10, w), offset))
-        r5 = campfire_strip(now, w) if presence_on else rgb(DIM, trunc(TIPS[1], w))
+        # r5: rotating optimization tip
+        r5 = rgb(DIM, trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], w))
         return "\n".join([line1, r2, r3, r4, r5])
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
@@ -887,6 +971,9 @@ def demo(frames=12, width=None):
 if __name__ == "__main__":
     if "--scan" in sys.argv:
         do_scan()
+    elif "--git-scan" in sys.argv:
+        i = sys.argv.index("--git-scan")
+        if i + 1 < len(sys.argv): do_git_scan(sys.argv[i + 1])
     elif "--fetch-discovery" in sys.argv:
         try: fetch_discovery(load_tm_config())
         except Exception as e: sys.stderr.write(f"tokenmaxx discovery: {e}\n")
