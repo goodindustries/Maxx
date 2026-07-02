@@ -389,6 +389,30 @@ def path_in_repo(cur, root, proj):
         return proj + "/" + rel if rel else proj
     return short_path(cur)
 
+# ─── rate-limit watchdog: the solo wall (5h window vs your own ceiling) ──────────
+WINDOW_FILE = os.path.expanduser("~/.tokenmaxx/window.json")
+def read_window():
+    """Your 5h rate-limit window from the cache limit.mjs writes: (pct of cap, mins
+    to cap, reset). None until the first background scan lands."""
+    try:
+        w = json.load(open(WINDOW_FILE))
+        used = w.get("used", 0); cap = w.get("cap"); burn = w.get("burnPerHr", 0)
+        pct = (used / cap) if cap else None
+        mins = round((cap - used) / burn * 60) if (cap and burn > 0 and used < cap) else None
+        return {"pct": pct, "mins": mins, "reset": w.get("resetInMins")}
+    except Exception:
+        return None
+def maybe_refresh_window(ttl=120):
+    """Spawn the (heavy, all-session) window scan in the background when stale."""
+    try:
+        if time.time() - os.path.getmtime(WINDOW_FILE) < ttl: return
+    except Exception: pass
+    try:
+        subprocess.Popen(["node", os.path.expanduser("~/.claude/skills/maxx/limit.mjs")],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+    except Exception: pass
+
 # ─── width ─────────────────────────────────────────────────────────────────────
 def _raw_cols(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
@@ -510,13 +534,19 @@ TIPS = [
 def coach_col(level):
     return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
 
-def health(coach, runway, cache_hit=None, cache_base=None):
-    """A traffic light: (dot, color, text). GREEN = ok (nothing to read — glance and
-    move on). AMBER/RED only when it matters, and then it names the ONE thing. The
-    compact number appears when it's close, never as something to hunt for."""
-    if coach and coach[2]:                                    # RED — act now
+def health(coach, runway, cache_hit=None, cache_base=None, quota=None):
+    """A traffic light: (dot, color, text). GREEN = ok (glance and move on). AMBER/RED
+    only when it matters, naming the ONE thing. The rate-limit wall (quota) outranks
+    the rest — getting throttled mid-flow is the worst surprise."""
+    qp = quota.get("pct") if quota else None
+    qm = quota.get("mins") if quota else None
+    if qp is not None and qp >= 0.90:                         # RED — about to be throttled
+        return "●", RED, (f"quota {int(qp*100)}% · ~{qm}m to cap" if qm else f"quota {int(qp*100)}%")
+    if coach and coach[2]:                                    # RED — act now (compact)
         return "●", RED, coach[3]
-    if runway is not None and runway <= 10:                   # AMBER — cliff getting close
+    if qp is not None and qp >= 0.75:                         # AMBER — quota getting close
+        return "●", AMBER, (f"quota {int(qp*100)}% · ~{qm}m" if qm else f"quota {int(qp*100)}%")
+    if runway is not None and runway <= 10:                   # AMBER — compact cliff close
         return "●", AMBER, f"compact in ~{runway}"
     if cache_base is not None and cache_hit is not None and cache_hit < cache_base - 0.15:
         return "●", AMBER, "cache below your usual"           # AMBER — off YOUR normal
@@ -524,9 +554,9 @@ def health(coach, runway, cache_hit=None, cache_base=None):
         return "●", AMBER, coach[3]
     return "●", GREEN, "ok"                                   # GREEN — we're good
 
-def tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols):
+def tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols, quota=None):
     """The health-first single line: ● ok · branch · $ — a green glance, not data."""
-    glyph, col, ans = health(coach, runway, cache_hit, cache_base)
+    glyph, col, ans = health(coach, runway, cache_hit, cache_base, quota)
     segs = [rgb(col, glyph + " ") + rgb(INK if col != GREEN else DIM, ans)]
     if gbranch:
         segs.append(rgb(DIM, gbranch) + (rgb(WARN, f" ±{gdirty}") if gdirty else ""))
@@ -873,7 +903,7 @@ def figlet(text, font="smshadow"):
     except Exception: return None
 
 # ─── assembly ──────────────────────────────────────────────────────────────────
-def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False, cache_base=None, cliff=92):
+def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False, cache_base=None, cliff=92, quota=None):
     cols = term_width(cfg)
     if cfg.get("test_fill"):
         return "\n".join(fill_lines(cols))
@@ -902,9 +932,9 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     gbranch = git_branch(root) if root else None
     gdirty = git_dirty(root) if root else None
     if tight:                                     # health-first single line — the answer, not data
-        return tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols)
+        return tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols, quota)
     # health dot leads the cockpit — the green glance. Numbers follow, not the other way.
-    hdot, hcol, _ = health(coach, runway, cache_hit, cache_base)
+    hdot, hcol, _ = health(coach, runway, cache_hit, cache_base, quota)
     # cockpit parts, priority order (needs first → truncation sheds the rest).
     # One palette: dim labels, ink values, brand = the accent. No emoji.
     parts = [("●", rgb(hcol, "●")), (gplain, gcolored)]
@@ -912,6 +942,9 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         wtxt = coach[3] if cols < 100 else coach[1]
         parts.append((wtxt, rgb(coach_col(coach[0]), wtxt)))
     if usd is not None: parts.append((f"${usd:.2f}", rgb(DIM, "$") + rgb(INK, f"{usd:.2f}")))
+    if quota and quota.get("pct") is not None:                # rate-limit window — the solo wall
+        qp = quota["pct"]; qcol = RED if qp >= 0.90 else (AMBER if qp >= 0.75 else DIM)
+        parts.append((f"q {int(qp*100)}%", rgb(DIM, "q ") + rgb(qcol, f"{int(qp*100)}%")))
     parts.append((model, rgb(DIM, model)))
     if proj: parts.append((proj, rgb(BRAND, proj)))
     if gbranch:  # branch ±dirty — dev-state so the user never asks Claude "what branch"
@@ -1008,20 +1041,21 @@ def main():
     ch = ((cu.get("cache_read_input_tokens", 0) or 0) / ci) if ci else None
     update_baseline(ch)                                          # the companion learns your normal
     cbase = cache_baseline()
+    maybe_refresh_window(); quota = read_window()                # rate-limit watchdog (the solo wall)
     mode, cols = layout(cfg)
     if mode == "tight":                                          # one health-first line
-        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway, cache_base=cbase, cliff=cliff)
+        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway, cache_base=cbase, cliff=cliff, quota=quota)
         print(paint(out, cols))
     elif mode == "expanded":                                     # 5-line panel, M full-height right
-        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway, cache_base=cbase, cliff=cliff)
+        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway, cache_base=cbase, cliff=cliff, quota=quota)
         print("\n".join(boxed_M(out.split("\n"), cols, tick=offset)))   # offset drives the shine sweep
     elif mode == "box":                                          # compact framed panel
-        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase, cliff=cliff)
+        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase, cliff=cliff, quota=quota)
         bevel = read_state().get("box_bevel")
         if bevel is None: bevel = cfg.get("box_bevel", True)
         print("\n".join(boxed(out.split("\n"), cols, bool(bevel))))
     else:                                                        # bare painted band
-        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase, cliff=cliff)
+        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase, cliff=cliff, quota=quota)
         print("\n".join(paint(l, cols) for l in out.split("\n")))
 
 # ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──

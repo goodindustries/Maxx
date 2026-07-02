@@ -26,6 +26,7 @@ place "$SRC/SKILL.md"      "$SKILL/SKILL.md"
 place "$SRC/tracker.mjs"   "$SKILL/tracker.mjs"
 place "$SRC/optimize.mjs"  "$SKILL/optimize.mjs"
 place "$SRC/brain.mjs"     "$SKILL/brain.mjs"
+place "$SRC/limit.mjs"     "$SKILL/limit.mjs"
 
 # vendored figlet (self-contained wordmarks — no pip, no network)
 if [ -d "$SRC/vendor" ]; then
