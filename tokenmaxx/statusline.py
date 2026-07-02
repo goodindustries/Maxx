@@ -597,6 +597,57 @@ def main():
     out = render(data, alltime, now, offset, cfg)
     print("\n".join(paint(l, cols) for l in out.split("\n")))  # paint the light band
 
+# ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──
+# Four figlet angles (isometric1..4) cycled = the M tumbling in 3D. One-shot only —
+# NEVER on the render path (11 rows won't fit the bar; the live M stays static).
+_SPIN_FONTS = ("isometric1", "isometric2", "isometric3", "isometric4")
+
+def spin_frames():
+    """The M's four rotation angles, normalized to one (H, W) box. None if the
+    vendored figlet is unavailable — caller falls back to the static block mark."""
+    arts = []
+    for f in _SPIN_FONTS:
+        a = figlet("M", f)
+        if not a: return None
+        rows = a.split("\n")
+        while rows and not rows[0].strip():  rows.pop(0)
+        while rows and not rows[-1].strip(): rows.pop()
+        arts.append(rows)
+    H = max(len(a) for a in arts)
+    W = max((max((len(r) for r in a), default=0) for a in arts), default=0)
+    return [[r.ljust(W) for r in (a + [""] * (H - len(a)))] for a in arts], H, W
+
+def reveal(cfg, spins=2, fps=6):
+    """Print the spinning-M splash: tumble the isometric M in brand purple, settle,
+    then M A X X + all-time tokens. Animates on a TTY; prints a still when piped."""
+    def emit(rows):  # each row full-width + clear-to-eol so shorter frames don't ghost
+        return "".join(rgb(BRAND, r) + "\x1b[K\n" for r in rows)
+    fr = spin_frames()
+    alltime, _ = load_cache()
+    if not fr:                                   # no figlet → static block mark
+        sys.stdout.write(emit(MARKS["blocky"])); print(); return
+    frames, H, W = fr
+    word = "  ".join("MAXX")
+    tag  = f"{big(alltime)} tokens" if alltime else "your Claude Code cockpit"
+    pad  = " " * max(0, (W - disp_width(word)) // 2)
+    if not sys.stdout.isatty():                  # piped → still frame + wordmark
+        sys.stdout.write(emit(frames[0]))
+        print(pad + rgb(BRAND, word)); print(pad + rgb(DIM, tag)); return
+    seq = frames * max(1, spins)
+    delay = 1.0 / max(1, fps)
+    sys.stdout.write("\x1b[?25l")                # hide cursor
+    try:
+        for i, rows in enumerate(seq):
+            if i: sys.stdout.write(f"\x1b[{H}F")  # cursor up to top of the box
+            sys.stdout.write(emit(rows)); sys.stdout.flush()
+            time.sleep(delay)
+        sys.stdout.write(f"\x1b[{H}F" + emit(frames[0]))   # settle on angle 1
+    except KeyboardInterrupt:
+        pass
+    finally:
+        sys.stdout.write("\x1b[?25h"); sys.stdout.flush()  # show cursor
+    print(pad + rgb(BRAND, word)); print(pad + rgb(DIM, tag))
+
 # ─── demo ──────────────────────────────────────────────────────────────────────
 def demo(frames=12, width=None):
     cfg = load_tm_config()
@@ -645,6 +696,11 @@ if __name__ == "__main__":
         for m in ("idle", "alert", "happy"):
             if m in sys.argv: mood = m
         print(dog(mood, tail="woof"))
+    elif "--reveal" in sys.argv:
+        nums = [int(a) for a in sys.argv if a.isdigit()]
+        spins = nums[0] if len(nums) >= 1 else 2
+        fps   = nums[1] if len(nums) >= 2 else 6
+        reveal(load_tm_config(), spins=spins, fps=fps)
     elif "--banner" in sys.argv:
         i = sys.argv.index("--banner"); rest = sys.argv[i + 1:]
         font = rest[0] if rest else "smshadow"
