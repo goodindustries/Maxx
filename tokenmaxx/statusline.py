@@ -990,16 +990,18 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     # Surgical/hybrid: r1 cockpit+branch · r2 coach · r3 dev+token state · r4 the one
     # flair slot · r5 tip. Every fixed row saves the user a turn (dev-state or coach).
     if not mark_left:
-        # ── verticalized, VIBE-CODER priority: QUOTA is the main gauge (hitting it slows
-        #    you), a second EFFICIENCY gauge flags running hot (wasting quota). ctx is a
-        #    dim number — auto-compact owns that wall, so it isn't the vibe coder's fight.
-        w = cols - 3                              # two vertical gauges + a space
+        # ── VIBE-CODER cockpit: QUOTA is the main gauge (a clean horizontal bar — the
+        #    thing that slows you), EFFICIENCY a colored readout that flags 'hot' when
+        #    you're wasting quota. ctx demoted to a dim number. News crawls vertically.
+        w = cols
         qp = (quota or {}).get("pct")
         eff = cache_hit                           # efficiency ≈ cache-hit (the biggest lever)
         cparts = [parts[0]]                       # the health dot
         if qp is not None:
             qcol = RED if qp >= 0.9 else (AMBER if qp >= 0.75 else GREEN)
-            cparts.append((f"quota {int(qp*100)}%", rgb(DIM, "quota ") + rgb(qcol, f"{int(qp*100)}%")))
+            bw = 8; fl = round(qp * bw)
+            bar = rgb(qcol, "█" * fl) + rgb(TRACK, "░" * (bw - fl))
+            cparts.append((f"quota {'█'*bw} {int(qp*100)}%", rgb(DIM, "quota ") + bar + rgb(qcol, f" {int(qp*100)}%")))
         if eff is not None:
             ecol = GREEN if eff >= 0.85 else (AMBER if eff >= 0.6 else RED)
             hot = "" if eff >= 0.6 else " hot"
@@ -1021,13 +1023,7 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         if presence_on: di = presence_activity(now) + di
         n = max(1, len(di)); base = offset // 3
         nrow = lambda i: rgb(DIM, "▸ ") + rgb(INK, trunc(di[(base - i) % n], w - 2))
-        content = [line1x, r2, nrow(0), nrow(1), nrow(2)]
-        # two vertical thermometers down the left: QUOTA (main) + EFFICIENCY
-        qf = round((qp or 0) * 5); qgc = RED if (qp or 0) >= 0.9 else (AMBER if (qp or 0) >= 0.75 else GREEN)
-        ef = round((eff or 0) * 5); egc = GREEN if (eff or 0) >= 0.85 else (AMBER if (eff or 0) >= 0.6 else RED)
-        qc = lambda i: rgb(qgc if (5 - i) <= qf else TRACK, "█")
-        ec = lambda i: rgb(egc if (5 - i) <= ef else TRACK, "█")
-        return "\n".join(qc(i) + ec(i) + " " + content[i] for i in range(5))
+        return "\n".join([line1x, r2, nrow(0), nrow(1), nrow(2)])
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
     mk = mark(cfg)
