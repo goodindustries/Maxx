@@ -499,11 +499,13 @@ def gauge(data, ctx_fallback=0, cliff=92):
     return plain, colored, pct
 
 # ─── coach (line 2 / inline) ───────────────────────────────────────────────────
+# Not slogans — the actual levers, as things you can do this turn. Each maps to a
+# real "why you overspend" cause (context dump, paste, cache death).
 TIPS = [
-    "/compact when the gauge turns amber",
-    "keep stable context up top — that's what caches",
-    "cleaner runs, not bigger burns",
-    "Haiku for grunt work, Opus for hard reasoning",
+    "big search? delegate it to a subagent — keeps the file-dump out of your context",
+    "reference a file, don't paste it — a paste re-sends every turn after",
+    "a 5-min gap kills your cache — warm sessions read ~10× cheaper",
+    "keep stable context up top — that's the part that caches",
 ]
 def coach_col(level):
     return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
@@ -943,7 +945,7 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     if not mark_left:
         w = cols
         r2 = (rgb(coach_col(coach[0]), trunc(coach[1], w)) if (coach and not coach[2])
-              else rgb(DIM, trunc("cleaner runs, not bigger burns", w)))
+              else "")   # nothing to coach → say nothing, don't sloganeer
         # r3: path · token state — the "don't ask Claude" row (branch±dirty is on r1)
         bits = []
         sp = path_in_repo(ws.get("current_dir") or proj_dir, root, proj)
