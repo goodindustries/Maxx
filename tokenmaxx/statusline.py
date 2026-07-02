@@ -505,7 +505,7 @@ TIPS = [
     "big search? delegate it to a subagent — keeps the file-dump out of your context",
     "reference a file, don't paste it — a paste re-sends every turn after",
     "a 5-min gap kills your cache — warm sessions read ~10× cheaper",
-    "keep stable context up top — that's the part that caches",
+    "already read that file? it's still in context — don't re-read it",
 ]
 def coach_col(level):
     return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
