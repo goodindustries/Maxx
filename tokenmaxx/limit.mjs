@@ -64,12 +64,12 @@ async function collect() {
   return pts;
 }
 
-// biggest token sum over any 5h span in history = your sustained ceiling
-function historicalPeak(pts) {
+// biggest token sum over any `win`-ms span in history = your sustained ceiling
+function historicalPeak(pts, win = WINDOW_MS) {
   let peak = 0, sum = 0, i = 0;
   for (let j = 0; j < pts.length; j++) {
     sum += pts[j][1];
-    while (pts[i][0] < pts[j][0] - WINDOW_MS) { sum -= pts[i][1]; i++; }
+    while (pts[i][0] < pts[j][0] - win) { sum -= pts[i][1]; i++; }
     if (sum > peak) peak = sum;
   }
   return peak;
@@ -89,7 +89,14 @@ function report(pts, now) {
   // window reset: when the oldest token in the window ages out
   const inWin = pts.filter(([t]) => t > now - WINDOW_MS);
   const resetInMins = inWin.length ? Math.max(0, Math.round((inWin[0][0] + WINDOW_MS - now) / 60000)) : 0;
-  return { used, cap, peak, pct, burnPerHr, minsToCap, resetInMins, ts: now };
+  // weekly limit — the other Claude plan wall (7-day rolling), same self-calibration
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const weekUsed = pts.filter(([t]) => t > now - WEEK_MS).reduce((a, [, k]) => a + k, 0);
+  let weekCap = null;
+  try { weekCap = JSON.parse(readFileSync(CONFIG, "utf8")).week_cap_tokens || null; } catch {}
+  if (!weekCap) weekCap = Math.round(historicalPeak(pts, WEEK_MS) * 1.05);
+  const weekPct = weekCap ? weekUsed / weekCap : null;
+  return { used, cap, peak, pct, burnPerHr, minsToCap, resetInMins, weekUsed, weekCap, weekPct, ts: now };
 }
 
 async function main() {

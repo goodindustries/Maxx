@@ -279,6 +279,7 @@ func main() {
 	st := readState()
 	var win struct {
 		Pct       *float64 `json:"pct"`
+		WeekPct   *float64 `json:"weekPct"`
 		MinsToCap *float64 `json:"minsToCap"`
 	}
 	readJSON(filepath.Join(home(), ".tokenmaxx", "window.json"), &win)
@@ -295,6 +296,10 @@ func main() {
 	if haveQuota {
 		quota = *win.Pct
 	}
+	week, haveWeek := 0.0, win.WeekPct != nil
+	if haveWeek {
+		week = *win.WeekPct
+	}
 	usd := p.Cost.TotalCostUSD
 	fam := modelFamily(p.Model.DisplayName)
 	branch := gitBranch(p.Workspace.ProjectDir)
@@ -309,6 +314,13 @@ func main() {
 	case quota >= 0.75:
 		qcol = AMBER
 	}
+	wcol := GREEN
+	switch {
+	case week >= 0.9:
+		wcol = RED
+	case week >= 0.75:
+		wcol = AMBER
+	}
 	// temp = how hot you're running (cache efficiency)
 	tword, tcol := "cool", GREEN
 	switch {
@@ -317,12 +329,12 @@ func main() {
 	case cache < 0.85:
 		tword, tcol = "warm", AMBER
 	}
-	// health dot: quota first, then temp; context never reds it
+	// health dot: quota OR weekly wall reds it, temp warms it; context never reds it
 	hcol := GREEN
 	switch {
-	case quota >= 0.9:
+	case quota >= 0.9 || week >= 0.9:
 		hcol = RED
-	case quota >= 0.75 || cache < 0.6:
+	case quota >= 0.75 || week >= 0.75 || cache < 0.6:
 		hcol = AMBER
 	}
 
@@ -347,32 +359,50 @@ func main() {
 	hw := avail * 36 / 100
 	ew := avail - cw - hw
 
-	// ── CONSOLE pane ──
-	qLine := fg(hcol, "●") + fg(DIM, " quota ")
-	if haveQuota {
-		qLine += bar(quota, 8, qcol) + fg(qcol, fmt.Sprintf(" %d%%", int(quota*100)))
-	} else {
-		qLine += fg(DIM, "—")
-	}
-	tLine := fg(DIM, "temp ") + fg(tcol, tword) + fg(DIM, fmt.Sprintf("  %d%%", int(cache*100)))
-	mdLine := fg(DIM, fam)
-	if branch != "" {
-		mdLine += fg(DIM, "  "+branch)
-	}
+	// ── CONSOLE pane: three vertical bars (quota / weekly / temp) + legend ──
 	scol := GREEN
+	sTxt := fmt.Sprintf("%dm", left)
 	if left <= 5 {
 		scol = AMBER
 	}
 	if left <= 0 {
-		scol = RED
+		scol, sTxt = RED, "break?"
 	}
-	sTxt := fmt.Sprintf("%dm", left)
-	if left <= 0 {
-		sTxt = "break?"
+	// a vertical bar cell: filled (with a top-lit sheen) if this row is within the fill
+	vc := func(frac float64, row int, col lipgloss.Color) string {
+		fill := int(math.Round(frac * 5))
+		if 5-row <= fill {
+			return fg(shade(col, 0.06-0.03*float64(row)), "██") // slight top-light
+		}
+		return fg(TRACK, "░░")
 	}
-	sLine := fg(DIM, "sprint ") + fg(scol, sTxt)
-	cLine := fg(DIM, "$") + fg(INK, fmt.Sprintf("%.0f", usd)) + fg(DIM, fmt.Sprintf("  ctx %d%%", int(ctxPct)))
-	console := strings.Join([]string{qLine, tLine, mdLine, sLine, cLine}, "\n")
+	bars := make([]string, 5)
+	for i := 0; i < 5; i++ {
+		bars[i] = vc(quota, i, qcol) + " " + vc(week, i, wcol) + " " + vc(cache, i, tcol)
+	}
+	qv, wv := "—", "—"
+	if haveQuota {
+		qv = fmt.Sprintf("%d%%", int(quota*100))
+	}
+	if haveWeek {
+		wv = fmt.Sprintf("%d%%", int(week*100))
+	}
+	gitTxt := ""
+	if branch != "" {
+		gitTxt = "  " + branch
+	}
+	legend := []string{
+		fg(hcol, "●") + fg(qcol, " Q ") + fg(DIM, "session ") + fg(qcol, qv),
+		fg(wcol, "  W ") + fg(DIM, "weekly ") + fg(wcol, wv),
+		fg(tcol, "  T ") + fg(DIM, "temp ") + fg(tcol, tword),
+		fg(DIM, "  "+fam) + fg(DIM, gitTxt),
+		fg(DIM, "  sprint ") + fg(scol, sTxt) + fg(DIM, fmt.Sprintf("  $%.0f  ctx %d%%", usd, int(ctxPct))),
+	}
+	rows := make([]string, 5)
+	for i := 0; i < 5; i++ {
+		rows[i] = bars[i] + " " + legend[i]
+	}
+	console := strings.Join(rows, "\n")
 
 	// ── COACH pane (lipgloss wraps to width) ──
 	ctext, ccol := coachLine(st, cache, ctxPct)
