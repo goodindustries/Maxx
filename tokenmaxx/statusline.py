@@ -49,7 +49,7 @@ BRAND  = _hsl(_H,      0.58, 0.52)   # accent: the M, gauge fill
 INK    = _hsl(_H,      0.48, 0.30)   # values (pop)
 DIM    = _hsl(_H,      0.22, 0.50)   # labels (recede)
 TRACK  = _hsl(_H,      0.30, 0.78)   # gauge shade track
-BG     = _hsl(_H,      0.40, 0.93)   # the painted light background
+BG     = _hsl(_H,      0.55, 0.88)   # painted panel — clearly purple so it pops on a LIGHT terminal
 WARN   = _hsl(_H + 18, 0.60, 0.55)   # hotter purple
 DANGER = _hsl(_H + 38, 0.66, 0.52)   # magenta alert
 # health = a traffic light you read WITHOUT reading: green ok / amber caution / red act
@@ -58,10 +58,10 @@ AMBER  = (0xd6, 0x9e, 0x2e)          # getting close / off your normal
 RED    = (0xe0, 0x43, 0x3c)          # act now
 # reset FG only (\x1b[39m) so a line-level background persists through segments
 def rgb(t, s): return f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m{s}\x1b[39m"
-def gbar(frac, w=14):
+def gbar(frac, w=14, cliff=92):
     frac = max(0.0, min(1.0, frac))
-    fill = round(frac * w)
-    col = DANGER if frac >= 0.80 else (WARN if frac >= 0.60 else BRAND)
+    fill = round(frac * w); pct = frac * 100
+    col = DANGER if pct >= cliff - 2 else (WARN if pct >= cliff - 18 else BRAND)  # vs YOUR cliff
     return rgb(col, "█" * fill) + rgb(TRACK, "░" * (w - fill))  # fill blocks, shaded track
 
 # ─── display width (emoji/CJK render 2 cols; getting this wrong = wrapping) ─────
@@ -133,9 +133,9 @@ def boxed_M(lines, inner, tick=0):
     # domed shading: bright highlight lip under the top edge → deep shadow at the
     # base. The non-linear ramp (brighter row 0-1, darker row 5-6) reads as a raised
     # bezel catching light from above; tune the 7 stops to taste.
-    RAMP = (0.965, 0.95, 0.925, 0.90, 0.875, 0.85, 0.825)
+    RAMP = (0.925, 0.91, 0.89, 0.87, 0.85, 0.83, 0.81)
     def band(s, i):
-        b = _hsl(_H, 0.42, RAMP[i])
+        b = _hsl(_H, 0.55, RAMP[i])
         return f"\x1b[48;2;{b[0]};{b[1]};{b[2]}m{s}\x1b[0m"
     out = [band(rgb(hi, "╭" + "─" * innerW + "╮"), 0)]
     for i in range(5):
@@ -482,7 +482,7 @@ def read_last_usage(tpath):
         pass
     return out
 
-def gauge(data, ctx_fallback=0):
+def gauge(data, ctx_fallback=0, cliff=92):
     """Returns (plain, colored, pct). Dim label, ink value, terracotta bar."""
     cw = data.get("context_window") or {}
     m = data.get("model") or {}
@@ -495,7 +495,7 @@ def gauge(data, ctx_fallback=0):
         used = round(size * pct / 100)
     us, sz = k(used), k(size)
     plain = f"ctx {us}/{sz} " + "█" * 14
-    colored = rgb(DIM, "ctx ") + rgb(INK, us) + rgb(DIM, "/" + sz) + " " + gbar(pct / 100)
+    colored = rgb(DIM, "ctx ") + rgb(INK, us) + rgb(DIM, "/" + sz) + " " + gbar(pct / 100, cliff=cliff)
     return plain, colored, pct
 
 # ─── coach (line 2 / inline) ───────────────────────────────────────────────────
@@ -881,7 +881,7 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     cu = (data.get("context_window") or {}).get("current_usage") or {}
     ci = (cu.get("input_tokens", 0) or 0) + (cu.get("cache_creation_input_tokens", 0) or 0) + (cu.get("cache_read_input_tokens", 0) or 0)
     cache_hit = ((cu.get("cache_read_input_tokens", 0) or 0) / ci) if ci else None
-    gplain, gcolored, pct = gauge(data)
+    gplain, gcolored, pct = gauge(data, cliff=cliff)
 
     cost = data.get("cost") or {}
     usd = cost.get("total_cost_usd")
