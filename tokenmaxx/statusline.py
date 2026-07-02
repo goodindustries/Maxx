@@ -442,6 +442,19 @@ def session_timer(mins=30, idle_reset=300):
     set_state(sess_start=start, sess_last=now)
     return round(mins - (now - start) / 60)
 
+def sprint_intent():
+    """The intention set for the CURRENT micro-sprint, or a prompt to set one at the
+    start. Returns (kind, text): 'set'+goal, 'prompt'+nudge, or (None, None). Set it
+    with `statusline.py intent <text>` (or /maxx intent)."""
+    st = read_state()
+    intent = sanitize(st.get("intent") or "", 60)
+    sess = st.get("sess_start", 0)
+    if intent and abs(st.get("intent_start", -1) - sess) < 1:   # belongs to THIS sprint
+        return ("set", intent)
+    if 0 < time.time() - sess < 180:                            # first 3 min of a fresh sprint
+        return ("prompt", "new sprint — set your intention")
+    return (None, None)
+
 # ─── width ─────────────────────────────────────────────────────────────────────
 def _raw_cols(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
@@ -601,9 +614,8 @@ def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None, cliff=
     burn = (usd / dur_h) if (usd and dur_h and dur_h > 0) else None   # $/hr
     is_opus = "opus" in str(model).lower()
 
-    # 1. compact TIMING — sense the boundary, don't count to a wall.
-    if pct >= cliff - 2:                                      # last-resort safety net near the real wall
-        return ("danger", "context near auto-compact — /compact now at a clean point", True, "/compact now")
+    # 1. compact TIMING — sense the boundary. Auto-compact owns the wall, so context
+    #    never reds the dot; at most a green "good moment" nudge at a commit boundary.
     if just_committed and pct >= 50:                          # a commit + heavy context = the clean moment
         return ("good", "just shipped + context heavy — clean moment to /compact", False, "compact?")
 
@@ -1045,9 +1057,18 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         c_s = rgb(DIM, "sprint ") + rgb(scol, tstr)
         c_c = ((rgb(DIM, "$") + rgb(INK, f"{usd:.0f}")) if usd is not None else "") + rgb(DIM, f"  ctx {int(pct)}%")
         console = [c_q, c_t, c_m, c_s, c_c]
-        # ── COACH: the mentor, wrapped (room to say a real sentence) ──
-        if coach: ctext, ccol = coach[1], coach_col(coach[0])
-        else:     ctext, ccol = "running clean — nothing to fix", GREEN
+        # ── COACH: real nudges first, then the sprint intention, then clean ──
+        ik, itext = sprint_intent()
+        if coach and (coach[2] or coach[0] in ("warn", "danger")):
+            ctext, ccol = coach[1], coach_col(coach[0])          # a real nudge wins
+        elif ik == "set":
+            ctext, ccol = "→ " + itext, BRAND                    # your sprint goal
+        elif ik == "prompt":
+            ctext, ccol = itext, AMBER                           # set your intention
+        elif coach:
+            ctext, ccol = coach[1], coach_col(coach[0])          # info / good
+        else:
+            ctext, ccol = "running clean", GREEN
         coach_col_lines = [rgb(DIM, "coach")] + [rgb(ccol, l) for l in wrap(ctext, hw, 4)]
         # ── EVENTS: the .5 (tools / news) ──
         di = ticker_items(now, dur_h, alltime, cfg)
@@ -1247,6 +1268,12 @@ if __name__ == "__main__":
         i = sys.argv.index("widget")
         set_state(widget=sanitize(sys.argv[i + 1]) if i + 1 < len(sys.argv) else "")
         print("widget set (live next tick)")
+    elif "intent" in sys.argv:
+        # `intent <text>` — set your intention for the current micro-sprint
+        i = sys.argv.index("intent")
+        txt = sanitize(" ".join(sys.argv[i + 1:]), 60)
+        set_state(intent=txt, intent_start=read_state().get("sess_start", time.time()))
+        print(f"sprint intention set: {txt}" if txt else "intention cleared")
     elif "clear" in sys.argv:
         set_state(fish="", widget=""); print("widgets cleared")
     elif "--demo" in sys.argv:
