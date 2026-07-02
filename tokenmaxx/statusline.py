@@ -199,6 +199,40 @@ def next_offset(step=1):
     except Exception: pass
     return n
 
+# ─── compact runway: sample ctx% per turn → velocity → turns to the compact cliff ─
+def _ctx_file(key):
+    # per-session file (keyed by transcript path) so concurrent sessions/windows
+    # don't cross-contaminate each other's ctx history.
+    base = re.sub(r'[^A-Za-z0-9_-]', '', os.path.basename(key or "default"))[:40] or "default"
+    return os.path.join(os.path.expanduser("~/.tokenmaxx"), ".ctx-" + base)
+def sample_ctx(pct, key=None):
+    """Record ctx% samples (one per turn, when it moves) for THIS session so the
+    coach can project a compact runway. Resets on a sharp drop — a compact or a
+    fresh session."""
+    path = _ctx_file(key)
+    try: hist = json.load(open(path))
+    except Exception: hist = []
+    if hist and pct < hist[-1][1] - 5:              # big drop → compact / new session
+        hist = []
+    if not hist or abs(pct - hist[-1][1]) >= 0.5:    # ctx moved → a new turn
+        hist.append([time.time(), pct]); hist = hist[-8:]
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"; json.dump(hist, open(tmp, "w")); os.replace(tmp, path)
+        except Exception: pass
+    return hist
+
+def ctx_runway(hist, cliff=85):
+    """Turns to the compact cliff from the recent positive ctx slope, or None if
+    there aren't enough samples or context is stable."""
+    pts = [p for _, p in hist]
+    if len(pts) < 3: return None
+    ups = [pts[i] - pts[i - 1] for i in range(1, len(pts)) if pts[i] - pts[i - 1] > 0]
+    if not ups: return None
+    vel = sum(ups) / len(ups)                        # %/turn
+    if vel < 0.1: return None
+    return max(0, round((cliff - pts[-1]) / vel))
+
 # ─── width ─────────────────────────────────────────────────────────────────────
 def _raw_cols(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
@@ -311,19 +345,25 @@ TIPS = [
 def coach_col(level):
     return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
 
-def build_coach(pct, cache_hit, usd=None, dur_h=0, model=""):
+def build_coach(pct, cache_hit, usd=None, dur_h=0, model="", runway=None):
     """The efficiency coach: highest-priority nudge from the signals the bar sees.
     (level, long_text, urgent, short_text) — level in {danger,warn,info,good}.
-    Grounded in the real token levers: compact timing, cache-hits, model routing."""
+    Grounded in the real token levers: compact timing, cache-hits, model routing.
+    `runway` = projected turns to the compact cliff (None if unknown/stable)."""
     p = round(cache_hit * 100) if cache_hit is not None else None
     burn = (usd / dur_h) if (usd and dur_h and dur_h > 0) else None   # $/hr
     is_opus = "opus" in str(model).lower()
 
     # 1. context — time-critical. Auto-compact near the top is costly + lossy;
-    #    compacting at a clean boundary is cheaper and keeps quality.
+    #    compacting at a clean boundary is cheaper and keeps quality. When we can
+    #    project a runway, tell them exactly how many turns they have.
     if pct >= 85:
         return ("danger", "context near auto-compact — /compact now at a clean point", True, "/compact now")
     if pct >= 65:
+        if runway is not None and runway <= 12:
+            plural = "" if runway == 1 else "s"
+            return ("warn", f"~{runway} turn{plural} to the compact cliff — /compact at your next task boundary",
+                    False, f"compact ~{runway}t")
         return ("warn", "context filling — /compact at the next task boundary", False, f"ctx {int(pct)}%")
 
     # 2. cache-hit — the biggest cost lever. Cache reads are ~10x cheaper than
@@ -644,7 +684,7 @@ def figlet(text, font="smshadow"):
     except Exception: return None
 
 # ─── assembly ──────────────────────────────────────────────────────────────────
-def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False):
+def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None):
     cols = term_width(cfg)
     if cfg.get("test_fill"):
         return "\n".join(fill_lines(cols))
@@ -661,7 +701,7 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False):
     dur_h = (cost.get("total_duration_ms") or 0) / 3_600_000
     m = data.get("model") or {}
     model = m.get("display_name") or m.get("id", "?")
-    coach = build_coach(pct, cache_hit, usd, dur_h, model)   # efficiency coach: ctx + cache + burn
+    coach = build_coach(pct, cache_hit, usd, dur_h, model, runway)   # efficiency coach: ctx + cache + burn + runway
     ws = data.get("workspace") or {}
     proj = os.path.basename(ws.get("project_dir") or ws.get("current_dir") or "")
     # cockpit parts, priority order (needs first → truncation sheds the rest).
@@ -742,17 +782,20 @@ def main():
     try: step = int(cfg.get("ticker", {}).get("speed", 1))  # columns per render (1 = smoothest)
     except Exception: step = 1
     offset = next_offset(step)
+    # sample ctx% (real path only — demo never calls main) → live compact runway
+    pct_now = (data.get("context_window") or {}).get("used_percentage")
+    runway = ctx_runway(sample_ctx(pct_now, data.get("transcript_path"))) if pct_now is not None else None
     mode, cols = layout(cfg)
     if mode == "expanded":                                       # 5-line panel, M full-height right
-        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True)
+        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway)
         print("\n".join(boxed_M(out.split("\n"), cols)))
     elif mode == "box":                                          # compact framed panel
-        out = render(data, alltime, now, offset, cfg)
+        out = render(data, alltime, now, offset, cfg, runway=runway)
         bevel = read_state().get("box_bevel")
         if bevel is None: bevel = cfg.get("box_bevel", True)
         print("\n".join(boxed(out.split("\n"), cols, bool(bevel))))
     else:                                                        # bare painted band
-        out = render(data, alltime, now, offset, cfg)
+        out = render(data, alltime, now, offset, cfg, runway=runway)
         print("\n".join(paint(l, cols) for l in out.split("\n")))
 
 # ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──
