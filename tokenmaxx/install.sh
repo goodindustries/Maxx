@@ -25,6 +25,7 @@ place "$SRC/statusline.py" "$SKILL/statusline.py"
 place "$SRC/SKILL.md"      "$SKILL/SKILL.md"
 place "$SRC/tracker.mjs"   "$SKILL/tracker.mjs"
 place "$SRC/optimize.mjs"  "$SKILL/optimize.mjs"
+place "$SRC/brain.mjs"     "$SKILL/brain.mjs"
 
 # vendored figlet (self-contained wordmarks — no pip, no network)
 if [ -d "$SRC/vendor" ]; then
@@ -42,6 +43,11 @@ except Exception: pass
 d["statusLine"] = {"type": "command",
                    "command": "python3 " + os.path.expanduser("~/.claude/statusline.py"),
                    "padding": 0, "refreshInterval": 1}
+# the brain: a Stop hook fires it each turn to watch the back-and-forth (merge-safe)
+brain = "node " + os.path.expanduser("~/.claude/skills/maxx/brain.mjs")
+stop = d.setdefault("hooks", {}).setdefault("Stop", [])
+if not any(brain in json.dumps(h) for h in stop):
+    stop.append({"hooks": [{"type": "command", "command": brain}]})
 os.makedirs(os.path.dirname(p), exist_ok=True)
 json.dump(d, open(p, "w"), indent=2)
 PY
