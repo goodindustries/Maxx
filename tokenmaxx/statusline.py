@@ -50,7 +50,7 @@ def gbar(frac, w=14):
     frac = max(0.0, min(1.0, frac))
     fill = round(frac * w)
     col = DANGER if frac >= 0.80 else (WARN if frac >= 0.60 else BRAND)
-    return rgb(col, "█" * fill) + rgb(TRACK, "█" * (w - fill))
+    return rgb(col, "█" * fill) + rgb(TRACK, "░" * (w - fill))  # fill blocks, shaded track
 
 # ─── display width (emoji/CJK render 2 cols; getting this wrong = wrapping) ─────
 def _wide(o):
@@ -463,15 +463,15 @@ def dog(mood="idle", name="Maxx", tail=""):
 # endpoint (state "mark"). All render in any font; make new M's from ascii, block,
 # box, whatever — swap freely.
 MARKS = {
-    "box":   ["┃╲╱┃", "┃  ┃"],
-    "ascii": ["|\\/|", "|  |"],
-    "block": ["█▄█", "█ █"],
-    "bold":  ["▛▄▜", "▌ ▐"],
-    "peaks": ["/\\/\\", " || "],
+    "blocky": ["█▄░▄█", "█░▀░█"],   # double_blocky — THE brand mark (block + light shade)
+    "box":    ["┃╲╱┃", "┃  ┃"],
+    "ascii":  ["|\\/|", "|  |"],
+    "block":  ["█▄█", "█ █"],
+    "peaks":  ["/\\/\\", " || "],
 }
 def mark(cfg):
-    name = sanitize(read_state().get("mark") or "") or cfg.get("mark") or "box"
-    return MARKS.get(name, MARKS["box"])
+    name = sanitize(read_state().get("mark") or "") or cfg.get("mark") or "blocky"
+    return MARKS.get(name, MARKS["blocky"])
 
 # ─── figlet wordmark (vendored pyfiglet; lazy — never loaded on the render path) ─
 _FIGLET = None
