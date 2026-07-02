@@ -82,6 +82,18 @@ def paint(s, cols):
     pad = " " * max(0, cols - disp_width(_ANSI.sub('', s)))
     return f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}{pad}\x1b[0m"
 
+def boxed(lines, inner):
+    """Frame the painted band in a rounded border box (muted purple on the band).
+    `inner` is the content width; the box adds 2 border cols + 2 padding cols."""
+    W = inner + 4
+    band = lambda s: f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}\x1b[0m"
+    out = [band(rgb(DIM, "╭" + "─" * (W - 2) + "╮"))]
+    for l in lines:
+        pad = " " * max(0, inner - disp_width(_ANSI.sub('', l)))
+        out.append(band(rgb(DIM, "│") + " " + l + pad + " " + rgb(DIM, "│")))
+    out.append(band(rgb(DIM, "╰" + "─" * (W - 2) + "╯")))
+    return out
+
 # ─── all-time token cache (background-refreshed, never blocks render) ───────────
 def do_scan():
     total = 0
@@ -162,7 +174,13 @@ def term_width(cfg):
         try: raw = shutil.get_terminal_size((100, 24)).columns
         except Exception: raw = 100
     if raw <= 10: raw = 100
-    return max(20, raw - margin)
+    w = max(20, raw - margin)
+    return max(16, w - 4) if box_enabled(cfg) else w
+
+def box_enabled(cfg):
+    v = read_state().get("box")
+    if v is None: v = cfg.get("box", True)
+    return bool(v)
 
 # ─── cockpit data ──────────────────────────────────────────────────────────────
 def rank_seg():
@@ -632,7 +650,11 @@ def main():
     offset = next_offset(step)
     cols = term_width(cfg)
     out = render(data, alltime, now, offset, cfg)
-    print("\n".join(paint(l, cols) for l in out.split("\n")))  # paint the light band
+    lines = out.split("\n")
+    if box_enabled(cfg):
+        print("\n".join(boxed(lines, cols)))                    # framed panel
+    else:
+        print("\n".join(paint(l, cols) for l in lines))         # bare painted band
 
 # ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──
 # Four figlet angles (isometric1..4) cycled = the M tumbling in 3D. One-shot only —
