@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tokenmaxx endpoint — the data channel. Serves today's live content to every
+ * maxx endpoint — the data channel. Serves today's live content to every
  * installed runner. Publishing to the whole installed base = editing today.json
  * (or POSTing to it); runners poll GET /today and reflect it within ~1 tick.
  *
@@ -20,7 +20,7 @@ const PORT = Number(process.env.PORT || 8787);
 const TODAY_FILE = process.env.TOKENMAXX_TODAY || join(ROOT, "today.json");
 const PUBLISH_TOKEN = process.env.TOKENMAXX_PUBLISH_TOKEN || "";
 
-const DEFAULT = { widget: "><> tokenmaxx", banner: "cleaner runs, not bigger burns" };
+const DEFAULT = { widget: "><> maxx", banner: "cleaner runs, not bigger burns" };
 
 function today() {
   try { return JSON.parse(readFileSync(TODAY_FILE, "utf8")); }
@@ -65,4 +65,4 @@ const server = createServer(async (req, res) => {
   send(res, 404, { error: "not found" });
 });
 
-server.listen(PORT, () => process.stdout.write(`tokenmaxx endpoint on :${PORT} (today=${TODAY_FILE})\n`));
+server.listen(PORT, () => process.stdout.write(`maxx endpoint on :${PORT} (today=${TODAY_FILE})\n`));

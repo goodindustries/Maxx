@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code statusline (tokenmaxx) — responsive: cockpit · coach · ticker.
+"""Claude Code statusline (maxx) — responsive: cockpit · coach · ticker.
 
 Adapts to terminal width (COLUMNS, set by Claude Code v2.1.153+):
   >=130  3 lines, full cockpit, scrolling ticker + nyan
@@ -178,7 +178,7 @@ def load_tm_config():
     except Exception: return {}
 
 # ─── live state: commands + endpoints write here, the statusline reads it every ──
-# tick (~1s), so `/tokenmaxx <thing>` shows up in the bar in real time. This is the
+# tick (~1s), so `/maxx <thing>` shows up in the bar in real time. This is the
 # widget bus. SECURITY: sanitize() strips ANSI/control chars — remote or user
 # content must never inject terminal escapes, and we never execute fetched code.
 STATE = os.path.expanduser("~/.tokenmaxx/state.json")
@@ -660,7 +660,7 @@ HN_URL = "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=12"
 
 def fetch_discovery(cfg=None):
     url = ((cfg or {}).get("discovery") or {}).get("url") or HN_URL
-    req = urllib.request.Request(url, headers={"User-Agent": "tokenmaxx-statusline"})
+    req = urllib.request.Request(url, headers={"User-Agent": "maxx-statusline"})
     with urllib.request.urlopen(req, timeout=6) as r:
         data = json.load(r)
     items = []
@@ -708,7 +708,7 @@ def maybe_fetch_today(cfg, ttl=60):
 def fetch_today(cfg):
     ep = (cfg.get("endpoint") or "").rstrip("/")
     if not ep: return
-    req = urllib.request.Request(ep + "/today", headers={"User-Agent": "tokenmaxx"})
+    req = urllib.request.Request(ep + "/today", headers={"User-Agent": "maxx"})
     with urllib.request.urlopen(req, timeout=6) as r:
         d = json.load(r)
     set_state(widget=sanitize(d.get("widget") or ""), banner=sanitize(d.get("banner") or ""))
@@ -1235,10 +1235,10 @@ if __name__ == "__main__":
         do_cliff_scan()
     elif "--fetch-discovery" in sys.argv:
         try: fetch_discovery(load_tm_config())
-        except Exception as e: sys.stderr.write(f"tokenmaxx discovery: {e}\n")
+        except Exception as e: sys.stderr.write(f"maxx discovery: {e}\n")
     elif "--fetch-today" in sys.argv:
         try: fetch_today(load_tm_config())
-        except Exception as e: sys.stderr.write(f"tokenmaxx today: {e}\n")
+        except Exception as e: sys.stderr.write(f"maxx today: {e}\n")
     elif "--fill" in sys.argv:
         nums = [int(a) for a in sys.argv if a.isdigit()]
         if nums: os.environ["COLUMNS"] = str(nums[0])

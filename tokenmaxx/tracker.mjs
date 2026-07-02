@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tokenmaxx tracker — parse ~/.claude/projects/*.jsonl into a shareable stats payload.
+ * maxx tracker — parse ~/.claude/projects/*.jsonl into a shareable stats payload.
  *
  * Usage:
  *   node tokenmaxx/tracker.mjs            — pretty summary
@@ -21,7 +21,7 @@ const HOME = homedir();
 const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
 const CONFIG_DIR = path.join(HOME, ".tokenmaxx");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
-const DEFAULT_SERVER = process.env.TOKENMAXX_SERVER || "https://tokenmaxx.dev";
+const DEFAULT_SERVER = process.env.MAXX_SERVER || "https://meetmaxx.co";
 
 // ─── identity ─────────────────────────────────────────────────────────────────
 // installId is a stable anonymous key minted once per machine. handle is the
@@ -227,7 +227,7 @@ function buildStats(acc) {
 
   return {
     generatedAt: new Date().toISOString(),
-    schema: "tokenmaxx.stats.v1",
+    schema: "maxx.stats.v1",
     totals: {
       tokens: grand,
       input: t.input,
@@ -262,7 +262,7 @@ function human(n) {
 function pretty(s) {
   const L = [];
   L.push("");
-  L.push("  ⚡ tokenmaxx");
+  L.push("  ⚡ maxx");
   L.push("  ─────────────────────────────────────────");
   L.push(`  total tokens      ${human(s.totals.tokens)}  (${fmt(s.totals.tokens)})`);
   L.push(`  tokens / day      ${human(s.tokensPerActiveDay)}`);
@@ -330,7 +330,7 @@ export async function collectStats(dir = DEFAULT_DIR) {
 }
 
 // Resolve both sides through symlinks so `isMain` holds when the script is run
-// via a symlink (e.g. installed into ~/.claude/skills/tokenmaxx → repo).
+// via a symlink (e.g. installed into ~/.claude/skills/maxx → repo).
 function isMainModule() {
   const invoked = process.argv[1];
   if (!invoked) return false;
@@ -359,13 +359,13 @@ if (isMainModule()) {
       w(pretty(stats));
       const who = id.handle ? `@${id.handle}` : `install ${id.installId.slice(0, 8)}…`;
       w(`  pushed as ${who}` + (out.rank ? `  →  rank #${out.rank} of ${out.total}` : ""));
-      if (!id.handle) w(`  (no handle yet — run: tokenmaxx set-user <name>)`);
+      if (!id.handle) w(`  (no handle yet — run: maxx set-user <name>)`);
       w("");
     } else {
       w(pretty(await collectStats(a.dir)));
     }
   } catch (err) {
-    process.stderr.write(`tokenmaxx: ${err.message}\n`);
+    process.stderr.write(`maxx: ${err.message}\n`);
     process.exit(1);
   }
 }
