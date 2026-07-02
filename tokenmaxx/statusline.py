@@ -433,6 +433,15 @@ def maybe_refresh_window(ttl=120):
                          stdin=subprocess.DEVNULL, start_new_session=True)
     except Exception: pass
 
+def session_timer(mins=30, idle_reset=300):
+    """Micro-session countdown: minutes left in a `mins`-minute sprint. Coming back
+    from an idle break (>5min) starts a fresh sprint. Keeps sessions short + focused."""
+    st = read_state(); now = time.time()
+    last = st.get("sess_last", 0); start = st.get("sess_start", now)
+    if now - last > idle_reset: start = now          # back from a break → new sprint
+    set_state(sess_start=start, sess_last=now)
+    return round(mins - (now - start) / 60)
+
 # ─── width ─────────────────────────────────────────────────────────────────────
 def _raw_cols(cfg):
     # COLUMNS overstates the usable area — Claude Code clips the last few cols and
@@ -996,17 +1005,28 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         w = cols
         qp = (quota or {}).get("pct")
         eff = cache_hit                           # efficiency ≈ cache-hit (the biggest lever)
-        cparts = [parts[0]]                       # the health dot
-        if qp is not None:
+        # ── CONSOLE (row 1): quota · temp · model · git · sprint · $ · ctx ──
+        cparts = [parts[0]]                       # health dot
+        if qp is not None:                        # quota = the main gauge
             qcol = RED if qp >= 0.9 else (AMBER if qp >= 0.75 else GREEN)
             bw = 8; fl = round(qp * bw)
             bar = rgb(qcol, "█" * fl) + rgb(TRACK, "░" * (bw - fl))
             cparts.append((f"quota {'█'*bw} {int(qp*100)}%", rgb(DIM, "quota ") + bar + rgb(qcol, f" {int(qp*100)}%")))
-        if eff is not None:
-            ecol = GREEN if eff >= 0.85 else (AMBER if eff >= 0.6 else RED)
-            hot = "" if eff >= 0.6 else " hot"
-            cparts.append((f"eff {int(eff*100)}%{hot}", rgb(DIM, "eff ") + rgb(ecol, f"{int(eff*100)}%{hot}")))
-        cparts += [p for p in parts[2:] if not p[0].startswith("q ")]   # $, model, branch (drop dup quota)
+        if eff is not None:                       # temp = how hot you're running
+            tw = "cool" if eff >= 0.85 else ("warm" if eff >= 0.6 else "hot")
+            tcol = GREEN if eff >= 0.85 else (AMBER if eff >= 0.6 else RED)
+            cparts.append((f"temp {tw}", rgb(DIM, "temp ") + rgb(tcol, tw)))
+        fam = ("Opus" if "opus" in str(model).lower() else "Haiku" if "haiku" in str(model).lower()
+               else "Sonnet" if "sonnet" in str(model).lower() else str(model)[:8])
+        cparts.append((fam, rgb(DIM, fam)))       # model, condensed
+        if gbranch:                               # git: branch ±dirty
+            dtxt = f" ±{gdirty}" if gdirty else ""
+            cparts.append((gbranch + dtxt, rgb(DIM, gbranch) + (rgb(WARN, dtxt) if gdirty else "")))
+        left = session_timer()                    # 30-min micro-session countdown
+        tstr = f"{left}m" if left > 0 else "break?"
+        scol = GREEN if left > 5 else (AMBER if left > 0 else RED)
+        cparts.append((f"sprint {tstr}", rgb(DIM, "sprint ") + rgb(scol, tstr)))
+        if usd is not None: cparts.append((f"${usd:.0f}", rgb(DIM, "$") + rgb(INK, f"{usd:.0f}")))
         cparts.append((f"ctx {int(pct)}%", rgb(DIM, f"ctx {int(pct)}%")))   # ctx demoted, dim
         line1x = join_fit(cparts, w)
         # r2: coach nudge, else the dev-state ("don't ask Claude") row
