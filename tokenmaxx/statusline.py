@@ -52,6 +52,10 @@ TRACK  = _hsl(_H,      0.30, 0.78)   # gauge shade track
 BG     = _hsl(_H,      0.40, 0.93)   # the painted light background
 WARN   = _hsl(_H + 18, 0.60, 0.55)   # hotter purple
 DANGER = _hsl(_H + 38, 0.66, 0.52)   # magenta alert
+# health = a traffic light you read WITHOUT reading: green ok / amber caution / red act
+GREEN  = (0x2f, 0xa8, 0x4a)          # we're ok — glance and move on
+AMBER  = (0xd6, 0x9e, 0x2e)          # getting close / off your normal
+RED    = (0xe0, 0x43, 0x3c)          # act now
 # reset FG only (\x1b[39m) so a line-level background persists through segments
 def rgb(t, s): return f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m{s}\x1b[39m"
 def gbar(frac, w=14):
@@ -238,6 +242,28 @@ def ctx_runway(hist, cliff=85):
     if vel < 0.1: return None
     return max(0, round((cliff - pts[-1]) / vel))
 
+# ─── companion memory: rolling baselines of YOUR normal (the watchdog knows you) ──
+PROFILE = os.path.expanduser("~/.tokenmaxx/profile.json")
+def update_baseline(cache_hit, alpha=0.02):
+    """EWMA of the user's normal, updated as maxx watches. On-machine, never leaves.
+    The point: guide against YOUR baseline, not a generic threshold."""
+    if cache_hit is None: return
+    try: p = json.load(open(PROFILE))
+    except Exception: p = {}
+    p["cache"] = p.get("cache", cache_hit) * (1 - alpha) + cache_hit * alpha
+    p["n"] = p.get("n", 0) + 1
+    try:
+        os.makedirs(os.path.dirname(PROFILE), exist_ok=True)
+        tmp = PROFILE + ".tmp"; json.dump(p, open(tmp, "w")); os.replace(tmp, PROFILE)
+    except Exception: pass
+def cache_baseline(min_n=200):
+    """Your established normal cache-hit, or None until maxx has watched enough."""
+    try:
+        p = json.load(open(PROFILE))
+        if p.get("n", 0) >= min_n: return p.get("cache")
+    except Exception: pass
+    return None
+
 # ─── dev-state: branch (free, from .git/HEAD) + dirty count (cached) + path ───────
 def repo_root(start):
     """Walk up from `start` to the dir holding .git (dir or worktree file)."""
@@ -423,21 +449,24 @@ TIPS = [
 def coach_col(level):
     return {"danger": DANGER, "warn": WARN, "info": BRAND, "good": DIM}.get(level, WARN)
 
-def health(coach, runway):
-    """One glance: (glyph, color, answer). Lead with the action if there is one, else
-    the runway (the wall ahead), else 'clean'. The user reads a judgment, not data."""
-    if coach and coach[2]:                       # urgent action
-        return "✖", DANGER, coach[3]
-    if coach and coach[0] == "warn":
-        return "▲", WARN, coach[3]
-    if runway is not None:
-        return "●", BRAND, f"{runway} to compact"
-    return "●", BRAND, "running clean"
+def health(coach, runway, cache_hit=None, cache_base=None):
+    """A traffic light: (dot, color, text). GREEN = ok (nothing to read — glance and
+    move on). AMBER/RED only when it matters, and then it names the ONE thing. The
+    compact number appears when it's close, never as something to hunt for."""
+    if coach and coach[2]:                                    # RED — act now
+        return "●", RED, coach[3]
+    if runway is not None and runway <= 10:                   # AMBER — cliff getting close
+        return "●", AMBER, f"compact in ~{runway}"
+    if cache_base is not None and cache_hit is not None and cache_hit < cache_base - 0.15:
+        return "●", AMBER, "cache below your usual"           # AMBER — off YOUR normal
+    if coach and coach[0] == "warn":                          # AMBER — other caution
+        return "●", AMBER, coach[3]
+    return "●", GREEN, "ok"                                   # GREEN — we're good
 
-def tight_line(coach, runway, cache_hit, gbranch, gdirty, usd, cols):
-    """The health-first single line: ● answer · branch · $ — judgments, numbers recede."""
-    glyph, col, ans = health(coach, runway)
-    segs = [rgb(col, glyph + " ") + rgb(INK, ans)]
+def tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols):
+    """The health-first single line: ● ok · branch · $ — a green glance, not data."""
+    glyph, col, ans = health(coach, runway, cache_hit, cache_base)
+    segs = [rgb(col, glyph + " ") + rgb(INK if col != GREEN else DIM, ans)]
     if gbranch:
         segs.append(rgb(DIM, gbranch) + (rgb(WARN, f" ±{gdirty}") if gdirty else ""))
     if usd is not None:
@@ -783,7 +812,7 @@ def figlet(text, font="smshadow"):
     except Exception: return None
 
 # ─── assembly ──────────────────────────────────────────────────────────────────
-def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False):
+def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, runway=None, tight=False, cache_base=None):
     cols = term_width(cfg)
     if cfg.get("test_fill"):
         return "\n".join(fill_lines(cols))
@@ -809,10 +838,12 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     gbranch = git_branch(root) if root else None
     gdirty = git_dirty(root) if root else None
     if tight:                                     # health-first single line — the answer, not data
-        return tight_line(coach, runway, cache_hit, gbranch, gdirty, usd, cols)
+        return tight_line(coach, runway, cache_hit, cache_base, gbranch, gdirty, usd, cols)
+    # health dot leads the cockpit — the green glance. Numbers follow, not the other way.
+    hdot, hcol, _ = health(coach, runway, cache_hit, cache_base)
     # cockpit parts, priority order (needs first → truncation sheds the rest).
     # One palette: dim labels, ink values, brand = the accent. No emoji.
-    parts = [(gplain, gcolored)]
+    parts = [("●", rgb(hcol, "●")), (gplain, gcolored)]
     if coach and coach[2]:  # urgent warning beats cost — active danger rides line 1
         wtxt = coach[3] if cols < 100 else coach[1]
         parts.append((wtxt, rgb(coach_col(coach[0]), wtxt)))
@@ -857,7 +888,6 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
         if sp: bits.append(sp)
         p = f"{round(cache_hit * 100)}%" if cache_hit is not None else "—"
         bits.append(f"cache {p}")
-        if runway is not None: bits.append(f"~{runway} to compact")
         bits.append(f"{big(alltime)} all-time")
         r3 = rgb(DIM, trunc(" · ".join(bits), w))
         # r4: the single flair slot (rotating discovery / presence)
@@ -901,23 +931,29 @@ def main():
     try: step = int(cfg.get("ticker", {}).get("speed", 1))  # columns per render (1 = smoothest)
     except Exception: step = 1
     offset = next_offset(step)
-    # sample ctx% (real path only — demo never calls main) → live compact runway
-    pct_now = (data.get("context_window") or {}).get("used_percentage")
+    # sample ctx% + cache (real path only — demo never calls main) → runway + baseline
+    cw = data.get("context_window") or {}
+    pct_now = cw.get("used_percentage")
     runway = ctx_runway(sample_ctx(pct_now, data.get("transcript_path"))) if pct_now is not None else None
+    cu = cw.get("current_usage") or {}
+    ci = (cu.get("input_tokens", 0) or 0) + (cu.get("cache_creation_input_tokens", 0) or 0) + (cu.get("cache_read_input_tokens", 0) or 0)
+    ch = ((cu.get("cache_read_input_tokens", 0) or 0) / ci) if ci else None
+    update_baseline(ch)                                          # the companion learns your normal
+    cbase = cache_baseline()
     mode, cols = layout(cfg)
     if mode == "tight":                                          # one health-first line
-        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway)
+        out = render(data, alltime, now, offset, cfg, tight=True, runway=runway, cache_base=cbase)
         print(paint(out, cols))
     elif mode == "expanded":                                     # 5-line panel, M full-height right
-        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway)
+        out = render(data, alltime, now, offset, cfg, mark_left=False, force_wide=True, runway=runway, cache_base=cbase)
         print("\n".join(boxed_M(out.split("\n"), cols, tick=offset)))   # offset drives the shine sweep
     elif mode == "box":                                          # compact framed panel
-        out = render(data, alltime, now, offset, cfg, runway=runway)
+        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase)
         bevel = read_state().get("box_bevel")
         if bevel is None: bevel = cfg.get("box_bevel", True)
         print("\n".join(boxed(out.split("\n"), cols, bool(bevel))))
     else:                                                        # bare painted band
-        out = render(data, alltime, now, offset, cfg, runway=runway)
+        out = render(data, alltime, now, offset, cfg, runway=runway, cache_base=cbase)
         print("\n".join(paint(l, cols) for l in out.split("\n")))
 
 # ─── the reveal — spinning isometric M splash (one-shot: /maxx + session start) ──
