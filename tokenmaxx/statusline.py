@@ -771,6 +771,22 @@ def trunc(s, cols):
         out += ch; w += cw
     return out + "…"
 
+def dpad(s, w):
+    """Pad a (possibly ANSI-colored) string to display width w — for column panes."""
+    return s + " " * max(0, w - disp_width(_ANSI.sub('', s)))
+
+def wrap(text, w, n):
+    """Wrap plain text to at most n lines of display width w (padded to n)."""
+    out, cur = [], ""
+    for word in str(text).split():
+        if cur and disp_width(cur + " " + word) > w:
+            out.append(cur); cur = word
+            if len(out) >= n: return out
+        else:
+            cur = (cur + " " + word) if cur else word
+    if cur and len(out) < n: out.append(cur)
+    return out + [""] * (n - len(out))
+
 # ─── throttled slow ops (keep the 1s heartbeat cheap) ──────────────────────────
 LIVE_CACHE = os.path.expanduser("~/.tokenmaxx/.live-cache.json")
 def cached_live(ttl=5):
@@ -999,51 +1015,50 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     # Surgical/hybrid: r1 cockpit+branch · r2 coach · r3 dev+token state · r4 the one
     # flair slot · r5 tip. Every fixed row saves the user a turn (dev-state or coach).
     if not mark_left:
-        # ── VIBE-CODER cockpit: QUOTA is the main gauge (a clean horizontal bar — the
-        #    thing that slows you), EFFICIENCY a colored readout that flags 'hot' when
-        #    you're wasting quota. ctx demoted to a dim number. News crawls vertically.
+        # ── 2.5 panes, side by side: CONSOLE │ COACH │ EVENTS (events = the .5) ──
         w = cols
-        qp = (quota or {}).get("pct")
-        eff = cache_hit                           # efficiency ≈ cache-hit (the biggest lever)
-        # ── CONSOLE (row 1): quota · temp · model · git · sprint · $ · ctx ──
-        cparts = [parts[0]]                       # health dot
-        if qp is not None:                        # quota = the main gauge
+        qp = (quota or {}).get("pct"); eff = cache_hit
+        avail = w - 6                             # two " │ " separators
+        cw = max(22, round(avail * 0.40))         # console pane
+        hw = max(18, round(avail * 0.36))         # coach pane
+        ew = max(10, avail - cw - hw)             # events pane (the .5)
+        # ── CONSOLE: a column of instruments ──
+        if qp is not None:
             qcol = RED if qp >= 0.9 else (AMBER if qp >= 0.75 else GREEN)
             bw = 8; fl = round(qp * bw)
             bar = rgb(qcol, "█" * fl) + rgb(TRACK, "░" * (bw - fl))
-            cparts.append((f"quota {'█'*bw} {int(qp*100)}%", rgb(DIM, "quota ") + bar + rgb(qcol, f" {int(qp*100)}%")))
-        if eff is not None:                       # temp = how hot you're running
+            c_q = rgb(hcol, "● ") + rgb(DIM, "quota ") + bar + rgb(qcol, f" {int(qp*100)}%")
+        else:
+            c_q = rgb(hcol, "● ") + rgb(DIM, "quota —")
+        if eff is not None:
             tw = "cool" if eff >= 0.85 else ("warm" if eff >= 0.6 else "hot")
             tcol = GREEN if eff >= 0.85 else (AMBER if eff >= 0.6 else RED)
-            cparts.append((f"temp {tw}", rgb(DIM, "temp ") + rgb(tcol, tw)))
+            c_t = rgb(DIM, "temp ") + rgb(tcol, tw) + rgb(DIM, f"  {int(eff*100)}%")
+        else:
+            c_t = rgb(DIM, "temp —")
         fam = ("Opus" if "opus" in str(model).lower() else "Haiku" if "haiku" in str(model).lower()
                else "Sonnet" if "sonnet" in str(model).lower() else str(model)[:8])
-        cparts.append((fam, rgb(DIM, fam)))       # model, condensed
-        if gbranch:                               # git: branch ±dirty
-            dtxt = f" ±{gdirty}" if gdirty else ""
-            cparts.append((gbranch + dtxt, rgb(DIM, gbranch) + (rgb(WARN, dtxt) if gdirty else "")))
-        left = session_timer()                    # 30-min micro-session countdown
+        c_m = rgb(DIM, fam) + (rgb(DIM, "  " + gbranch) + (rgb(WARN, f" ±{gdirty}") if gdirty else "") if gbranch else "")
+        left = session_timer()
         tstr = f"{left}m" if left > 0 else "break?"
         scol = GREEN if left > 5 else (AMBER if left > 0 else RED)
-        cparts.append((f"sprint {tstr}", rgb(DIM, "sprint ") + rgb(scol, tstr)))
-        if usd is not None: cparts.append((f"${usd:.0f}", rgb(DIM, "$") + rgb(INK, f"{usd:.0f}")))
-        cparts.append((f"ctx {int(pct)}%", rgb(DIM, f"ctx {int(pct)}%")))   # ctx demoted, dim
-        line1x = join_fit(cparts, w)
-        # r2: coach nudge, else the dev-state ("don't ask Claude") row
-        if coach and not coach[2]:
-            r2 = rgb(coach_col(coach[0]), trunc(coach[1], w))
-        else:
-            bits = []
-            sp = path_in_repo(ws.get("current_dir") or proj_dir, root, proj)
-            if sp: bits.append(sp)
-            bits.append(f"{big(alltime)} all-time")
-            r2 = rgb(DIM, trunc(" · ".join(bits), w))
-        # r3–r5: news stacked, crawling top→bottom (a new item enters the top each ~3 renders)
+        c_s = rgb(DIM, "sprint ") + rgb(scol, tstr)
+        c_c = ((rgb(DIM, "$") + rgb(INK, f"{usd:.0f}")) if usd is not None else "") + rgb(DIM, f"  ctx {int(pct)}%")
+        console = [c_q, c_t, c_m, c_s, c_c]
+        # ── COACH: the mentor, wrapped (room to say a real sentence) ──
+        if coach: ctext, ccol = coach[1], coach_col(coach[0])
+        else:     ctext, ccol = "running clean — nothing to fix", GREEN
+        coach_col_lines = [rgb(DIM, "coach")] + [rgb(ccol, l) for l in wrap(ctext, hw, 4)]
+        # ── EVENTS: the .5 (tools / news) ──
         di = ticker_items(now, dur_h, alltime, cfg)
         if presence_on: di = presence_activity(now) + di
         n = max(1, len(di)); base = offset // 3
-        nrow = lambda i: rgb(DIM, "▸ ") + rgb(INK, trunc(di[(base - i) % n], w - 2))
-        return "\n".join([line1x, r2, nrow(0), nrow(1), nrow(2)])
+        events = [rgb(DIM, "events")] + [rgb(INK, trunc("▸ " + di[(base + i) % n], ew)) for i in range(4)]
+        # ── compose the 5 rows from the three panes ──
+        sep = rgb(DIM, " │ ")
+        return "\n".join(
+            dpad(console[i], cw) + sep + dpad(coach_col_lines[i], hw) + sep + events[i]
+            for i in range(5))
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
     mk = mark(cfg)
