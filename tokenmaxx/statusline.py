@@ -22,7 +22,7 @@ Run modes:
   --scan         rescan ~/.claude/projects, refresh the all-time token cache, exit
   --demo [N] [W] print N animated frames at width W (default 12, COLUMNS) with mock data
 """
-import sys, json, os, datetime, time, subprocess, glob, shutil, urllib.request, re, random
+import sys, json, os, datetime, time, subprocess, glob, shutil, urllib.request, re, random, colorsys
 
 PROJECTS = os.path.expanduser("~/.claude/projects")
 CACHE = os.path.expanduser("~/.claude/.tokenmaxx-cache.json")
@@ -37,15 +37,23 @@ def big(n):
     if n >= 1e6:  return f"{n/1e6:.0f}M"
     return f"{n/1e3:.0f}K"
 
-# ─── brand palette (truecolor; tuned for a light terminal bg) ───────────────────
-# One signature accent + neutral hierarchy. Value = ink (pops), label = dim (recedes).
-BRAND  = (198, 88, 42)    # terracotta — the one signature color
-INK    = (58, 52, 46)     # near-black warm — the values that matter
-DIM    = (158, 150, 142)  # muted gray — labels + context recede
-TRACK  = (220, 214, 206)  # gauge empty
-WARN   = (190, 120, 30)   # amber
-DANGER = (188, 52, 40)    # brick red
-def rgb(t, s): return f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m{s}\x1b[0m"
+# ─── brand palette — one purple family, mathematically aligned to Claude orange ─
+# Claude's orange sits at hue ~18°. Rotate +252° to land on purple (~270°), then
+# ramp every shade by lightness at matched chroma. One family, from the light
+# painted background up to the accent. Retune by changing _H / the s,l pairs.
+def _hsl(h, s, l):
+    r, g, b = colorsys.hls_to_rgb((h % 360) / 360.0, l, s)
+    return (round(r * 255), round(g * 255), round(b * 255))
+_H = 270
+BRAND  = _hsl(_H,      0.58, 0.52)   # accent: the M, gauge fill
+INK    = _hsl(_H,      0.48, 0.30)   # values (pop)
+DIM    = _hsl(_H,      0.22, 0.50)   # labels (recede)
+TRACK  = _hsl(_H,      0.30, 0.78)   # gauge shade track
+BG     = _hsl(_H,      0.40, 0.93)   # the painted light background
+WARN   = _hsl(_H + 18, 0.60, 0.55)   # hotter purple
+DANGER = _hsl(_H + 38, 0.66, 0.52)   # magenta alert
+# reset FG only (\x1b[39m) so a line-level background persists through segments
+def rgb(t, s): return f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m{s}\x1b[39m"
 def gbar(frac, w=14):
     frac = max(0.0, min(1.0, frac))
     fill = round(frac * w)
@@ -66,6 +74,13 @@ def char_width(ch):
     return 2 if _wide(o) else 1
 def disp_width(s):
     return sum(char_width(ch) for ch in s)
+
+_ANSI = re.compile(r'\x1b\[[0-9;]*m')
+def paint(s, cols):
+    """Lay the line on the light background band, padded to the full width so the
+    whole painted section is one solid field."""
+    pad = " " * max(0, cols - disp_width(_ANSI.sub('', s)))
+    return f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m{s}{pad}\x1b[0m"
 
 # ─── all-time token cache (background-refreshed, never blocks render) ───────────
 def do_scan():
@@ -578,7 +593,9 @@ def main():
     try: step = int(cfg.get("ticker", {}).get("speed", 1))  # columns per render (1 = smoothest)
     except Exception: step = 1
     offset = next_offset(step)
-    print(render(data, alltime, now, offset, cfg))
+    cols = term_width(cfg)
+    out = render(data, alltime, now, offset, cfg)
+    print("\n".join(paint(l, cols) for l in out.split("\n")))  # paint the light band
 
 # ─── demo ──────────────────────────────────────────────────────────────────────
 def demo(frames=12, width=None):
