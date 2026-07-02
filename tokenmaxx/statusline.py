@@ -990,24 +990,32 @@ def render(data, alltime, now, offset, cfg, mark_left=True, force_wide=False, ru
     # Surgical/hybrid: r1 cockpit+branch · r2 coach · r3 dev+token state · r4 the one
     # flair slot · r5 tip. Every fixed row saves the user a turn (dev-state or coach).
     if not mark_left:
-        w = cols
-        r2 = (rgb(coach_col(coach[0]), trunc(coach[1], w)) if (coach and not coach[2])
-              else "")   # nothing to coach → say nothing, don't sloganeer
-        # r3: path · token state — the "don't ask Claude" row (branch±dirty is on r1)
-        bits = []
-        sp = path_in_repo(ws.get("current_dir") or proj_dir, root, proj)
-        if sp: bits.append(sp)
-        p = f"{round(cache_hit * 100)}%" if cache_hit is not None else "—"
-        bits.append(f"cache {p}")
-        bits.append(f"{big(alltime)} all-time")
-        r3 = rgb(DIM, trunc(" · ".join(bits), w))
-        # r4: the single flair slot (rotating discovery / presence)
+        # ── verticalized: ctx is a thermometer down the left; news crawls top→bottom ──
+        w = cols - 2                              # reserve the 2-col vertical gauge
+        # cockpit WITHOUT the horizontal bar (ctx bar is vertical now); keep the number
+        ctxpart = (f"ctx {int(pct)}%", rgb(DIM, "ctx ") + rgb(INK, f"{int(pct)}%"))
+        line1x = join_fit([parts[0], ctxpart] + parts[2:], w)
+        # r2: coach nudge, else the dev-state ("don't ask Claude" row)
+        if coach and not coach[2]:
+            r2 = rgb(coach_col(coach[0]), trunc(coach[1], w))
+        else:
+            bits = []
+            sp = path_in_repo(ws.get("current_dir") or proj_dir, root, proj)
+            if sp: bits.append(sp)
+            if cache_hit is not None: bits.append(f"cache {round(cache_hit * 100)}%")
+            bits.append(f"{big(alltime)} all-time")
+            r2 = rgb(DIM, trunc(" · ".join(bits), w))
+        # r3–r5: news stacked, crawling top→bottom (a new item enters the top each ~3 renders)
         di = ticker_items(now, dur_h, alltime, cfg)
         if presence_on: di = presence_activity(now) + di
-        r4 = rgb(DIM, marquee(di, max(10, w), offset))
-        # r5: rotating optimization tip
-        r5 = rgb(DIM, trunc(TIPS[(int(now.timestamp()) // 20) % len(TIPS)], w))
-        return "\n".join([line1, r2, r3, r4, r5])
+        n = max(1, len(di)); base = offset // 3
+        nrow = lambda i: rgb(DIM, "▸ ") + rgb(INK, trunc(di[(base - i) % n], w - 2))
+        content = [line1x, r2, nrow(0), nrow(1), nrow(2)]
+        # vertical ctx thermometer down the left edge, filled bottom-up
+        fill = round(pct / 100 * 5)
+        gcol = DANGER if pct >= cliff - 2 else (WARN if pct >= cliff - 18 else BRAND)
+        gcell = lambda i: rgb(gcol if (5 - i) <= fill else TRACK, "█")
+        return "\n".join(gcell(i) + " " + content[i] for i in range(5))
 
     # ── wide: cockpit up top, the M brand mark down the left of the last 2 rows ──
     mk = mark(cfg)
