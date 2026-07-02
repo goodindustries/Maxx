@@ -488,22 +488,41 @@ def mark(cfg):
     name = sanitize(read_state().get("mark") or "") or cfg.get("mark") or "blocky"
     return MARKS.get(name, MARKS["blocky"])
 
+def shade_row(row, r, R, style):
+    """Color each glyph of an M row by a light-source gradient (the 'shader'), in
+    the brand purple family. 'toplit' lights from above; 'sheen' is a TL→BR
+    diagonal; 'emboss' brightens the edges. Keeps the painted band (fg reset only)."""
+    C = len(row); out = ""
+    for c, ch in enumerate(row):
+        if ch == " ": out += " "; continue
+        if style == "sheen":    t = ((r / max(1, R - 1)) + (c / max(1, C - 1))) / 2
+        elif style == "emboss": t = abs(c - (C - 1) / 2) / max(1e-9, (C - 1) / 2)
+        else:                   t = r / max(1, R - 1)          # toplit
+        col = _hsl(_H, 0.30, 0.74 + 0.05 * (1 - t)) if ch == "░" else _hsl(_H, 0.58, 0.62 - 0.24 * t)
+        out += rgb(col, ch)
+    return out
+
 def framed_mark(cfg, mk):
     """Wrap the M in a container so it reads as a mark, not loose blocks. Returns
-    (line2, line3, plain_width). 'rails' (default) = brand half-block rails hugging
-    the M; 'chip' = knockout M on a filled brand tile; 'none' = bare."""
-    style = sanitize(read_state().get("mark_frame") or "") or cfg.get("mark_frame") or "rails"
-    if style == "none":
-        return rgb(BRAND, mk[0]), rgb(BRAND, mk[1]), disp_width(mk[0])
-    if style == "chip":
-        # brand tile + light knockout M; end by restoring the band bg so paint() holds
+    (line2, line3, plain_width). Frame: 'rails' (default) brand bars hug the M;
+    'chip' knockout M on a filled brand tile; 'none' bare. The M glyphs are
+    gradient-shaded (mark_shade: toplit/sheen/emboss, or 'flat' for solid brand)."""
+    frame = sanitize(read_state().get("mark_frame") or "") or cfg.get("mark_frame") or "rails"
+    shade = sanitize(read_state().get("mark_shade") or "") or cfg.get("mark_shade") or "toplit"
+    R = len(mk)
+    body = [rgb(BRAND, mk[r]) if shade == "flat" else shade_row(mk[r], r, R, shade)
+            for r in range(R)]
+    if frame == "none":
+        return body[0], body[1], disp_width(mk[0])
+    if frame == "chip":
+        # brand tile + light knockout M (shading n/a); restore band bg so paint() holds
         def chip(r):
             return (f"\x1b[48;2;{BRAND[0]};{BRAND[1]};{BRAND[2]}m"
                     f"\x1b[38;2;{BG[0]};{BG[1]};{BG[2]}m {r} "
                     f"\x1b[48;2;{BG[0]};{BG[1]};{BG[2]}m\x1b[39m")
         return chip(mk[0]), chip(mk[1]), disp_width(f" {mk[0]} ")
-    return (rgb(BRAND, "▐" + mk[0] + "▌"), rgb(BRAND, "▐" + mk[1] + "▌"),
-            disp_width("▐" + mk[0] + "▌"))
+    rail = rgb(BRAND, "▐"); railR = rgb(BRAND, "▌")
+    return (rail + body[0] + railR, rail + body[1] + railR, disp_width("▐" + mk[0] + "▌"))
 
 # ─── figlet wordmark (vendored pyfiglet; lazy — never loaded on the render path) ─
 _FIGLET = None
