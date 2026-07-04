@@ -454,7 +454,7 @@ func main() {
 	crow := []string{
 		fg(hcol, "● ") + fg(DIM, "session ") + gauge(quota, gw, qcol) + fg(qcol, " "+qv) + fg(DIM, qr),
 		fg(DIM, "  weekly  ") + gauge(week, gw, wcol) + fg(wcol, " "+wv) + fg(DIM, wr),
-		fg(DIM, "  temp    ") + gauge(cache, gw, tcol) + fg(tcol, " "+tword),
+		fg(DIM, "  temp    ") + fg(tcol, tword), // a word, not a gauge: full temp = good but full session = bad, so a bar here misleads
 		fg(DIM, "  "+meta) + fg(scol, fmt.Sprintf("  sprint %dm", left)),
 		fg(DIM, fmt.Sprintf("  $%.0f · ctx %d%%", usd, int(ctxPct))),
 	}
