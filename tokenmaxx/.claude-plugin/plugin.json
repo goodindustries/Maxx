@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "maxx",
+  "version": "0.1.0",
+  "description": "A build-companion statusline + token stats for Claude Code: real session/weekly quota gauges, a Naval-esque product coach that reads your session, and /maxx usage cards.",
+  "author": {
+    "name": "Reif Tauati",
+    "email": "reif@thegoodproject.net"
+  },
+  "homepage": "https://github.com/goodindustries/Maxx",
+  "license": "MIT",
+  "keywords": ["statusline", "tokens", "usage", "quota", "coach", "productivity"],
+  "skills": ["./"]
+}
