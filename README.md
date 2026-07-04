@@ -25,9 +25,9 @@ that runs, then test it", "same command 3× — change the approach, not the inp
 /plugin install maxx@maxx
 ```
 
-This wires the `/maxx` skill and the coach hook. The statusline bar is a compiled
-renderer — see `tokenmaxx/install.sh` to wire it into `statusLine` in your
-`settings.json`.
+This wires the `/maxx` skill and the coach hook. To turn on the statusline bar,
+run `tokenmaxx/install.sh` — it points `statusLine` in your `settings.json` at
+`node render.mjs`. Pure Node, no binary to build or download.
 
 ## `/maxx`
 
@@ -43,8 +43,8 @@ consent, redacted prompt text, to give live build guidance.
 
 ## Layout
 
-- `tokenmaxx/` — the plugin (`SKILL.md`, `tracker.mjs`, `brain.mjs`, `optimize.mjs`,
-  `renderer/` Go statusline, `install.sh`).
+- `tokenmaxx/` — the plugin (`SKILL.md`, `render.mjs` statusline, `brain.mjs` coach,
+  `tracker.mjs`/`optimize.mjs` for `/maxx`, `install.sh`).
 - `.claude-plugin/marketplace.json` — the marketplace catalog.
 
 ## License
