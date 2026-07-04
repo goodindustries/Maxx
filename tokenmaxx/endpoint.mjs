@@ -5,10 +5,14 @@
  * (or POSTing to it); runners poll GET /today and reflect it within ~1 tick.
  *
  *   GET /health  -> { ok: true }
- *   GET /today   -> { widget, banner, challenge, ... }  (the live payload)
+ *   GET /today   -> { widget, banner, presence:{people}, ... }  (the live payload)
  *   POST /today  -> replace today.json  (bearer-guarded; how you publish)
+ *   POST /ping   -> { ok, online }  heartbeat: register an install, get the live count
+ *   GET /presence-> { online }      just the count
  *
  * Data only. The runner never executes anything it fetches here.
+ * Presence is in-memory (single instance) — installId -> lastSeen; "online" = seen in
+ * the last 5 min. Resets on restart; swap for a shared store if you run >1 instance.
  */
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,6 +25,15 @@ const TODAY_FILE = process.env.TOKENMAXX_TODAY || join(ROOT, "today.json");
 const PUBLISH_TOKEN = process.env.TOKENMAXX_PUBLISH_TOKEN || "";
 
 const DEFAULT = { widget: "><> maxx", banner: "cleaner runs, not bigger burns" };
+
+// live presence: installId -> lastSeen(ms). "online" = pinged within the window.
+const PRESENCE_WINDOW = 5 * 60_000;
+const presence = new Map();
+function onlineCount() {
+  const cut = Date.now() - PRESENCE_WINDOW;
+  for (const [id, ts] of presence) if (ts < cut) presence.delete(id); // sweep stale
+  return presence.size;
+}
 
 function today() {
   try { return JSON.parse(readFileSync(TODAY_FILE, "utf8")); }
@@ -49,8 +62,19 @@ const server = createServer(async (req, res) => {
   const is = (name) => p === "/" + name || p.endsWith("/" + name);
 
   if (req.method === "GET" && is("health")) return send(res, 200, { ok: true });
+  if (req.method === "GET" && is("presence")) return send(res, 200, { online: onlineCount() });
+
+  // heartbeat: a client checks in with its installId; we return the live online count.
+  if (req.method === "POST" && is("ping")) {
+    let body = {};
+    try { body = JSON.parse(await readBody(req)); } catch {}
+    const id = String(body.id || "").slice(0, 128);
+    if (id) presence.set(id, Date.now());
+    return send(res, 200, { ok: true, online: onlineCount() });
+  }
+
   if (req.method === "GET" && is("today"))
-    return send(res, 200, { ...today(), served_at: new Date().toISOString() });
+    return send(res, 200, { ...today(), presence: { people: onlineCount() }, served_at: new Date().toISOString() });
 
   if (req.method === "POST" && is("today")) {
     const auth = (req.headers["authorization"] || "").replace(/^Bearer\s+/, "");

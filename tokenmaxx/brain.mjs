@@ -157,9 +157,10 @@ Prefer a question over a command. If nothing earns a line, reply exactly "ok". N
   const r = spawnSync("claude", ["-p", "--model", "haiku", prompt],
                       { encoding: "utf8", timeout: 45000, env: { ...process.env, MAXX_BRAIN_CHILD: "1" } });
   if (r.status !== 0 || !r.stdout) return null;
-  const t = r.stdout.trim().replace(/^["']+|["']+$/g, "");
-  if (!t || /^ok\b/i.test(t) || t.length > 110) return null;   // "ok" → stay quiet
-  return t.slice(0, 100);
+  let t = r.stdout.trim().replace(/^["']+|["']+$/g, "").replace(/\s+/g, " ");
+  if (!t || /^ok\b/i.test(t)) return null;                     // "ok" → stay quiet
+  if (t.length > 120) t = t.slice(0, 118).replace(/\s+\S*$/, "") + "…"; // word-safe, never mid-word
+  return t;
 }
 function dueForJudge() {
   try { return Date.now() - Number(readFileSync(JUDGE_MARK, "utf8")) > CADENCE_MS; }
@@ -183,25 +184,29 @@ function publish(advice) {
   writeStateAtomic(s);
 }
 
-// ─── presence — "N maxxing in M countries" for the statusline footer ──────────
-// Cached ~60s, best-effort, never throws. Reads the counts from the maxx endpoint
-// and merges pres_* onto the bus; the statusline shows them bottom-right (and shows
-// nothing but the sign-off when they're absent, so no fake numbers ever render).
+// ─── presence — the "vibing with N online" heartbeat ──────────────────────────
+// POST /ping with our installId (registers this install as online) and read back the
+// live global count. Cached ~60s, best-effort, never throws; the statusline shows the
+// count bottom-right, and just the sign-off when there's none (no fake numbers).
 const PRESENCE_MARK = path.join(HOME, ".tokenmaxx", ".presence-fetch");
 async function fetchPresence() {
   try { if (Date.now() - Number(readFileSync(PRESENCE_MARK, "utf8")) < 60_000) return; } catch {}
-  let ep = "";
-  try { ep = (JSON.parse(readFileSync(path.join(HOME, ".tokenmaxx", "config.json"), "utf8")).endpoint || "").replace(/\/$/, ""); } catch {}
-  if (!ep) return;
+  let cfg = {};
+  try { cfg = JSON.parse(readFileSync(path.join(HOME, ".tokenmaxx", "config.json"), "utf8")); } catch {}
+  const ep = (cfg.endpoint || "").replace(/\/$/, "");
+  const id = cfg.installId || "";
+  if (!ep || !id) return;
   try {
-    const r = await fetch(ep + "/today", { signal: AbortSignal.timeout(4000), headers: { "user-agent": "maxx-brain" } });
+    const r = await fetch(ep + "/ping", {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "maxx-brain" },
+      body: JSON.stringify({ id }),
+      signal: AbortSignal.timeout(4000),
+    });
     if (!r.ok) return;
-    const d = await r.json();
-    const p = d.presence || d;                       // tolerate {presence:{…}} or flat
-    const people = Number(p.people ?? p.online ?? 0) || 0;
-    const countries = Number(p.countries ?? 0) || 0;
+    const online = Number((await r.json()).online ?? 0) || 0;
     let s = {}; try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch {}
-    s.pres_people = people; s.pres_countries = countries;
+    s.pres_people = online;
     writeStateAtomic(s);
     writeFileSync(PRESENCE_MARK, String(Date.now()));
   } catch {}                                          // network down / bad JSON → keep last
