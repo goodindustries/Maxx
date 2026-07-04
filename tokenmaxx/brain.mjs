@@ -4,10 +4,11 @@
  *
  * Fired by a Claude Code hook (Stop) each turn. Reads the recent transcript,
  * runs cheap heuristics for the reflexes (edit thrash, command loops, circling
- * the same file), and — when something's ambiguous — asks a
- * cheap Haiku call for judgment via the `claude` CLI (your existing auth, same
- * Anthropic your session already talks to). Writes the top nudge to the state
- * bus (~/.tokenmaxx/state.json); the statusline is the face that shows it.
+ * the same file), and — on a background cadence — asks a cheap Haiku call (via the
+ * `claude` CLI, your existing auth) to judge the session across three lenses:
+ * PRODUCT (a slight build hint), PROMPT (coach how you're prompting), STUCK (name
+ * the fix). Prompt text is redacted before it's sent. Writes the top nudge to the
+ * state bus (~/.tokenmaxx/state.json); the statusline is the face that shows it.
  *
  *   node brain.mjs                 # hook mode: reads hook JSON on stdin
  *   node brain.mjs --file X.jsonl  # analyze a specific transcript
@@ -65,11 +66,26 @@ async function feed(file) {
         }
       }
     }
+    // your actual prompt text (only real user turns — skip tool_result turns and the
+    // harness noise). Fuels the prompt-coaching lens; redacted before it ever leaves.
+    let text = "";
+    if (msg.role === "user") {
+      const blocks = typeof msg.content === "string"
+        ? [{ type: "text", text: msg.content }]
+        : (Array.isArray(msg.content) ? msg.content : []);
+      text = blocks
+        .filter(b => b?.type === "text" && typeof b.text === "string")
+        .map(b => b.text)
+        .filter(t => !/system-reminder|<command-name>|hook additional context/i.test(t))
+        .join(" ")
+        .trim();
+    }
     const u = msg.usage || {};
     turns.push({
       role: msg.role,
       ts: r.timestamp ? Date.parse(r.timestamp) : NaN,
       tools,
+      text,
       cc: u.cache_creation_input_tokens || 0,
       cr: u.cache_read_input_tokens || 0,
     });
@@ -99,19 +115,48 @@ function reflexes(turns) {
   return signals;
 }
 
+// redact obvious secrets from prompt text BEFORE it's ever sent to the judge.
+// Belt-and-suspenders — it goes only to your own `claude` auth, but keys never should.
+function redact(s) {
+  return s
+    .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, "«pemkey»")
+    .replace(/\b(sk-[A-Za-z0-9]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{12,})\b/g, "«key»")
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer «token»")
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "«email»")
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, "«hex»");
+}
+
 // ─── judgment — the smart layer (cheap Haiku via your existing claude CLI) ────
-// A reasoned read, not a rule-match. Content-light: tool names + basenames only.
+// Three lenses over the session: STUCK (name the fix), PRODUCT (a slight build hint
+// from what they're making), PROMPT (coach how they're prompting). Tool actions are
+// content-light (names + basenames); prompt text is redacted first.
 function judge(turns) {
-  const acts = turns.slice(-WINDOW).flatMap(t => t.tools.map(x => x.name + (x.path ? " " + path.basename(x.path) : x.cmd ? " $cmd" : ""))).join(", ");
-  if (!acts) return null;
-  const prompt = `You are a product-minded staff engineer watching a vibe-coder build, over their shoulder. Recent tool actions, oldest first: ${acts}. Reply ONE short line of BUILD guidance, max 14 words: if they're stuck or spinning, name the fix; if they're over-building or polishing too early, say ship the smallest thing that works; if they've built without running it, tell them to run it like a user; otherwise reply exactly "ok". No preamble, no quotes.`;
+  const recent = turns.slice(-WINDOW);
+  const acts = recent.flatMap(t => t.tools.map(x => x.name + (x.path ? " " + path.basename(x.path) : x.cmd ? " $cmd" : ""))).join(", ");
+  const prompts = recent
+    .filter(t => t.role === "user" && t.text)
+    .slice(-4)
+    .map(t => "• " + redact(t.text).replace(/\s+/g, " ").slice(0, 180))
+    .join("\n");
+  if (!acts && !prompts) return null;
+  const prompt = `You are a sharp product-minded staff engineer AND prompt coach, watching a vibe-coder build over their shoulder.
+
+Recent tool actions (oldest first): ${acts || "(none)"}
+
+Their recent prompts to the AI (redacted): ${prompts || "(none)"}
+
+Reply with the SINGLE most useful nudge as ONE short line (max 15 words), picking the best lens:
+- PRODUCT: over-building, missing a UI, skipping the risky/money path, or could ship a thinner slice — give a concrete product hint.
+- PROMPT: their prompt is vague, pastes instead of referencing a file, bundles multiple goals, or omits a done-condition — coach the prompt.
+- STUCK: they're spinning — name the likely fix.
+If it all looks healthy, reply exactly "ok". No preamble, no quotes, no markdown.`;
   // MAXX_BRAIN_CHILD flags claude's own Stop hook so a nested brain bails (no recursion).
   const r = spawnSync("claude", ["-p", "--model", "haiku", prompt],
                       { encoding: "utf8", timeout: 45000, env: { ...process.env, MAXX_BRAIN_CHILD: "1" } });
   if (r.status !== 0 || !r.stdout) return null;
   const t = r.stdout.trim().replace(/^["']+|["']+$/g, "");
-  if (!t || /^ok\b/i.test(t) || t.length > 100) return null;   // "ok" → stay quiet
-  return t.slice(0, 90);
+  if (!t || /^ok\b/i.test(t) || t.length > 110) return null;   // "ok" → stay quiet
+  return t.slice(0, 100);
 }
 function dueForJudge() {
   try { return Date.now() - Number(readFileSync(JUDGE_MARK, "utf8")) > CADENCE_MS; }
