@@ -415,7 +415,7 @@ func main() {
 
 	// ── COACH pane: product/build guidance, wrapped to width ──
 	ctext, ccol := coachLine(st, cache, ctxPct)
-	coach := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).Render("↳ " + ctext)
+	coach := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).Render("▸ " + ctext)
 
 	// ── assemble: M │ console │ coach ──
 	pane := func(w int) lipgloss.Style {
