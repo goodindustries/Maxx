@@ -1,18 +1,17 @@
 // maxx statusline renderer — the LOOK, in Go + lipgloss.
-// Reads Claude Code's stdin JSON + the ~/.tokenmaxx caches the node sidecars write
-// (window.json = quota, state.json = brain advice / sprint / intent), then renders
-// the 2.5-pane panel: Console │ Coach │ Events, with the M mark full-height.
+// Reads Claude Code's stdin JSON (real rate_limits = the session/weekly walls, same
+// numbers as /usage) + ~/.tokenmaxx/state.json the brain writes (advice / sprint /
+// intent), then renders the cockpit: M mark │ gauges │ coach.
 package main
 
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -61,7 +60,6 @@ func hsl(h, s, l float64) lipgloss.Color {
 
 var (
 	BRAND = hsl(270, 0.58, 0.52)
-	INK   = hsl(270, 0.48, 0.30)
 	DIM   = hsl(270, 0.30, 0.50)
 	TRACK = hsl(270, 0.35, 0.80)
 	BG    = hsl(270, 0.55, 0.88)
@@ -109,19 +107,22 @@ func mMarkRows(phase float64) []string {
 	return out
 }
 
-// spawn the (heavy) quota scan in the background when its cache is stale.
-func maybeSpawnScans() {
-	win := filepath.Join(home(), ".tokenmaxx", "window.json")
-	if fi, err := os.Stat(win); err == nil && time.Since(fi.ModTime()) < 120*time.Second {
-		return
+// resetIn: human countdown to a unix-epoch reset time (e.g. "2h10m", "4d").
+func resetIn(ts float64) string {
+	if ts <= 0 {
+		return ""
 	}
-	limit := filepath.Join(home(), ".claude", "skills", "maxx", "limit.mjs")
-	if _, err := os.Stat(limit); err != nil {
-		return
+	d := time.Until(time.Unix(int64(ts), 0))
+	if d <= 0 {
+		return "now"
 	}
-	cmd := exec.Command("node", limit)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	_ = cmd.Start()
+	if d.Hours() >= 24 {
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+	if h := int(d.Hours()); h > 0 {
+		return fmt.Sprintf("%dh%dm", h, int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dm", int(d.Minutes()))
 }
 
 // ─── inputs ─────────────────────────────────────────────────────────────────────
@@ -148,6 +149,17 @@ type Payload struct {
 			CacheCreation float64 `json:"cache_creation_input_tokens"`
 		} `json:"current_usage"`
 	} `json:"context_window"`
+	// the REAL rate limits (Pro/Max only, after the first API response) — matches /usage
+	RateLimits *struct {
+		FiveHour *struct {
+			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       float64 `json:"resets_at"`
+		} `json:"five_hour"`
+		SevenDay *struct {
+			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       float64 `json:"resets_at"`
+		} `json:"seven_day"`
+	} `json:"rate_limits"`
 }
 
 func home() string { h, _ := os.UserHomeDir(); return h }
@@ -187,15 +199,20 @@ func ss(m map[string]any, k string) string {
 	return ""
 }
 
-// micro-sprint countdown (mins left); a >5min idle gap starts a fresh sprint.
+// micro-sprint countdown (mins left in a 30-min block). Auto-cycles: a fresh sprint
+// starts every 30 min, or after a >5min idle gap — so it never sticks at 0.
 func sprintTimer(st map[string]any) int {
 	now := float64(time.Now().Unix())
 	last, start := sf(st, "sess_last"), sf(st, "sess_start")
-	if start == 0 || now-last > 300 {
+	if start == 0 || now-last > 300 || now-start >= 1800 {
 		start = now
 	}
 	st["sess_start"], st["sess_last"] = start, now
-	return int(math.Round(30 - (now-start)/60))
+	m := int(math.Round(30 - (now-start)/60))
+	if m < 1 {
+		m = 1
+	}
+	return m
 }
 
 // git branch from .git/HEAD, walking up from the project dir.
@@ -265,24 +282,18 @@ func trunc(s string, w int) string {
 
 func main() {
 	lipgloss.SetColorProfile(termenv.TrueColor)
-	maybeSpawnScans() // keep the quota cache fresh
 
 	var p Payload
-	json.NewDecoder(os.Stdin).Decode(&p)
+	raw, _ := io.ReadAll(os.Stdin)
+	json.Unmarshal(raw, &p)
 
 	cols := 130
 	if c := os.Getenv("COLUMNS"); c != "" {
 		fmt.Sscanf(c, "%d", &cols)
 	}
 
-	// ── read the sidecar caches ──
+	// state.json (brain advice / sprint / intent) — the only sidecar cache still used
 	st := readState()
-	var win struct {
-		Pct       *float64 `json:"pct"`
-		WeekPct   *float64 `json:"weekPct"`
-		MinsToCap *float64 `json:"minsToCap"`
-	}
-	readJSON(filepath.Join(home(), ".tokenmaxx", "window.json"), &win)
 
 	// ── compute display values ──
 	ctxPct := p.ContextWindow.UsedPct
@@ -292,13 +303,17 @@ func main() {
 	if total > 0 {
 		cache = cu.CacheRead / total
 	}
-	quota, haveQuota := 0.0, win.Pct != nil
-	if haveQuota {
-		quota = *win.Pct
-	}
-	week, haveWeek := 0.0, win.WeekPct != nil
-	if haveWeek {
-		week = *win.WeekPct
+	// session + weekly = Claude's REAL rate limits, straight from stdin (matches /usage)
+	quota, haveQuota := 0.0, false
+	week, haveWeek := 0.0, false
+	var qReset, wReset float64
+	if p.RateLimits != nil {
+		if fh := p.RateLimits.FiveHour; fh != nil {
+			quota, qReset, haveQuota = fh.UsedPercentage/100, fh.ResetsAt, true
+		}
+		if sd := p.RateLimits.SevenDay; sd != nil {
+			week, wReset, haveWeek = sd.UsedPercentage/100, sd.ResetsAt, true
+		}
 	}
 	usd := p.Cost.TotalCostUSD
 	fam := modelFamily(p.Model.DisplayName)
@@ -351,35 +366,21 @@ func main() {
 		return
 	}
 
-	// ── pane widths ──
-	inner := cols - 4
-	mW := 6
-	avail := inner - mW - 2 // M + two separators
-	cw := avail * 40 / 100
-	hw := avail * 36 / 100
-	ew := avail - cw - hw
+	// ── pane widths ── reserve a margin: Claude Code's COLUMNS overstates the usable
+	// area (it clips the last few cols + adds its own "…"), so render inside that box.
+	pw := cols - 3
+	if pw < 55 {
+		pw = 55
+	}
+	inner := pw - 4 // rounded border (2) + padding (2)
+	mW := 5         // the beveled M mark, on the LEFT so a right-edge clip never eats it
+	cw := 34        // console: gauges + meta
+	hw := inner - mW - cw - 6 // two " │ " separators = 6 cols
+	if hw < 12 {
+		hw = 12
+	}
 
-	// ── CONSOLE pane: three vertical bars (quota / weekly / temp) + legend ──
-	scol := GREEN
-	sTxt := fmt.Sprintf("%dm", left)
-	if left <= 5 {
-		scol = AMBER
-	}
-	if left <= 0 {
-		scol, sTxt = RED, "break?"
-	}
-	// a vertical bar cell: filled (with a top-lit sheen) if this row is within the fill
-	vc := func(frac float64, row int, col lipgloss.Color) string {
-		fill := int(math.Round(frac * 5))
-		if 5-row <= fill {
-			return fg(shade(col, 0.06-0.03*float64(row)), "██") // slight top-light
-		}
-		return fg(TRACK, "░░")
-	}
-	bars := make([]string, 5)
-	for i := 0; i < 5; i++ {
-		bars[i] = vc(quota, i, qcol) + " " + vc(week, i, wcol) + " " + vc(cache, i, tcol)
-	}
+	// ── CONSOLE pane: horizontal gauges (session / weekly / temp) + meta ──
 	qv, wv := "—", "—"
 	if haveQuota {
 		qv = fmt.Sprintf("%d%%", int(quota*100))
@@ -387,48 +388,45 @@ func main() {
 	if haveWeek {
 		wv = fmt.Sprintf("%d%%", int(week*100))
 	}
-	gitTxt := ""
+	qr, wr := "", ""
+	if s := resetIn(qReset); s != "" {
+		qr = " " + s
+	}
+	if s := resetIn(wReset); s != "" {
+		wr = " " + s
+	}
+	scol := DIM
+	if left <= 5 {
+		scol = AMBER
+	}
+	meta := fam
 	if branch != "" {
-		gitTxt = "  " + branch
+		meta += " · " + trunc(branch, 14)
 	}
-	legend := []string{
-		fg(hcol, "●") + fg(qcol, " Q ") + fg(DIM, "session ") + fg(qcol, qv),
-		fg(wcol, "  W ") + fg(DIM, "weekly ") + fg(wcol, wv),
-		fg(tcol, "  T ") + fg(DIM, "temp ") + fg(tcol, tword),
-		fg(DIM, "  "+fam) + fg(DIM, gitTxt),
-		fg(DIM, "  sprint ") + fg(scol, sTxt) + fg(DIM, fmt.Sprintf("  $%.0f  ctx %d%%", usd, int(ctxPct))),
+	const gw = 8 // gauge width
+	crow := []string{
+		fg(hcol, "● ") + fg(DIM, "session ") + bar(quota, gw, qcol) + fg(qcol, " "+qv) + fg(DIM, qr),
+		fg(DIM, "  weekly  ") + bar(week, gw, wcol) + fg(wcol, " "+wv) + fg(DIM, wr),
+		fg(DIM, "  temp    ") + fg(tcol, tword),
+		fg(DIM, "  "+meta) + fg(scol, fmt.Sprintf("  sprint %dm", left)),
+		fg(DIM, fmt.Sprintf("  $%.0f · ctx %d%%", usd, int(ctxPct))),
 	}
-	rows := make([]string, 5)
-	for i := 0; i < 5; i++ {
-		rows[i] = bars[i] + " " + legend[i]
-	}
-	console := strings.Join(rows, "\n")
+	console := strings.Join(crow, "\n")
 
-	// ── COACH pane (lipgloss wraps to width) ──
+	// ── COACH pane: product/build guidance, wrapped to width ──
 	ctext, ccol := coachLine(st, cache, ctxPct)
-	coachBody := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).Render(ctext)
-	coachBlock := fg(DIM, "coach") + "\n" + coachBody
+	coach := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).Render("↳ " + ctext)
 
-	// ── EVENTS pane (the .5) ──
-	items := events(st)
-	evLines := []string{fg(DIM, "events")}
-	for i := 0; i < 4 && i < len(items); i++ {
-		evLines = append(evLines, fg(INK, trunc("▸ "+items[i], ew)))
-	}
-	eventsBlock := strings.Join(evLines, "\n")
-
-	// ── assemble panes + separators + M ──
+	// ── assemble: M │ console │ coach ──
 	pane := func(w int) lipgloss.Style {
 		return lipgloss.NewStyle().Width(w).Height(5).Background(BG)
 	}
-	sep := pane(1).Foreground(DIM).Render(strings.Repeat("│\n", 4) + "│")
+	sep := pane(3).Foreground(DIM).Render(strings.Repeat(" │ \n", 4) + " │ ")
 	phase := float64(time.Now().Unix()%8) - 4 // shine sweep, advances each tick
-	mBlock := pane(mW).Align(lipgloss.Right).Render(strings.Join(mMarkRows(phase), "\n"))
+	mBlock := pane(mW).Render(strings.Join(mMarkRows(phase), "\n"))
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top,
-		pane(cw).Render(console), sep,
-		pane(hw).Render(coachBlock), sep,
-		pane(ew).Render(eventsBlock), mBlock,
+		mBlock, sep, pane(cw).Render(console), sep, pane(hw).Render(coach),
 	)
 
 	panel := lipgloss.NewStyle().
@@ -442,7 +440,9 @@ func main() {
 	fmt.Println(panel)
 }
 
-// coachLine: brain advice (fresh) > sprint intention > temp nudge > clean.
+// coachLine: product/build guidance. brain advice (fresh) > your sprint intention >
+// new-sprint prompt > context-weight nudge > a gentle ship reminder. No token tips —
+// the vibe coder wants "what should I build/ship next", not "warm your cache".
 func coachLine(st map[string]any, cache, ctxPct float64) (string, lipgloss.Color) {
 	adv, advTs := ss(st, "advice"), sf(st, "advice_ts")
 	if adv != "" && float64(time.Now().Unix())-advTs < 300 {
@@ -454,35 +454,10 @@ func coachLine(st map[string]any, cache, ctxPct float64) (string, lipgloss.Color
 	}
 	now := float64(time.Now().Unix())
 	if now-sess > 0 && now-sess < 180 && intent == "" {
-		return "new sprint — set your intention", AMBER
+		return "new sprint — what are you shipping?", AMBER
 	}
-	if cache < 0.6 {
-		return "warm cache reads ~10× cheaper; avoid 5-min idle gaps", AMBER
+	if ctxPct >= 75 {
+		return "context heavy — commit at a clean stop, then /compact", AMBER
 	}
-	return "running clean — nothing to fix", GREEN
-}
-
-// events: the discovery cache the node sidecar writes, else a sensible default.
-func events(st map[string]any) []string {
-	var disc []struct {
-		Title string `json:"title"`
-		Pts   int    `json:"points"`
-	}
-	if readJSON(filepath.Join(home(), ".tokenmaxx", "discovery.json"), &disc) && len(disc) > 0 {
-		out := make([]string, 0, len(disc))
-		for _, d := range disc {
-			if d.Pts > 0 {
-				out = append(out, fmt.Sprintf("%s · %dpts", d.Title, d.Pts))
-			} else {
-				out = append(out, d.Title)
-			}
-		}
-		return out
-	}
-	return []string{
-		"PeerTube v7 ships · 412pts",
-		"FFmpeg 9.1 AAC encoder · 294pts",
-		"Show HN: maxx · 188pts",
-		"Bevy 0.15 released · 233pts",
-	}
+	return "running clean — ship the smallest thing that works", GREEN
 }

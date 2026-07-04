@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * maxx brain — watches the back-and-forth and gives real-time advice.
+ * maxx brain — watches the back-and-forth and gives real-time build guidance.
  *
  * Fired by a Claude Code hook (Stop) each turn. Reads the recent transcript,
- * runs cheap heuristics for the reflexes (re-reads, edit loops, repeated
- * commands, cache death, thrash), and — when something's ambiguous — asks a
+ * runs cheap heuristics for the reflexes (edit thrash, command loops, circling
+ * the same file), and — when something's ambiguous — asks a
  * cheap Haiku call for judgment via the `claude` CLI (your existing auth, same
  * Anthropic your session already talks to). Writes the top nudge to the state
  * bus (~/.tokenmaxx/state.json); the statusline is the face that shows it.
@@ -82,7 +82,6 @@ function reflexes(turns) {
   const recent = turns.slice(-WINDOW);
   const signals = [];
   const reads = {}, edits = {}, cmds = {};
-  let idleReprime = 0;
   for (let i = 0; i < recent.length; i++) {
     const t = recent[i];
     for (const tl of t.tools) {
@@ -90,15 +89,12 @@ function reflexes(turns) {
       if ((tl.name === "Edit" || tl.name === "Write") && tl.path) edits[tl.path] = (edits[tl.path] || 0) + 1;
       if (tl.name === "Bash" && tl.cmd) { const k = tl.cmd.trim().slice(0, 60); cmds[k] = (cmds[k] || 0) + 1; }
     }
-    if (i > 0 && Number.isFinite(t.ts) && Number.isFinite(recent[i - 1].ts)
-        && t.ts - recent[i - 1].ts > 5 * 60000 && t.cc > 5000) idleReprime++;
   }
   const base = (o) => path.basename(Object.entries(o).sort((a, b) => b[1] - a[1])[0]?.[0] || "");
   const top = (o) => Math.max(0, ...Object.values(o));
   if (top(edits) >= 4) signals.push({ sev: 3, kind: "thrash", msg: `editing ${base(edits)} on repeat (${top(edits)}×) — stuck? step back or try a different angle` });
   if (top(cmds) >= 3) signals.push({ sev: 3, kind: "loop", msg: `re-running the same command (${top(cmds)}×) — it's not the input, change the approach` });
-  if (top(reads) >= 3) signals.push({ sev: 2, kind: "reread", msg: `re-reading ${base(reads)} (${top(reads)}×) — it's already in context; don't re-load it` });
-  if (idleReprime >= 1) signals.push({ sev: 1, kind: "cache", msg: `cache re-primed after an idle gap — keep sessions warm, ~10× cheaper` });
+  if (top(reads) >= 3) signals.push({ sev: 2, kind: "reread", msg: `circling ${base(reads)} (${top(reads)}×) — you've seen it; make the call and move` });
   signals.sort((a, b) => b.sev - a.sev);
   return signals;
 }
@@ -108,7 +104,7 @@ function reflexes(turns) {
 function judge(turns) {
   const acts = turns.slice(-WINDOW).flatMap(t => t.tools.map(x => x.name + (x.path ? " " + path.basename(x.path) : x.cmd ? " $cmd" : ""))).join(", ");
   if (!acts) return null;
-  const prompt = `You are a senior engineer watching a coding session over the shoulder. Recent tool actions, oldest first: ${acts}. Reply ONE short line, max 14 words: if they're stuck or spinning, name the likely fix; if they're wasting tokens (re-reading, not delegating a big search to a subagent, pasting), name it; otherwise reply exactly "ok". No preamble, no quotes.`;
+  const prompt = `You are a product-minded staff engineer watching a vibe-coder build, over their shoulder. Recent tool actions, oldest first: ${acts}. Reply ONE short line of BUILD guidance, max 14 words: if they're stuck or spinning, name the fix; if they're over-building or polishing too early, say ship the smallest thing that works; if they've built without running it, tell them to run it like a user; otherwise reply exactly "ok". No preamble, no quotes.`;
   // MAXX_BRAIN_CHILD flags claude's own Stop hook so a nested brain bails (no recursion).
   const r = spawnSync("claude", ["-p", "--model", "haiku", prompt],
                       { encoding: "utf8", timeout: 45000, env: { ...process.env, MAXX_BRAIN_CHILD: "1" } });
