@@ -4,13 +4,14 @@
  *
  * Reads Claude Code's stdin JSON (rate_limits.five_hour/seven_day = the real
  * session/weekly walls, same numbers as /usage) + ~/.tokenmaxx/state.json the brain
- * writes (advice / intent / presence), then paints the cockpit: M mark │ gauges │ coach.
+ * writes (advice / intent / presence), then paints a clean two-pane cockpit:
+ * quota + model on the left, a coach thought on the right, presence at the edges.
  *
  * Ships as plain Node because the rest of maxx already needs Node (the /maxx skill
- * and the coach hook) — so there's nothing extra to install, and nothing to compile
- * or cross-build. A tiny ANSI compositor stands in for lipgloss.
+ * and the coach hook) — nothing extra to install, nothing to compile. A tiny ANSI
+ * compositor stands in for lipgloss.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -32,27 +33,11 @@ function hsl2hex(h, s, l) {
   const to = (x) => Math.round(x * 255).toString(16).padStart(2, "0");
   return `#${to(r)}${to(g)}${to(b)}`;
 }
-function hex2hsl(hex) {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0; const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h /= 6;
-  }
-  return { h: h * 360, s, l };
-}
-function shade(hex, dl) { const { h, s, l } = hex2hsl(hex); return hsl2hex(h, s, Math.max(0, Math.min(1, l + dl))); }
-
 const hsl = hsl2hex;
 const BRAND = hsl(270, 0.58, 0.52);
 const DIM   = hsl(270, 0.30, 0.50);
-const TRACK = hsl(270, 0.35, 0.80);
 const BG    = hsl(270, 0.55, 0.88);
+const INK   = hsl(270, 0.48, 0.30);
 const GREEN = "#2fa84a";
 const AMBER = "#d69e2e";
 const RED   = "#e0433c";
@@ -65,7 +50,6 @@ function esc(fgHex, bgHex, s) {
   return `\x1b[38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
 }
 const fg = (c, s) => esc(c, BG, s);
-const fg2 = (fc, bc, s) => esc(fc, bc, s); // for a gauge's partial cell (rail behind)
 
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 const dispWidth = (s) => [...stripAnsi(s)].length;
@@ -84,36 +68,6 @@ function padLine(s, w, align = "left") {
   return s + blank(extra);
 }
 
-// ─── the beveled M: top-lit gradient + a diagonal shine that sweeps with phase ──
-const mPattern = ["█   █", "██ ██", "█ █ █", "█   █", "█   █"];
-function mMarkRows(phase) {
-  return mPattern.map((row, r) => [...row].map((ch, c) => {
-    if (ch !== "█") return fg(BG, " ");
-    const base = 0.66 - 0.26 * (r / 4);
-    const shine = Math.max(0, 1 - Math.abs((c - r) - phase) / 1.5);
-    const l = Math.min(0.98, base + 0.30 * shine);
-    return fg(hsl(270, 0.64, l), "█");
-  }).join(""));
-}
-
-// ─── gauge: smooth sub-cell gradient rail (the lipgloss/true-color payoff) ──────
-const eighths = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
-function gauge(frac, width, col) {
-  frac = Math.max(0, Math.min(1, frac));
-  const units = frac * width;
-  const whole = Math.floor(units);
-  const grad = (i) => shade(col, -0.14 + 0.24 * (width > 1 ? i / (width - 1) : 0));
-  let out = "";
-  for (let i = 0; i < whole; i++) out += fg(grad(i), "█");
-  let used = whole;
-  if (whole < width) {
-    const e = Math.round((units - whole) * 8);
-    if (e > 0) { out += fg2(grad(whole), TRACK, eighths[e]); used++; }
-  }
-  if (used < width) out += fg(TRACK, "█".repeat(width - used));
-  return out;
-}
-
 function resetIn(ts) {
   if (!ts || ts <= 0) return "";
   const d = ts - Date.now() / 1000;
@@ -129,6 +83,7 @@ const HOME = homedir();
 const readJSON = (p, d = {}) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
 const statePath = path.join(HOME, ".tokenmaxx", "state.json");
 const sprintPath = path.join(HOME, ".tokenmaxx", "sprint.json");
+const sessionsCache = path.join(HOME, ".tokenmaxx", ".sessions");
 
 // sprint timing lives in its OWN file so this 1s renderer and the per-turn brain
 // never write the same JSON (state.json is brain-owned; we only read it).
@@ -139,6 +94,21 @@ function sprintTimer(sp) {
   if (start === 0 || now - last > 300 || now - start >= 1800) start = now;
   sp.sess_start = start; sp.sess_last = now;
   return { left: Math.max(1, Math.round(30 - (now - start) / 60)), start };
+}
+
+// YOUR concurrent sessions: transcripts across ~/.claude/projects touched in the last
+// 5 min. Throttled (~20s cache) so we don't walk the whole history every render tick.
+function localSessions() {
+  try { const c = JSON.parse(readFileSync(sessionsCache, "utf8")); if (Date.now() - c.at < 20000) return c.n; } catch {}
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  let n = 0;
+  const walk = (d) => { let es; try { es = readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of es) { const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else if (e.name.endsWith(".jsonl")) { try { if (statSync(f).mtimeMs > cutoff) n++; } catch {} } } };
+  walk(path.join(HOME, ".claude", "projects"));
+  try { writeFileSync(sessionsCache, JSON.stringify({ at: Date.now(), n })); } catch {}
+  return n;
 }
 
 function tryRead(p) { try { return readFileSync(p, "utf8").trim(); } catch { return null; } }
@@ -201,7 +171,7 @@ function wrap(text, w) {
 function main() {
   let p = {};
   try { p = JSON.parse(readFileSync(0, "utf8")); } catch {}
-  let cols = parseInt(process.env.COLUMNS || "130", 10) || 130;
+  const cols = parseInt(process.env.COLUMNS || "130", 10) || 130;
 
   const st = readJSON(statePath);
   const cw_ = p.context_window || {};
@@ -214,8 +184,6 @@ function main() {
   const haveQuota = !!rl.five_hour, haveWeek = !!rl.seven_day;
   const quota = haveQuota ? (rl.five_hour.used_percentage || 0) / 100 : 0;
   const week = haveWeek ? (rl.seven_day.used_percentage || 0) / 100 : 0;
-  const qReset = haveQuota ? rl.five_hour.resets_at : 0;
-  const wReset = haveWeek ? rl.seven_day.resets_at : 0;
 
   const usd = (p.cost || {}).total_cost_usd || 0;
   const fam = modelFamily((p.model || {}).display_name);
@@ -225,6 +193,9 @@ function main() {
   const { left, start: sprintStart } = sprintTimer(sp);
   try { writeFileSync(sprintPath, JSON.stringify(sp)); } catch {}
 
+  const mine = localSessions();          // your concurrent sessions
+  const others = st.pres_people || 0;    // global — from the brain's presence fetch
+
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
   const qcol = col(quota), wcol = col(week);
   let tword = "cool", tcol = GREEN;
@@ -233,53 +204,47 @@ function main() {
   if (quota >= 0.9 || week >= 0.9) hcol = RED;
   else if (quota >= 0.75 || week >= 0.75 || cache < 0.6) hcol = AMBER;
 
+  const qv = haveQuota ? `${Math.floor(quota * 100)}%` : "—";
+  const wv = haveWeek ? `${Math.floor(week * 100)}%` : "—";
+  const qr = resetIn(haveQuota ? rl.five_hour.resets_at : 0);
+  const wr = resetIn(haveWeek ? rl.seven_day.resets_at : 0);
+
   // narrow terminal: one compact line
   if (cols < 88) {
-    let l = fg(hcol, "●");
-    if (haveQuota) l += " " + gauge(quota, 6, qcol) + fg(qcol, ` ${Math.floor(quota * 100)}%`);
+    let l = fg(DIM, "session ") + fg(qcol, qv);
     l += fg(DIM, "  ") + fg(tcol, tword);
     const [ct, cc] = coachLine(st, ctxPct, sprintStart);
-    l += fg(DIM, "  ") + fg(cc, trunc(ct, cols - 22));
+    l += fg(DIM, "  ") + fg(cc, trunc(ct, cols - 24));
     process.stdout.write(padLine(l, cols) + "\n");
     return;
   }
 
-  let pw = Math.max(55, cols - 3);
-  const inner = pw - 4, mW = 5;
-  let cw = Math.floor(inner * 42 / 100); cw = Math.max(34, Math.min(64, cw));
-  const hw = Math.max(12, inner - mW - cw - 6);
-  let gw = cw - 24; gw = Math.max(8, Math.min(26, gw));
+  const pw = Math.max(55, cols - 3);
+  const inner = pw - 4;
+  let cw = Math.floor(inner * 40 / 100); cw = Math.max(30, Math.min(52, cw));
+  const hw = Math.max(12, inner - cw - 3); // one " │ " separator
 
-  const qv = haveQuota ? `${Math.floor(quota * 100)}%` : "—";
-  const wv = haveWeek ? `${Math.floor(week * 100)}%` : "—";
-  const qr = resetIn(qReset) ? " " + resetIn(qReset) : "";
-  const wr = resetIn(wReset) ? " " + resetIn(wReset) : "";
   const scol = left <= 5 ? AMBER : DIM;
-  const bcap = Math.max(12, cw - 18);
+  const bcap = Math.max(12, cw - 20);
   const meta = fam + (branch ? " · " + trunc(branch, bcap) : "");
+  const sessTxt = mine > 1 ? fg(DIM, "  ·  ") + fg(INK, `${mine}`) + fg(DIM, " sessions") : "";
 
   const crow = [
-    fg(hcol, "● ") + fg(DIM, "session ") + gauge(quota, gw, qcol) + fg(qcol, " " + qv) + fg(DIM, qr),
-    fg(DIM, "  weekly  ") + gauge(week, gw, wcol) + fg(wcol, " " + wv) + fg(DIM, wr),
-    fg(DIM, "  temp    ") + fg(tcol, tword), // a word, not a gauge: full temp = good, full session = bad
-    fg(DIM, "  " + meta) + fg(scol, `  sprint ${left}m`),
-    fg(DIM, `  $${Math.round(usd)} · ctx ${Math.floor(ctxPct)}%`),
+    fg(DIM, "session  ") + fg(qcol, qv) + (qr ? fg(DIM, "  " + qr) : ""),
+    fg(DIM, "weekly   ") + fg(wcol, wv) + (wr ? fg(DIM, "  " + wr) : ""),
+    fg(DIM, "temp     ") + fg(tcol, tword),
+    fg(DIM, meta) + fg(scol, `  sprint ${left}m`),
+    fg(DIM, `$${Math.round(usd)} · ctx ${Math.floor(ctxPct)}%`) + sessTxt,
   ];
 
   let [ctext, ccol] = coachLine(st, ctxPct, sprintStart);
   if (hcol === GREEN && ccol === AMBER) ccol = BRAND; // cool state → calm, no orange
   const thoughtRows = pane(wrap("▸ " + ctext, hw).map((l) => fg(ccol, l)), hw, 4, "center", "center");
-  let foot = "thanks for using /maxx";
-  const pp = st.pres_people || 0, pc = st.pres_countries || 0;
-  if (pp > 0 && pc > 0) foot = `${pp} maxxing · ${pc} countries · ${foot}`;
+  const foot = others > 0 ? `vibing with ${others} online` : "thanks for using /maxx";
   const coachRows = [...thoughtRows, padLine(fg(DIM, trunc(foot, hw)), hw, "right")];
 
-  const phase = (Math.floor(Date.now() / 1000) % 8) - 4;
   const sep = Array(5).fill(fg(DIM, " │ "));
-  const row = joinH(
-    pane(mMarkRows(phase), mW, 5), sep,
-    pane(crow, cw, 5), sep, coachRows,
-  );
+  const row = joinH(pane(crow, cw, 5), sep, coachRows);
 
   // rounded border with the panel bg, padding(0,1)
   const line = (s) => fg(BORDER, "│") + blank(1) + padLine(s, inner) + blank(1) + fg(BORDER, "│");
