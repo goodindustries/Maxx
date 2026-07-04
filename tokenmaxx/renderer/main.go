@@ -429,13 +429,22 @@ func main() {
 	}
 	console := strings.Join(crow, "\n")
 
-	// ── COACH pane: one thing to think about — calm when the state is calm ──
+	// ── COACH pane: a centered thought (top 4 rows) + a bottom-right footer ──
 	ctext, ccol := coachLine(st, cache, ctxPct)
 	if hcol == GREEN && ccol == AMBER {
 		ccol = BRAND // cool/healthy → a reflective nudge, not an alarm (no orange)
 	}
-	coach := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).
-		Align(lipgloss.Center).Render("▸ " + ctext)
+	thought := lipgloss.NewStyle().Width(hw).Height(4).Background(BG).Foreground(ccol).
+		Align(lipgloss.Center).AlignVertical(lipgloss.Center).Render("▸ " + ctext)
+	// presence + sign-off, pinned bottom-right. Counts show only when the brain has
+	// fetched them (pres_* on the bus); otherwise just the sign-off — no fake numbers.
+	foot := "thanks for using /maxx"
+	if pp, pc := int(sf(st, "pres_people")), int(sf(st, "pres_countries")); pp > 0 && pc > 0 {
+		foot = fmt.Sprintf("%d maxxing · %d countries · %s", pp, pc, foot)
+	}
+	footer := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(DIM).
+		Align(lipgloss.Right).Render(trunc(foot, hw))
+	coachPane := lipgloss.JoinVertical(lipgloss.Left, thought, footer)
 
 	// ── assemble: M │ console │ coach ──
 	pane := func(w int) lipgloss.Style {
@@ -444,8 +453,6 @@ func main() {
 	sep := pane(3).Foreground(DIM).Render(strings.Repeat(" │ \n", 4) + " │ ")
 	phase := float64(time.Now().Unix()%8) - 4 // shine sweep, advances each tick
 	mBlock := pane(mW).Render(strings.Join(mMarkRows(phase), "\n"))
-	// vertically center the thought so it sits in the pane instead of marooned top-left
-	coachPane := pane(hw).AlignVertical(lipgloss.Center).Render(coach)
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top,
 		mBlock, sep, pane(cw).Render(console), sep, coachPane,
@@ -467,7 +474,9 @@ func main() {
 // the vibe coder wants "what should I build/ship next", not "warm your cache".
 func coachLine(st map[string]any, cache, ctxPct float64) (string, lipgloss.Color) {
 	adv, advTs := ss(st, "advice"), sf(st, "advice_ts")
-	if adv != "" && float64(time.Now().Unix())-advTs < 300 {
+	// advice_ts is written by the brain in ms (Date.now()); compare in ms so a stale
+	// thought actually expires (~5 min) instead of lingering forever.
+	if adv != "" && float64(time.Now().UnixMilli())-advTs < 300_000 {
 		return adv, AMBER
 	}
 	intent, intentStart, sess := ss(st, "intent"), sf(st, "intent_start"), sf(st, "sess_start")

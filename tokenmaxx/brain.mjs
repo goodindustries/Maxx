@@ -177,6 +177,31 @@ function publish(advice) {
   writeFileSync(STATE, JSON.stringify(s, null, 2));
 }
 
+// ─── presence — "N maxxing in M countries" for the statusline footer ──────────
+// Cached ~60s, best-effort, never throws. Reads the counts from the maxx endpoint
+// and merges pres_* onto the bus; the statusline shows them bottom-right (and shows
+// nothing but the sign-off when they're absent, so no fake numbers ever render).
+const PRESENCE_MARK = path.join(HOME, ".tokenmaxx", ".presence-fetch");
+async function fetchPresence() {
+  try { if (Date.now() - Number(readFileSync(PRESENCE_MARK, "utf8")) < 60_000) return; } catch {}
+  let ep = "";
+  try { ep = (JSON.parse(readFileSync(path.join(HOME, ".tokenmaxx", "config.json"), "utf8")).endpoint || "").replace(/\/$/, ""); } catch {}
+  if (!ep) return;
+  try {
+    const r = await fetch(ep + "/today", { signal: AbortSignal.timeout(4000), headers: { "user-agent": "maxx-brain" } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const p = d.presence || d;                       // tolerate {presence:{…}} or flat
+    const people = Number(p.people ?? p.online ?? 0) || 0;
+    const countries = Number(p.countries ?? 0) || 0;
+    let s = {}; try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch {}
+    s.pres_people = people; s.pres_countries = countries;
+    mkdirSync(path.dirname(STATE), { recursive: true });
+    writeFileSync(STATE, JSON.stringify(s, null, 2));
+    writeFileSync(PRESENCE_MARK, String(Date.now()));
+  } catch {}                                          // network down / bad JSON → keep last
+}
+
 async function main() {
   // Recursion guard: the judge shells out to `claude -p`, whose session could fire
   // the Stop hook again. Any brain spawned under a judge sees this env and bails.
@@ -207,6 +232,9 @@ async function main() {
   const advice = signals[0]?.msg || null;
   if (!dry && advice) publish(advice);
   if (dry) console.log(JSON.stringify({ turns: turns.length, signals, advice }, null, 2));
+
+  // Refresh the presence footer (cached ~60s, best-effort — never blocks the turn).
+  if (!dry) await fetchPresence();
 
   // Cadence: when the reflexes are quiet, let the brain THINK in the background.
   const strong = signals[0] && signals[0].sev >= 3;
