@@ -73,6 +73,12 @@ func fg(c lipgloss.Color, s string) string {
 	return lipgloss.NewStyle().Foreground(c).Background(BG).Render(s)
 }
 
+// fg2 renders text with an explicit background — used for a gauge's partial cell so
+// the sub-block's unfilled half shows the rail color, not the panel band (seamless).
+func fg2(fc, bc lipgloss.Color, s string) string {
+	return lipgloss.NewStyle().Foreground(fc).Background(bc).Render(s)
+}
+
 // shade nudges a color's lightness (±) for gradients / sheen.
 func shade(c lipgloss.Color, dl float64) lipgloss.Color {
 	cc, err := colorful.Hex(string(c))
@@ -97,10 +103,10 @@ func mMarkRows(phase float64) []string {
 				b.WriteString(fg(BG, " "))
 				continue
 			}
-			base := 0.62 - 0.22*(float64(r)/4.0) // top lighter, bottom darker
-			shine := math.Max(0, 1-math.Abs((float64(c)-float64(r))-phase)/1.8)
-			l := math.Min(0.97, base+0.26*shine)
-			b.WriteString(fg(hsl(270, 0.55, l), "█"))
+			base := 0.66 - 0.26*(float64(r)/4.0) // top lit, bottom deep
+			shine := math.Max(0, 1-math.Abs((float64(c)-float64(r))-phase)/1.5)
+			l := math.Min(0.98, base+0.30*shine)
+			b.WriteString(fg(hsl(270, 0.64, l), "█"))
 		}
 		out[r] = b.String()
 	}
@@ -178,12 +184,18 @@ func readState() map[string]any {
 	return m
 }
 
-func writeState(m map[string]any) {
-	b, err := json.Marshal(m)
-	if err != nil {
-		return
+// sprint timing lives in its OWN file so the 1s renderer and the per-turn brain never
+// write the same JSON — no clobbering. state.json is now brain-owned (read-only here).
+func readSprint() map[string]float64 {
+	m := map[string]float64{}
+	readJSON(filepath.Join(home(), ".tokenmaxx", "sprint.json"), &m)
+	return m
+}
+
+func writeSprint(m map[string]float64) {
+	if b, err := json.Marshal(m); err == nil {
+		os.WriteFile(filepath.Join(home(), ".tokenmaxx", "sprint.json"), b, 0o644)
 	}
-	os.WriteFile(filepath.Join(home(), ".tokenmaxx", "state.json"), b, 0o644)
 }
 
 func sf(m map[string]any, k string) float64 {
@@ -200,19 +212,20 @@ func ss(m map[string]any, k string) string {
 }
 
 // micro-sprint countdown (mins left in a 30-min block). Auto-cycles: a fresh sprint
-// starts every 30 min, or after a >5min idle gap — so it never sticks at 0.
-func sprintTimer(st map[string]any) int {
+// starts every 30 min, or after a >5min idle gap — so it never sticks at 0. Returns
+// (mins left, sprint start) so the coach can detect a fresh sprint.
+func sprintTimer(sp map[string]float64) (int, float64) {
 	now := float64(time.Now().Unix())
-	last, start := sf(st, "sess_last"), sf(st, "sess_start")
+	last, start := sp["sess_last"], sp["sess_start"]
 	if start == 0 || now-last > 300 || now-start >= 1800 {
 		start = now
 	}
-	st["sess_start"], st["sess_last"] = start, now
+	sp["sess_start"], sp["sess_last"] = start, now
 	m := int(math.Round(30 - (now-start)/60))
 	if m < 1 {
 		m = 1
 	}
-	return m
+	return m, start
 }
 
 // git branch from .git/HEAD, walking up from the project dir.
@@ -242,30 +255,47 @@ func modelFamily(name string) string {
 	case strings.Contains(l, "sonnet"):
 		return "Sonnet"
 	}
-	if len(name) > 8 {
-		return name[:8]
+	if r := []rune(name); len(r) > 8 {
+		return string(r[:8])
 	}
 	return name
 }
 
-// horizontal gauge bar: filled cells in `col`, track in TRACK, on the panel bg.
-func bar(frac float64, width int, col lipgloss.Color) string {
+// gauge: a smooth sub-cell progress rail. The fill is a dark→bright gradient in `col`;
+// 1/8-block glyphs give sub-cell precision (so 94% never reads as a full/100% bar),
+// and the remainder is a solid TRACK rail. This is the lipgloss/true-color payoff.
+var eighths = []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+
+func gauge(frac float64, width int, col lipgloss.Color) string {
 	if frac < 0 {
 		frac = 0
 	}
 	if frac > 1 {
 		frac = 1
 	}
-	fl := int(math.Round(frac * float64(width)))
-	var b strings.Builder
-	for i := 0; i < fl; i++ { // dark→light sheen across the fill
+	units := frac * float64(width)
+	whole := int(units)
+	grad := func(i int) lipgloss.Color { // dark→bright along the fill
 		t := 0.0
-		if fl > 1 {
-			t = float64(i) / float64(fl-1)
+		if width > 1 {
+			t = float64(i) / float64(width-1)
 		}
-		b.WriteString(fg(shade(col, -0.10+0.18*t), "█"))
+		return shade(col, -0.14+0.24*t)
 	}
-	b.WriteString(fg(TRACK, strings.Repeat("░", width-fl)))
+	var b strings.Builder
+	for i := 0; i < whole; i++ {
+		b.WriteString(fg(grad(i), "█"))
+	}
+	used := whole
+	if whole < width { // partial cell: fill-color left, rail-color right
+		if e := int((units-float64(whole))*8 + 0.5); e > 0 {
+			b.WriteString(fg2(grad(whole), TRACK, eighths[e]))
+			used++
+		}
+	}
+	if used < width {
+		b.WriteString(fg(TRACK, strings.Repeat("█", width-used)))
+	}
 	return b.String()
 }
 
@@ -318,8 +348,9 @@ func main() {
 	usd := p.Cost.TotalCostUSD
 	fam := modelFamily(p.Model.DisplayName)
 	branch := gitBranch(p.Workspace.ProjectDir)
-	left := sprintTimer(st)
-	writeState(st)
+	sp := readSprint()
+	left, sprintStart := sprintTimer(sp)
+	writeSprint(sp)
 
 	// quota color — the vibe coder's wall, the only red
 	qcol := GREEN
@@ -357,10 +388,10 @@ func main() {
 	if cols < 88 {
 		l := fg(hcol, "●")
 		if haveQuota {
-			l += " " + bar(quota, 5, qcol) + fg(qcol, fmt.Sprintf(" %d%%", int(quota*100)))
+			l += " " + gauge(quota, 6, qcol) + fg(qcol, fmt.Sprintf(" %d%%", int(quota*100)))
 		}
 		l += fg(DIM, "  ") + fg(tcol, tword)
-		ct, cc := coachLine(st, cache, ctxPct)
+		ct, cc := coachLine(st, ctxPct, sprintStart)
 		l += fg(DIM, "  ") + fg(cc, trunc(ct, cols-22))
 		fmt.Println(lipgloss.NewStyle().Background(BG).Render(l))
 		return
@@ -421,16 +452,16 @@ func main() {
 		meta += " · " + trunc(branch, bcap)
 	}
 	crow := []string{
-		fg(hcol, "● ") + fg(DIM, "session ") + bar(quota, gw, qcol) + fg(qcol, " "+qv) + fg(DIM, qr),
-		fg(DIM, "  weekly  ") + bar(week, gw, wcol) + fg(wcol, " "+wv) + fg(DIM, wr),
-		fg(DIM, "  temp    ") + fg(tcol, tword),
+		fg(hcol, "● ") + fg(DIM, "session ") + gauge(quota, gw, qcol) + fg(qcol, " "+qv) + fg(DIM, qr),
+		fg(DIM, "  weekly  ") + gauge(week, gw, wcol) + fg(wcol, " "+wv) + fg(DIM, wr),
+		fg(DIM, "  temp    ") + gauge(cache, gw, tcol) + fg(tcol, " "+tword),
 		fg(DIM, "  "+meta) + fg(scol, fmt.Sprintf("  sprint %dm", left)),
 		fg(DIM, fmt.Sprintf("  $%.0f · ctx %d%%", usd, int(ctxPct))),
 	}
 	console := strings.Join(crow, "\n")
 
 	// ── COACH pane: a centered thought (top 4 rows) + a bottom-right footer ──
-	ctext, ccol := coachLine(st, cache, ctxPct)
+	ctext, ccol := coachLine(st, ctxPct, sprintStart)
 	if hcol == GREEN && ccol == AMBER {
 		ccol = BRAND // cool/healthy → a reflective nudge, not an alarm (no orange)
 	}
@@ -472,19 +503,19 @@ func main() {
 // coachLine: product/build guidance. brain advice (fresh) > your sprint intention >
 // new-sprint prompt > context-weight nudge > a gentle ship reminder. No token tips —
 // the vibe coder wants "what should I build/ship next", not "warm your cache".
-func coachLine(st map[string]any, cache, ctxPct float64) (string, lipgloss.Color) {
+func coachLine(st map[string]any, ctxPct, sprintStart float64) (string, lipgloss.Color) {
 	adv, advTs := ss(st, "advice"), sf(st, "advice_ts")
 	// advice_ts is written by the brain in ms (Date.now()); compare in ms so a stale
 	// thought actually expires (~5 min) instead of lingering forever.
 	if adv != "" && float64(time.Now().UnixMilli())-advTs < 300_000 {
 		return adv, AMBER
 	}
-	intent, intentStart, sess := ss(st, "intent"), sf(st, "intent_start"), sf(st, "sess_start")
-	if intent != "" && math.Abs(intentStart-sess) < 1 {
+	intent, intentStart := ss(st, "intent"), sf(st, "intent_start")
+	if intent != "" && math.Abs(intentStart-sprintStart) < 1 {
 		return "→ " + intent, BRAND
 	}
 	now := float64(time.Now().Unix())
-	if now-sess > 0 && now-sess < 180 && intent == "" {
+	if now-sprintStart > 0 && now-sprintStart < 180 && intent == "" {
 		return "new sprint — what are you shipping?", AMBER
 	}
 	if ctxPct >= 75 {

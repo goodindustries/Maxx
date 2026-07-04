@@ -15,7 +15,7 @@
  *   node brain.mjs --dry           # print the verdict, don't write the bus
  *   node brain.mjs --judge         # also run the Haiku judgment layer
  */
-import { createReadStream, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync, renameSync, mkdirSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
@@ -170,11 +170,17 @@ function markJudged() {
 }
 
 // ─── write the verdict to the state bus (the face reads this) ─────────────────
+// Atomic write: temp + rename, so the 1s renderer never reads a half-written file.
+function writeStateAtomic(s) {
+  mkdirSync(path.dirname(STATE), { recursive: true });
+  const tmp = `${STATE}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(s, null, 2));
+  renameSync(tmp, STATE);
+}
 function publish(advice) {
   let s = {}; try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch {}
   s.advice = advice; s.advice_ts = Date.now();
-  mkdirSync(path.dirname(STATE), { recursive: true });
-  writeFileSync(STATE, JSON.stringify(s, null, 2));
+  writeStateAtomic(s);
 }
 
 // ─── presence — "N maxxing in M countries" for the statusline footer ──────────
@@ -196,8 +202,7 @@ async function fetchPresence() {
     const countries = Number(p.countries ?? 0) || 0;
     let s = {}; try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch {}
     s.pres_people = people; s.pres_countries = countries;
-    mkdirSync(path.dirname(STATE), { recursive: true });
-    writeFileSync(STATE, JSON.stringify(s, null, 2));
+    writeStateAtomic(s);
     writeFileSync(PRESENCE_MARK, String(Date.now()));
   } catch {}                                          // network down / bad JSON → keep last
 }
