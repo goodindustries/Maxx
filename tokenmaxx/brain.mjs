@@ -127,9 +127,11 @@ function redact(s) {
 }
 
 // ─── judgment — the smart layer (cheap Haiku via your existing claude CLI) ────
-// Three lenses over the session: STUCK (name the fix), PRODUCT (a slight build hint
-// from what they're making), PROMPT (coach how they're prompting). Tool actions are
-// content-light (names + basenames); prompt text is redacted first.
+// A calm, Naval-esque advisor beside the builder. Prefers a QUESTION over a command
+// — one thing to think about, given the context. Lenses: PRODUCT (a context-based
+// "have you thought about X?"), PROMPT (coach how they're prompting), STUCK (a gentle
+// reframe). Tool actions are content-light (names + basenames); prompt text is
+// redacted first.
 function judge(turns) {
   const recent = turns.slice(-WINDOW);
   const acts = recent.flatMap(t => t.tools.map(x => x.name + (x.path ? " " + path.basename(x.path) : x.cmd ? " $cmd" : ""))).join(", ");
@@ -139,17 +141,18 @@ function judge(turns) {
     .map(t => "• " + redact(t.text).replace(/\s+/g, " ").slice(0, 180))
     .join("\n");
   if (!acts && !prompts) return null;
-  const prompt = `You are a sharp product-minded staff engineer AND prompt coach, watching a vibe-coder build over their shoulder.
+  const prompt = `You are a calm, Naval-Ravikant-style advisor sitting beside a builder — pithy, first-principles, never bossy. You watch their session and offer ONE thing to think about, as a question or a short aphorism (max 15 words).
 
 Recent tool actions (oldest first): ${acts || "(none)"}
 
 Their recent prompts to the AI (redacted): ${prompts || "(none)"}
 
-Reply with the SINGLE most useful nudge as ONE short line (max 15 words), picking the best lens:
-- PRODUCT: over-building, missing a UI, skipping the risky/money path, or could ship a thinner slice — give a concrete product hint.
-- PROMPT: their prompt is vague, pastes instead of referencing a file, bundles multiple goals, or omits a done-condition — coach the prompt.
-- STUCK: they're spinning — name the likely fix.
-If it all looks healthy, reply exactly "ok". No preamble, no quotes, no markdown.`;
+Pick the single most useful nudge, in this spirit:
+- PRODUCT (prefer this): a context-based open question — e.g. "have you thought about who this is for?", "what's the one feature that makes the rest optional?", "is this leverage or busywork?", "what would make this 10x simpler?". Be specific to what they're building.
+- PROMPT: if their prompting costs them, ask it — "could you point it at the file instead of pasting?", "what's your done-condition here?".
+- STUCK: if they're clearly spinning — "what if the approach is the problem, not the input?".
+
+Prefer a question over a command. If nothing earns a line, reply exactly "ok". No preamble, no quotes, no markdown.`;
   // MAXX_BRAIN_CHILD flags claude's own Stop hook so a nested brain bails (no recursion).
   const r = spawnSync("claude", ["-p", "--model", "haiku", prompt],
                       { encoding: "utf8", timeout: 45000, env: { ...process.env, MAXX_BRAIN_CHILD: "1" } });

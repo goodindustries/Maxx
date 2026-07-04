@@ -374,10 +374,23 @@ func main() {
 	}
 	inner := pw - 4 // rounded border (2) + padding (2)
 	mW := 5         // the beveled M mark, on the LEFT so a right-edge clip never eats it
-	cw := 34        // console: gauges + meta
+	cw := inner * 42 / 100 // console scales with the terminal — use the width
+	if cw < 34 {
+		cw = 34
+	}
+	if cw > 64 {
+		cw = 64
+	}
 	hw := inner - mW - cw - 6 // two " │ " separators = 6 cols
 	if hw < 12 {
 		hw = 12
+	}
+	gw := cw - 24 // gauges grow with the console
+	if gw < 8 {
+		gw = 8
+	}
+	if gw > 26 {
+		gw = 26
 	}
 
 	// ── CONSOLE pane: horizontal gauges (session / weekly / temp) + meta ──
@@ -399,11 +412,14 @@ func main() {
 	if left <= 5 {
 		scol = AMBER
 	}
+	bcap := cw - 18
+	if bcap < 12 {
+		bcap = 12
+	}
 	meta := fam
 	if branch != "" {
-		meta += " · " + trunc(branch, 14)
+		meta += " · " + trunc(branch, bcap)
 	}
-	const gw = 8 // gauge width
 	crow := []string{
 		fg(hcol, "● ") + fg(DIM, "session ") + bar(quota, gw, qcol) + fg(qcol, " "+qv) + fg(DIM, qr),
 		fg(DIM, "  weekly  ") + bar(week, gw, wcol) + fg(wcol, " "+wv) + fg(DIM, wr),
@@ -413,9 +429,13 @@ func main() {
 	}
 	console := strings.Join(crow, "\n")
 
-	// ── COACH pane: product/build guidance, wrapped to width ──
+	// ── COACH pane: one thing to think about — calm when the state is calm ──
 	ctext, ccol := coachLine(st, cache, ctxPct)
-	coach := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).Render("▸ " + ctext)
+	if hcol == GREEN && ccol == AMBER {
+		ccol = BRAND // cool/healthy → a reflective nudge, not an alarm (no orange)
+	}
+	coach := lipgloss.NewStyle().Width(hw).Background(BG).Foreground(ccol).
+		Align(lipgloss.Center).Render("▸ " + ctext)
 
 	// ── assemble: M │ console │ coach ──
 	pane := func(w int) lipgloss.Style {
@@ -424,9 +444,11 @@ func main() {
 	sep := pane(3).Foreground(DIM).Render(strings.Repeat(" │ \n", 4) + " │ ")
 	phase := float64(time.Now().Unix()%8) - 4 // shine sweep, advances each tick
 	mBlock := pane(mW).Render(strings.Join(mMarkRows(phase), "\n"))
+	// vertically center the thought so it sits in the pane instead of marooned top-left
+	coachPane := pane(hw).AlignVertical(lipgloss.Center).Render(coach)
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top,
-		mBlock, sep, pane(cw).Render(console), sep, pane(hw).Render(coach),
+		mBlock, sep, pane(cw).Render(console), sep, coachPane,
 	)
 
 	panel := lipgloss.NewStyle().
