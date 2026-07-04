@@ -194,7 +194,8 @@ function main() {
   try { writeFileSync(sprintPath, JSON.stringify(sp)); } catch {}
 
   const mine = localSessions();          // your concurrent sessions
-  const others = st.pres_people || 0;    // global — from the brain's presence fetch
+  const onlineN = st.pres_people || 0;   // global count from the brain's presence fetch
+  const who = Array.isArray(st.pres_who) ? st.pres_who : []; // others' handles (not you)
 
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
   const qcol = col(quota), wcol = col(week);
@@ -240,7 +241,15 @@ function main() {
   let [ctext, ccol] = coachLine(st, ctxPct, sprintStart);
   if (hcol === GREEN && ccol === AMBER) ccol = BRAND; // cool state → calm, no orange
   const thoughtRows = pane(wrap("▸ " + ctext, hw).map((l) => fg(ccol, l)), hw, 4, "center", "center");
-  const foot = others > 0 ? `vibing with ${others} online` : "thanks for using /maxx";
+  // who's online right now: prefer handles, else a bare count of others, else sign-off
+  let foot = "thanks for using /maxx";
+  if (who.length) {
+    const shown = who.slice(0, 2).join(", ");
+    const extra = who.length - Math.min(2, who.length);
+    foot = `vibing with ${shown}${extra > 0 ? ` +${extra}` : ""}`;
+  } else if (onlineN > 1) {
+    foot = `vibing with ${onlineN - 1} online`;
+  }
   const coachRows = [...thoughtRows, padLine(fg(DIM, trunc(foot, hw)), hw, "right")];
 
   const sep = Array(5).fill(fg(DIM, " │ "));

@@ -195,18 +195,21 @@ async function fetchPresence() {
   try { cfg = JSON.parse(readFileSync(path.join(HOME, ".tokenmaxx", "config.json"), "utf8")); } catch {}
   const ep = (cfg.endpoint || "").replace(/\/$/, "");
   const id = cfg.installId || "";
+  const handle = cfg.handle || "";
   if (!ep || !id) return;
   try {
     const r = await fetch(ep + "/ping", {
       method: "POST",
       headers: { "content-type": "application/json", "user-agent": "maxx-brain" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, handle }),
       signal: AbortSignal.timeout(4000),
     });
     if (!r.ok) return;
-    const online = Number((await r.json()).online ?? 0) || 0;
+    const d = await r.json();
+    const online = Number(d.online ?? 0) || 0;
+    const who = Array.isArray(d.who) ? d.who.filter((h) => h && h !== handle) : []; // others, not me
     let s = {}; try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch {}
-    s.pres_people = online;
+    s.pres_people = online; s.pres_who = who;
     writeStateAtomic(s);
     writeFileSync(PRESENCE_MARK, String(Date.now()));
   } catch {}                                          // network down / bad JSON → keep last
