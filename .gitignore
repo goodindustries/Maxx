@@ -62,3 +62,6 @@ build-iPhoneSimulator/
 # python
 __pycache__/
 *.pyc
+
+# stray compiled renderer binary — maxx is pure Node (see README)
+maxx-render
