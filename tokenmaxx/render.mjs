@@ -115,13 +115,12 @@ function tk(n) {
   if (n >= 1e3) return Math.round(n / 1e3) + "K";
   return String(n);
 }
-// fine token count for the live deltas (cushion/over, momentum): keeps ~3 sig figs so small
-// changes are visible — 112k, 56k, 4.11M, 129.1M.
+// fine token count for the live deltas (cushion/over, momentum): thousands resolution at every
+// scale, so you watch usage tick by the thousand — 56k, 112k, 4.112M, 129.148M.
 function tkf(n) {
   n = Math.abs(Math.round(n));
-  if (n >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
-  if (n >= 1e7) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+  if (n >= 1e9) return (n / 1e9).toFixed(3).replace(/\.?0+$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(3).replace(/\.?0+$/, "") + "M"; // 3 decimals of M = 1k steps
   if (n >= 1e3) return Math.round(n / 1e3) + "k";
   return String(n);
 }
