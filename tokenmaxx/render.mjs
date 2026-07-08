@@ -115,6 +115,16 @@ function tk(n) {
   if (n >= 1e3) return Math.round(n / 1e3) + "K";
   return String(n);
 }
+// fine token count for the live deltas (cushion/over, momentum): keeps ~3 sig figs so small
+// changes are visible — 112k, 56k, 4.11M, 129.1M.
+function tkf(n) {
+  n = Math.abs(Math.round(n));
+  if (n >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+  if (n >= 1e7) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+  if (n >= 1e3) return Math.round(n / 1e3) + "k";
+  return String(n);
+}
 
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
 // line → safe, on it → elevated, headed past the wall → danger. Colors the meter + the number.
@@ -373,12 +383,11 @@ function main() {
     const inBar = tok != null && cap ? `${tk(Math.max(0, cap - tok))} left` : uv; // punched into the track
     let s = fg(DIM, label) + meter(u, e, mw, inBar);
     if (tok != null && cap) {
-      const delta = tok - e * cap; // + = over the pace line (hot); − = a cushion under it (good)
-      if (Math.abs(delta) > cap * 0.008) {
-        const over = delta > 0;
-        s += fg(DIM, "  ") + (over
-          ? fg(zoneCol(u, e), `${tk(delta)} over`)
-          : fg(DIM, `${tk(-delta)} cushion`)); // under pace = banked buffer, not "behind"
+      const room = e * cap - tok; // + = cushion under the pace line (good); − = over it (hot)
+      if (Math.abs(room) > 25000) {
+        const good = room >= 0;
+        s += fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e),
+          `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
       }
     }
     if (isSession && freshReset) s += fg(DIM, "  ") + fg(BRAND, "↺ just reset");
@@ -389,8 +398,8 @@ function main() {
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "")
     + `  ·  $${Math.round(usd)}  ·  ctx ${Math.floor(ctxPct)}%  ·  cache `) + fg(cacheCol, cacheV);
   // last-5-min momentum: +burning / −recovering. green when recovering (nice), dim otherwise.
-  if (mom5 != null && Math.abs(mom5) > 40000)
-    metaRow += fg(DIM, "  ·  5m ") + fg(mom5 < 0 ? GREEN : DIM, (mom5 < 0 ? "−" : "+") + tk(Math.abs(mom5)));
+  if (mom5 != null && Math.abs(mom5) > 25000)
+    metaRow += fg(DIM, "  ·  5m ") + fg(mom5 < 0 ? GREEN : DIM, (mom5 < 0 ? "−" : "+") + tkf(mom5));
 
   // coach line: italic, periwinkle, lowercase. when a wall's hot the move takes it over; /maxx (or
   // presence) sits quietly at the right.
