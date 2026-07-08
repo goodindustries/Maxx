@@ -122,24 +122,27 @@ function zoneCol(u, e) {
   const proj = u / Math.max(e, 0.02); // projected fullness at reset if you hold this pace
   return u >= 0.9 || proj >= 1.25 ? RED : proj >= 0.9 ? AMBER : GREEN;
 }
-// budget timeline: fill = where you are, ╎ = the pace line (where you should be by now), rest =
-// runway. Fill is GREEN up to the line (spend that's on schedule) and hot past it (the overshoot
-// eating your danger zone) — so the red length IS how far over you are. Idle recovers it: fill
-// retreats as tokens age out and the line slides right, until you're back under it, all green.
-function meter(u, e, w) {
+const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; // sub-cell fill: 0..8 eighths
+// budget timeline: fill = where you are, ╎ = the pace line, rest = runway. Fill is GREEN up to the
+// line and hot past it (the overshoot). The leading edge is drawn to 1/8-cell precision so the bar
+// creeps smoothly as tokens change — you feel it recede while you rest. `label` (e.g. "24.3M left")
+// is punched into the track so the number lives inside the bar.
+function meter(u, e, w, label = "") {
   u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
-  const fill = Math.round(u * w), mark = Math.min(w - 1, Math.max(0, Math.round(e * w)));
+  const fillF = u * w, full = Math.floor(fillF), part = fillF - full;
+  const mark = Math.min(w - 1, Math.max(0, Math.round(e * w)));
   const hot = zoneCol(u, e);
-  // gloss: lift the fill toward white in a soft band peaking ~45% along, so the bar reads as a
-  // lit tube instead of a flat slab (edges stay saturated, middle catches the light).
-  const gloss = (base, i) => {
-    const pos = fill > 1 ? i / (fill - 1) : 0;
-    return mix(base, 0.28 * Math.max(0, 1 - Math.abs(pos - 0.45) * 2));
-  };
+  const lab = label ? [...(" " + label)] : []; // leading space = a little breathing room
+  const labStart = label ? w - lab.length - 1 : w + 1; // right-aligned, 1 track cell of padding after
+  const numEnd = 1 + (label ? label.indexOf(" ") : -1); // chars up to here (the count) are bright
+  const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((full > 1 ? i / (full - 1) : 0) - 0.45) * 2));
   let s = fg(BORDER, "▕");
   for (let i = 0; i < w; i++) {
-    if (i === mark) s += fg(INK, "╎");
-    else if (i < fill) s += fg(gloss(i < mark ? GREEN : hot, i), "█");
+    const k = i - labStart;
+    if (label && k >= 0 && k < lab.length) s += esc(numEnd > 0 && k > numEnd ? DIM : INK, BG, lab[k]); // number cutout
+    else if (i === mark) s += fg(INK, "╎");
+    else if (i < full) s += fg(gloss(i < mark ? GREEN : hot, i), "█");
+    else if (i === full && part > 0.04) s += esc(i < mark ? GREEN : hot, TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
     else s += fg(TRACK, "█");
   }
   return s + fg(BORDER, "▏");
@@ -360,25 +363,25 @@ function main() {
 
   // ── quiet rail: borderless, airy, lowercase, calm. no frame — every line is just the dark
   //    panel bg, indented, so it reads as one soft band, not a box.
-  const PAD = 4;
+  const PAD = 2; // margin pulled left so the bars run wide and the movement is easy to feel
   const W = Math.max(40, cols - PAD * 2);
-  const mw = Math.max(24, Math.min(Math.round(W * 0.60), W - 44)); // wide meter — more cells = finer recovery to watch
+  const mw = Math.max(28, Math.min(Math.round(W * 0.72), W - 20)); // wide bar; the number lives inside it
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
 
-  // a wall's row: label · meter · tokens-left (bright) · ahead/behind pace (live) · fresh badge
+  // a wall's row: label · [meter with "X left" inside] · cushion/over pace (live) · fresh badge
   const meterContent = (label, u, e, tok, cap, uv, isSession) => {
-    let s = fg(DIM, label) + meter(u, e, mw) + fg(DIM, "  ");
+    const inBar = tok != null && cap ? `${tk(Math.max(0, cap - tok))} left` : uv; // punched into the track
+    let s = fg(DIM, label) + meter(u, e, mw, inBar);
     if (tok != null && cap) {
-      s += fg(INK, tk(Math.max(0, cap - tok))) + fg(DIM, " left");
       const delta = tok - e * cap; // + = over the pace line (hot); − = a cushion under it (good)
       if (Math.abs(delta) > cap * 0.008) {
         const over = delta > 0;
-        s += fg(DIM, "   ") + (over
+        s += fg(DIM, "  ") + (over
           ? fg(zoneCol(u, e), `${tk(delta)} over`)
           : fg(DIM, `${tk(-delta)} cushion`)); // under pace = banked buffer, not "behind"
       }
-    } else s += fg(zoneCol(u, e), uv);
-    if (isSession && freshReset) s += fg(DIM, "   ") + fg(BRAND, "↺ just reset");
+    }
+    if (isSession && freshReset) s += fg(DIM, "  ") + fg(BRAND, "↺ just reset");
     return s;
   };
 
