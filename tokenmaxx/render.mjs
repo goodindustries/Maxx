@@ -78,6 +78,23 @@ function resetIn(ts) {
   return `${Math.floor(d / 60)}m`;
 }
 
+// pace: is a wall headed for a lockout, and how bad? You're ahead exactly when %used runs
+// past %elapsed (fixed window: resets_at = block start + winSec). This just judges hot +
+// severity + how long a catch-up break would be; the actual human MOVE (switch model, close
+// spare sessions, warm the cache, take that break) is chosen by the renderer, which can see
+// what you're actually doing. 2pt margin so it doesn't flap near even.
+function paceOf(rl, winSec, usedFrac) {
+  if (!rl || !rl.resets_at) return { ok: false, hot: false };
+  const remain = rl.resets_at - Date.now() / 1000;
+  const used = usedFrac * 100;
+  const elapsed = (100 * (winSec - remain)) / winSec;
+  if (elapsed < 1 || used < 2 || remain <= 0) return { ok: true, hot: false }; // too early / idle
+  if (used <= elapsed + 2) return { ok: true, hot: false };                    // on pace / banking
+  const col = used >= 90 || used >= 2 * elapsed ? RED : AMBER;
+  const breakMin = Math.round(((used - elapsed) / 100) * winSec / 60);         // pause this long → clock catches up
+  return { ok: true, hot: true, col, breakMin };
+}
+
 // ─── sidecar state ─────────────────────────────────────────────────────────────
 const HOME = homedir();
 const readJSON = (p, d = {}) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
@@ -199,8 +216,12 @@ function main() {
 
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
   const qcol = col(quota), wcol = col(week);
-  let tword = "cool", tcol = GREEN;
-  if (cache < 0.6) { tword = "hot"; tcol = RED; } else if (cache < 0.85) { tword = "warm"; tcol = AMBER; }
+  // cache reuse as a plain %, colored by the same heat thresholds (low reuse = burning
+  // fresh tokens). A number, not a mood word, so it can't read as "all's well" next to
+  // an off-pace line.
+  const cacheV = `${Math.round(cache * 100)}%`;
+  let cacheCol = GREEN;
+  if (cache < 0.6) cacheCol = RED; else if (cache < 0.85) cacheCol = AMBER;
   let hcol = GREEN;
   if (quota >= 0.9 || week >= 0.9) hcol = RED;
   else if (quota >= 0.75 || week >= 0.75 || cache < 0.6) hcol = AMBER;
@@ -210,12 +231,36 @@ function main() {
   const qr = resetIn(haveQuota ? rl.five_hour.resets_at : 0);
   const wr = resetIn(haveWeek ? rl.seven_day.resets_at : 0);
 
-  // narrow terminal: one compact line
+  // pace per wall: session (5h) and weekly (7d) — will either hit its cap before it resets?
+  const p5 = haveQuota ? paceOf(rl.five_hour, 5 * 3600, quota) : { ok: false, hot: false };
+  const p7 = haveWeek ? paceOf(rl.seven_day, 7 * 24 * 3600, week) : { ok: false, hot: false };
+
+  // paceMove: when a wall's hot, the ONE thing the human can actually flip right now — ranked
+  // by leverage against what the bar already sees. Opus burns the cap fastest (one keystroke
+  // to Sonnet); N parallel sessions burn N×; a cold cache pays full freight; else just step
+  // away (the catch-up break) or ease off for the day. null when you'll coast → "on track".
+  function paceMove() {
+    const sHot = p5.hot, wHot = p7.hot;
+    if (!sHot && !wHot) return null;
+    const col = (sHot && p5.col === RED) || (wHot && p7.col === RED) ? RED : AMBER;
+    const label = sHot && wHot ? "both" : sHot ? "session" : "weekly";
+    let lever;
+    if (fam === "Opus") lever = "try Sonnet";
+    else if (mine > 1) lever = `close ${mine - 1} sess`;
+    else if (cache < 0.85) lever = "warm cache";
+    else if (sHot && p5.breakMin <= 45) lever = `break ~${Math.max(1, p5.breakMin)}m`;
+    else lever = "wrap up"; // no switch left to flip — stop cleanly before the wall
+    return { text: `${label} — ${lever}`, col };
+  }
+  const pm = paceMove();
+
+  // narrow terminal: one compact line — session used + the move + coach (coach fills the rest).
   if (cols < 88) {
     let l = fg(DIM, "session ") + fg(qcol, qv);
-    l += fg(DIM, "  ") + fg(tcol, tword);
+    if (pm) l += fg(DIM, "  ") + fg(pm.col, trunc(pm.text, 24));
     const [ct, cc] = coachLine(st, ctxPct, sprintStart);
-    l += fg(DIM, "  ") + fg(cc, trunc(ct, cols - 24));
+    const budget = Math.max(8, cols - dispWidth(l) - 4);
+    l += fg(DIM, "  ") + fg(cc, trunc(ct, budget));
     process.stdout.write(padLine(l, cols) + "\n");
     return;
   }
@@ -230,16 +275,31 @@ function main() {
   const meta = fam + (branch ? " · " + trunc(branch, bcap) : "");
   const sessTxt = mine > 1 ? fg(DIM, "  ·  ") + fg(INK, `${mine}`) + fg(DIM, " sessions") : "";
 
+  // "label  used  reset": the limit rows stay simple — pace lives on its own line below.
+  const wallRow = (label, uv, ucol, reset) =>
+    fg(DIM, label) + fg(ucol, uv) + (reset ? fg(DIM, "  " + reset) : "");
+  // pace line: names the hot wall(s) and the one switch to flip; "on track" when you'll coast.
+  // If the label+move can't fit, drop the label and keep the move (the actionable half).
+  let paceRow = fg(DIM, "pace     ");
+  if (!pm) paceRow += fg(GREEN, "on track");
+  else { const t = 9 + pm.text.length > cw ? pm.text.split("— ")[1] || pm.text : pm.text; paceRow += fg(pm.col, t); }
+
+  // cache reuse tucked onto the cost line; session count is the first to go when tight.
+  let costRow = fg(DIM, `$${Math.round(usd)} · ctx ${Math.floor(ctxPct)}%`);
+  const cacheSeg = fg(DIM, " · cache ") + fg(cacheCol, cacheV);
+  if (dispWidth(costRow) + dispWidth(cacheSeg) <= cw) costRow += cacheSeg;
+  if (dispWidth(costRow) + dispWidth(sessTxt) <= cw) costRow += sessTxt;
+
   const crow = [
-    fg(DIM, "session  ") + fg(qcol, qv) + (qr ? fg(DIM, "  " + qr) : ""),
-    fg(DIM, "weekly   ") + fg(wcol, wv) + (wr ? fg(DIM, "  " + wr) : ""),
-    fg(DIM, "temp     ") + fg(tcol, tword),
+    wallRow("session  ", qv, qcol, qr),
+    wallRow("weekly   ", wv, wcol, wr),
+    paceRow,
     fg(DIM, meta) + fg(scol, `  sprint ${left}m`),
-    fg(DIM, `$${Math.round(usd)} · ctx ${Math.floor(ctxPct)}%`) + sessTxt,
+    costRow,
   ];
 
   let [ctext, ccol] = coachLine(st, ctxPct, sprintStart);
-  if (hcol === GREEN && ccol === AMBER) ccol = BRAND; // cool state → calm, no orange
+  if (hcol === GREEN && ccol === AMBER) ccol = BRAND; // healthy → calm coach, no orange
   const thoughtRows = pane(wrap("▸ " + ctext, hw).map((l) => fg(ccol, l)), hw, 4, "center", "center");
   // who's online right now: prefer handles, else a bare count of others, else sign-off
   let foot = "thanks for using /maxx";
