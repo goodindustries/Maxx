@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "maxx",
   "version": "0.1.0",
-  "description": "A build-companion statusline + token stats for Claude Code: real session/weekly quota gauges, a Naval-esque product coach that reads your session, and /maxx usage cards.",
+  "description": "A zero-egress build-companion statusline + token stats for Claude Code: live session/weekly budget meters that recover as you rest, local edit-loop + pace nudges, and /maxx usage cards. Nothing leaves your machine.",
   "author": {
     "name": "Reif Tauati",
     "email": "reif@thegoodproject.net"

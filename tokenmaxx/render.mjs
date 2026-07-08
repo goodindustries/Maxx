@@ -306,9 +306,7 @@ function main() {
   const { left, start: sprintStart } = sprintTimer(sp);
   try { writeFileSync(sprintPath, JSON.stringify(sp)); } catch {}
 
-  const mine = localSessions();          // your concurrent sessions
-  const onlineN = st.pres_people || 0;   // global count from the brain's presence fetch
-  const who = Array.isArray(st.pres_who) ? st.pres_who : []; // others' handles (not you)
+  const mine = localSessions();          // your concurrent sessions (local — mtimes only)
 
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
   // the % shown comes from the SAME source as the token gauge (burned/cap) when we have it,
@@ -406,10 +404,7 @@ function main() {
   let [ctext, ccol] = coachLine(coachSt, ctxPct, sprintStart);
   if (hcol === GREEN && ccol === AMBER) ccol = BRAND;
   if (pm) { ctext = pm.phrase; ccol = pm.col; }
-  let foot = "/maxx";
-  if (who.length) foot = `vibing with ${who.slice(0, 2).join(", ")}${who.length > 2 ? ` +${who.length - 2}` : ""}`;
-  else if (onlineN > 1) foot = `vibing with ${onlineN - 1} online`;
-  const footStr = fg(DIM, foot);
+  const footStr = fg(DIM, "/maxx");
   const coachStr = ital(ccol, trunc(ctext.toLowerCase(), W - dispWidth(footStr) - 3));
   const coachRow = coachStr + blank(Math.max(3, W - dispWidth(coachStr) - dispWidth(footStr))) + footStr;
 
