@@ -107,22 +107,10 @@ function paceOf(rl, winSec, usedFrac) {
   return { ok: true, hot: true, col, breakMin };
 }
 
-// compact token count: 22.3M, 1.5B, 400K
-function tk(n) {
-  n = Math.max(0, Math.round(n));
-  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e3) return Math.round(n / 1e3) + "K";
-  return String(n);
-}
-// fine token count for the live deltas (cushion/over, momentum): thousands resolution at every
-// scale, so you watch usage tick by the thousand — 56k, 112k, 4.112M, 129.148M.
+// fine token count for the live deltas (cushion/over, momentum): always in thousands, so you
+// watch usage tick by the thousand at every scale — 56k, 112k, 4112k, 129148k.
 function tkf(n) {
-  n = Math.abs(Math.round(n));
-  if (n >= 1e9) return (n / 1e9).toFixed(3).replace(/\.?0+$/, "") + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(3).replace(/\.?0+$/, "") + "M"; // 3 decimals of M = 1k steps
-  if (n >= 1e3) return Math.round(n / 1e3) + "k";
-  return String(n);
+  return Math.round(Math.abs(n) / 1000) + "k";
 }
 
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
@@ -134,22 +122,16 @@ function zoneCol(u, e) {
 const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; // sub-cell fill: 0..8 eighths
 // budget timeline: fill = where you are, ╎ = the pace line, rest = runway. Fill is GREEN up to the
 // line and hot past it (the overshoot). The leading edge is drawn to 1/8-cell precision so the bar
-// creeps smoothly as tokens change — you feel it recede while you rest. `label` (e.g. "24.3M left")
-// is punched into the track so the number lives inside the bar.
-function meter(u, e, w, label = "") {
+// creeps smoothly as tokens change — you feel it recede while you rest.
+function meter(u, e, w) {
   u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
   const fillF = u * w, full = Math.floor(fillF), part = fillF - full;
   const mark = Math.min(w - 1, Math.max(0, Math.round(e * w)));
   const hot = zoneCol(u, e);
-  const lab = label ? [...(" " + label)] : []; // leading space = a little breathing room
-  const labStart = label ? w - lab.length - 1 : w + 1; // right-aligned, 1 track cell of padding after
-  const numEnd = 1 + (label ? label.indexOf(" ") : -1); // chars up to here (the count) are bright
   const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((full > 1 ? i / (full - 1) : 0) - 0.45) * 2));
   let s = fg(BORDER, "▕");
   for (let i = 0; i < w; i++) {
-    const k = i - labStart;
-    if (label && k >= 0 && k < lab.length) s += esc(numEnd > 0 && k > numEnd ? DIM : INK, BG, lab[k]); // number cutout
-    else if (i === mark) s += fg(INK, "╎");
+    if (i === mark) s += fg(INK, "╎");
     else if (i < full) s += fg(gloss(i < mark ? GREEN : hot, i), "█");
     else if (i === full && part > 0.04) s += esc(i < mark ? GREEN : hot, TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
     else s += fg(TRACK, "█");
@@ -372,13 +354,12 @@ function main() {
   //    panel bg, indented, so it reads as one soft band, not a box.
   const PAD = 2; // margin pulled left so the bars run wide and the movement is easy to feel
   const W = Math.max(40, cols - PAD * 2);
-  const mw = Math.max(28, Math.min(Math.round(W * 0.72), W - 20)); // wide bar; the number lives inside it
+  const mw = Math.max(28, Math.min(Math.round(W * 0.72), W - 20)); // wide bar
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
 
-  // a wall's row: label · [meter with "X left" inside] · cushion/over pace (live) · fresh badge
+  // a wall's row: label · meter · cushion/over pace (live, in thousands) · fresh badge
   const meterContent = (label, u, e, tok, cap, uv, isSession) => {
-    const inBar = tok != null && cap ? `${tk(Math.max(0, cap - tok))} left` : uv; // punched into the track
-    let s = fg(DIM, label) + meter(u, e, mw, inBar);
+    let s = fg(DIM, label) + meter(u, e, mw);
     if (tok != null && cap) {
       const room = e * cap - tok; // + = cushion under the pace line (good); − = over it (hot)
       if (Math.abs(room) > 25000) {
@@ -386,7 +367,7 @@ function main() {
         s += fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e),
           `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
       }
-    }
+    } else if (uv) s += fg(DIM, "  ") + fg(zoneCol(u, e), uv); // no window yet → show the raw %
     if (isSession && freshReset) s += fg(DIM, "  ") + fg(BRAND, "↺ just reset");
     return s;
   };
