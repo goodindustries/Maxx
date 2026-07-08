@@ -354,13 +354,20 @@ if (isMainModule()) {
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));
     } else if (a.cmd === "push") {
-      const stats = await collectStats(a.dir);
-      const { id, out } = await pushStats(stats, a.server);
-      w(pretty(stats));
-      const who = id.handle ? `@${id.handle}` : `install ${id.installId.slice(0, 8)}…`;
-      w(`  pushed as ${who}` + (out.rank ? `  →  rank #${out.rank} of ${out.total}` : ""));
-      if (!id.handle) w(`  (no handle yet — run: maxx set-user <name>)`);
-      w("");
+      // zero-egress by default: the ONLY thing in maxx that leaves the box is this leaderboard
+      // upload, and it stays off until you explicitly opt in. Nothing here runs automatically.
+      if (!process.env.MAXX_ALLOW_PUSH) {
+        w("maxx is zero-egress by default — leaderboard sharing is off.");
+        w("to share your (content-free) token stats, opt in with:  MAXX_ALLOW_PUSH=1 maxx push");
+      } else {
+        const stats = await collectStats(a.dir);
+        const { id, out } = await pushStats(stats, a.server);
+        w(pretty(stats));
+        const who = id.handle ? `@${id.handle}` : `install ${id.installId.slice(0, 8)}…`;
+        w(`  pushed as ${who}` + (out.rank ? `  →  rank #${out.rank} of ${out.total}` : ""));
+        if (!id.handle) w(`  (no handle yet — run: maxx set-user <name>)`);
+        w("");
+      }
     } else {
       w(pretty(await collectStats(a.dir)));
     }
