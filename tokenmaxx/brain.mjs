@@ -187,9 +187,18 @@ function writeStateAtomic(s) {
   writeFileSync(tmp, JSON.stringify(s, null, 2));
   renameSync(tmp, STATE);
 }
-function publish(advice) {
+// advice is PER SESSION — keyed by session_id — so your bar never shows a nudge the brain
+// derived from a different concurrent session's transcript. Presence stays global (shared).
+function publish(advice, sid) {
   let s = {}; try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch {}
-  s.advice = advice; s.advice_ts = Date.now();
+  if (sid) {
+    if (!s.sessions) s.sessions = {};
+    const cutoff = Date.now() - 2 * 3600 * 1000;   // prune slots gone quiet >2h so it can't grow forever
+    for (const k of Object.keys(s.sessions)) if ((s.sessions[k].advice_ts || 0) < cutoff) delete s.sessions[k];
+    s.sessions[sid] = { advice, advice_ts: Date.now() };
+  } else {
+    s.advice = advice; s.advice_ts = Date.now();   // no session id (e.g. --file with no --sid) → legacy global slot
+  }
   writeStateAtomic(s);
 }
 
@@ -230,10 +239,11 @@ async function main() {
   if (process.env.MAXX_BRAIN_CHILD) process.exit(0);
   const argv = process.argv.slice(2);
   const dry = argv.includes("--dry"), doJudge = argv.includes("--judge");
-  let file = null;
+  let file = null, sid = null;
   const fi = argv.indexOf("--file"); if (fi >= 0) file = argv[fi + 1];
-  if (!file) {                                   // hook mode: transcript_path on stdin
-    try { const h = JSON.parse(readFileSync(0, "utf8")); file = h.transcript_path; } catch {}
+  const si = argv.indexOf("--sid"); if (si >= 0) sid = argv[si + 1] || null;
+  if (!file) {                                   // hook mode: transcript_path + session_id on stdin
+    try { const h = JSON.parse(readFileSync(0, "utf8")); file = h.transcript_path; sid = sid || h.session_id || null; } catch {}
   }
   if (!file) file = await newest(PROJECTS);
   if (!file) process.exit(0);
@@ -244,7 +254,7 @@ async function main() {
   // path, so it never blocks your turn. Thinks, then updates the bus.
   if (doJudge) {
     const j = judge(turns);
-    if (j && !dry) publish(j);
+    if (j && !dry) publish(j, sid);
     if (dry) console.log(JSON.stringify({ mode: "judge", thought: j }, null, 2));
     return;
   }
@@ -252,7 +262,7 @@ async function main() {
   // REFLEX MODE — the hook, every turn. Fast heuristics, publish immediately.
   const signals = reflexes(turns);
   const advice = signals[0]?.msg || null;
-  if (!dry && advice) publish(advice);
+  if (!dry && advice) publish(advice, sid);
   if (dry) console.log(JSON.stringify({ turns: turns.length, signals, advice }, null, 2));
 
   // Refresh the presence footer (cached ~60s, best-effort — never blocks the turn).
@@ -273,7 +283,7 @@ async function main() {
   if (!dry && !strong && dueForJudge()) {
     markJudged();
     try {
-      spawn(process.execPath, [fileURLToPath(import.meta.url), "--judge", "--file", file],
+      spawn(process.execPath, [fileURLToPath(import.meta.url), "--judge", "--file", file, "--sid", sid || ""],
             { detached: true, stdio: "ignore" }).unref();
     } catch {}
   }

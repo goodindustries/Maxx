@@ -34,22 +34,34 @@ function hsl2hex(h, s, l) {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 const hsl = hsl2hex;
-const BRAND = hsl(270, 0.58, 0.52);
-const DIM   = hsl(270, 0.30, 0.50);
-const BG    = hsl(270, 0.55, 0.88);
-const INK   = hsl(270, 0.48, 0.30);
-const GREEN = "#2fa84a";
-const AMBER = "#d69e2e";
-const RED   = "#e0433c";
-const BORDER = hsl(270, 0.5, 0.42);
+const BG     = hsl(265, 0.62, 0.91); // baby purple panel — light mode
+const INK    = hsl(266, 0.46, 0.26); // deep purple primary text
+const DIM    = hsl(266, 0.24, 0.52); // muted secondary text
+const BRAND  = hsl(264, 0.66, 0.54); // vivid periwinkle accent
+const BORDER = hsl(266, 0.36, 0.66); // meter caps / soft frame
+const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade below the panel bg
+const GREEN  = hsl(146, 0.64, 0.32); // forest / kelly = safe
+const AMBER  = hsl(36, 0.84, 0.44);  // deep amber = elevated
+const RED    = hsl(352, 0.64, 0.42); // scarlet / burgundy = danger
 
 // ─── ANSI: every glyph carries the panel bg so the band stays unbroken ─────────
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+// blend hex toward a target (default white) by t∈[0,1] — used to shade the meter fill so it
+// reads as a rounded tube (lit through the middle) instead of a flat slab.
+function mix(hex, t, target = "#ffffff") {
+  const a = rgb(hex), b = rgb(target);
+  return "#" + [0, 1, 2].map((i) => Math.round(a[i] + (b[i] - a[i]) * t).toString(16).padStart(2, "0")).join("");
+}
 function esc(fgHex, bgHex, s) {
   const [fr, fgg, fb] = rgb(fgHex), [br, bgg, bb] = rgb(bgHex);
   return `\x1b[38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
 }
 const fg = (c, s) => esc(c, BG, s);
+// italic variant (adds SGR 3) — for the calm coach line; degrades gracefully if unsupported
+function ital(fgHex, s) {
+  const [fr, fgg, fb] = rgb(fgHex), [br, bgg, bb] = rgb(BG);
+  return `\x1b[3;38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
+}
 
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 const dispWidth = (s) => [...stripAnsi(s)].length;
@@ -102,6 +114,35 @@ function tk(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
   if (n >= 1e3) return Math.round(n / 1e3) + "K";
   return String(n);
+}
+
+// zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
+// line → safe, on it → elevated, headed past the wall → danger. Colors the meter + the number.
+function zoneCol(u, e) {
+  const proj = u / Math.max(e, 0.02); // projected fullness at reset if you hold this pace
+  return u >= 0.9 || proj >= 1.25 ? RED : proj >= 0.9 ? AMBER : GREEN;
+}
+// budget timeline: fill = where you are, ╎ = the pace line (where you should be by now), rest =
+// runway. Fill is GREEN up to the line (spend that's on schedule) and hot past it (the overshoot
+// eating your danger zone) — so the red length IS how far over you are. Idle recovers it: fill
+// retreats as tokens age out and the line slides right, until you're back under it, all green.
+function meter(u, e, w) {
+  u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
+  const fill = Math.round(u * w), mark = Math.min(w - 1, Math.max(0, Math.round(e * w)));
+  const hot = zoneCol(u, e);
+  // gloss: lift the fill toward white in a soft band peaking ~45% along, so the bar reads as a
+  // lit tube instead of a flat slab (edges stay saturated, middle catches the light).
+  const gloss = (base, i) => {
+    const pos = fill > 1 ? i / (fill - 1) : 0;
+    return mix(base, 0.28 * Math.max(0, 1 - Math.abs(pos - 0.45) * 2));
+  };
+  let s = fg(BORDER, "▕");
+  for (let i = 0; i < w; i++) {
+    if (i === mark) s += fg(INK, "╎");
+    else if (i < fill) s += fg(gloss(i < mark ? GREEN : hot, i), "█");
+    else s += fg(TRACK, "█");
+  }
+  return s + fg(BORDER, "▏");
 }
 
 // ─── sidecar state ─────────────────────────────────────────────────────────────
@@ -200,6 +241,10 @@ function main() {
   const cols = parseInt(process.env.COLUMNS || "130", 10) || 130;
 
   const st = readJSON(statePath);
+  // coach is per-session: read this session's slot (never another session's). If we can't tell
+  // which session we are, fall back to the legacy global slot. Presence stays global (from st).
+  const sid = p.session_id || null;
+  const coachSt = sid ? ((st.sessions && st.sessions[sid]) || {}) : st;
   const cw_ = p.context_window || {};
   const ctxPct = cw_.used_percentage || 0;
   const cu = cw_.current_usage || {};
@@ -213,6 +258,18 @@ function main() {
 
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, ts: Date.now() })); } catch {}
+  // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
+  // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
+  const marksPath = path.join(HOME, ".tokenmaxx", "marks.json");
+  const marks = readJSON(marksPath, {});
+  let freshReset = false;
+  if (haveQuota) {
+    const cur = rl.five_hour.resets_at, nowS = Date.now() / 1000;
+    let at = marks.sessResetAt || 0;
+    if (marks.sessReset && cur > marks.sessReset + 300) at = nowS; // block leapt → just reset
+    freshReset = at > 0 && nowS - at < 300;
+    try { writeFileSync(marksPath, JSON.stringify({ sessReset: cur, sessResetAt: at })); } catch {}
+  }
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
   const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
@@ -243,6 +300,10 @@ function main() {
   const q5 = tok5 != null && cap5 ? tok5 / cap5 : quota;
   const w7 = tok7 != null && cap7 ? tok7 / cap7 : week;
   const qcol = col(q5), wcol = col(w7);
+  // how far into each window you are (the pace line): elapsed = 1 - timeLeft/window.
+  const nowS = Date.now() / 1000;
+  const e5 = haveQuota ? Math.max(0, Math.min(1, 1 - (rl.five_hour.resets_at - nowS) / (5 * 3600))) : 0;
+  const e7 = haveWeek ? Math.max(0, Math.min(1, 1 - (rl.seven_day.resets_at - nowS) / (7 * 24 * 3600))) : 0;
   // cache reuse as a plain %, colored by the same heat thresholds (low reuse = burning
   // fresh tokens). A number, not a mood word, so it can't read as "all's well" next to
   // an off-pace line.
@@ -277,7 +338,8 @@ function main() {
     else if (cache < 0.85) lever = "warm cache";
     else if (sHot && p5.breakMin <= 45) lever = `break ~${Math.max(1, p5.breakMin)}m`;
     else lever = "wrap up"; // no switch left to flip — stop cleanly before the wall
-    return { text: `${label} — ${lever}`, col };
+    const heat = col === RED ? "running hot" : "running a little hot";
+    return { text: `${label} — ${lever}`, phrase: `${label} ${heat} — ${lever}`, col };
   }
   const pm = paceMove();
 
@@ -285,74 +347,63 @@ function main() {
   if (cols < 88) {
     let l = fg(DIM, "session ") + fg(qcol, qv);
     if (pm) l += fg(DIM, "  ") + fg(pm.col, trunc(pm.text, 24));
-    const [ct, cc] = coachLine(st, ctxPct, sprintStart);
+    const [ct, cc] = coachLine(coachSt, ctxPct, sprintStart);
     const budget = Math.max(8, cols - dispWidth(l) - 4);
     l += fg(DIM, "  ") + fg(cc, trunc(ct, budget));
     process.stdout.write(padLine(l, cols) + "\n");
     return;
   }
 
-  const pw = Math.max(55, cols - 3);
-  const inner = pw - 4;
-  let cw = Math.floor(inner * 40 / 100); cw = Math.max(30, Math.min(52, cw));
-  const hw = Math.max(12, inner - cw - 3); // one " │ " separator
+  // ── quiet rail: borderless, airy, lowercase, calm. no frame — every line is just the dark
+  //    panel bg, indented, so it reads as one soft band, not a box.
+  const PAD = 4;
+  const W = Math.max(40, cols - PAD * 2);
+  const mw = Math.max(24, Math.min(Math.round(W * 0.60), W - 44)); // wide meter — more cells = finer recovery to watch
+  const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
 
-  const scol = left <= 5 ? AMBER : DIM;
-  const bcap = Math.max(12, cw - 20);
-  const meta = fam + (branch ? " · " + trunc(branch, bcap) : "");
-  const sessTxt = mine > 1 ? fg(DIM, "  ·  ") + fg(INK, `${mine}`) + fg(DIM, " sessions") : "";
-
-  // "label  burned/limit  reset": tokens lead (cooler than a bare %, and they visibly recover
-  // when idle); the % is only the fallback when the token window isn't computed yet. burned is
-  // colored by fullness, the /limit stays dim. No % shown → nothing to disagree with the gauge.
-  const cell = (uv, ucol, burned, cap) =>
-    burned != null && cap ? fg(ucol, tk(burned)) + fg(DIM, "/" + tk(cap)) : fg(ucol, uv);
-  const wallRow = (label, valueCell, reset) => {
-    let s = fg(DIM, label) + valueCell;
-    if (reset && dispWidth(s) + 2 + dispWidth(reset) <= cw) s += fg(DIM, "  " + reset);
+  // a wall's row: label · meter · tokens-left (bright) · ahead/behind pace (live) · fresh badge
+  const meterContent = (label, u, e, tok, cap, uv, isSession) => {
+    let s = fg(DIM, label) + meter(u, e, mw) + fg(DIM, "  ");
+    if (tok != null && cap) {
+      s += fg(INK, tk(Math.max(0, cap - tok))) + fg(DIM, " left");
+      const delta = tok - e * cap; // + = over the pace line (hot); − = a cushion under it (good)
+      if (Math.abs(delta) > cap * 0.008) {
+        const over = delta > 0;
+        s += fg(DIM, "   ") + (over
+          ? fg(zoneCol(u, e), `${tk(delta)} over`)
+          : fg(DIM, `${tk(-delta)} cushion`)); // under pace = banked buffer, not "behind"
+      }
+    } else s += fg(zoneCol(u, e), uv);
+    if (isSession && freshReset) s += fg(DIM, "   ") + fg(BRAND, "↺ just reset");
     return s;
   };
-  // pace line: names the hot wall(s) and the one switch to flip; "on track" when you'll coast.
-  // If the label+move can't fit, drop the label and keep the move (the actionable half).
-  let paceRow = fg(DIM, "pace     ");
-  if (!pm) paceRow += fg(GREEN, "on track");
-  else { const t = 9 + pm.text.length > cw ? pm.text.split("— ")[1] || pm.text : pm.text; paceRow += fg(pm.col, t); }
 
-  // cache reuse tucked onto the cost line; session count is the first to go when tight.
-  let costRow = fg(DIM, `$${Math.round(usd)} · ctx ${Math.floor(ctxPct)}%`);
-  const cacheSeg = fg(DIM, " · cache ") + fg(cacheCol, cacheV);
-  if (dispWidth(costRow) + dispWidth(cacheSeg) <= cw) costRow += cacheSeg;
-  if (dispWidth(costRow) + dispWidth(sessTxt) <= cw) costRow += sessTxt;
+  // one calm meta line, lowercase, airy dot separators
+  let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "")
+    + `  ·  $${Math.round(usd)}  ·  ctx ${Math.floor(ctxPct)}%  ·  cache `) + fg(cacheCol, cacheV);
 
-  const crow = [
-    wallRow("session  ", cell(qv, qcol, tok5, cap5), qr),
-    wallRow("weekly   ", cell(wv, wcol, tok7, cap7), wr),
-    paceRow,
-    fg(DIM, meta) + fg(scol, `  sprint ${left}m`),
-    costRow,
+  // coach line: italic, periwinkle, lowercase. when a wall's hot the move takes it over; /maxx (or
+  // presence) sits quietly at the right.
+  let [ctext, ccol] = coachLine(coachSt, ctxPct, sprintStart);
+  if (hcol === GREEN && ccol === AMBER) ccol = BRAND;
+  if (pm) { ctext = pm.phrase; ccol = pm.col; }
+  let foot = "/maxx";
+  if (who.length) foot = `vibing with ${who.slice(0, 2).join(", ")}${who.length > 2 ? ` +${who.length - 2}` : ""}`;
+  else if (onlineN > 1) foot = `vibing with ${onlineN - 1} online`;
+  const footStr = fg(DIM, foot);
+  const coachStr = ital(ccol, trunc(ctext.toLowerCase(), W - dispWidth(footStr) - 3));
+  const coachRow = coachStr + blank(Math.max(3, W - dispWidth(coachStr) - dispWidth(footStr))) + footStr;
+
+  const out = [
+    row(""),
+    row(meterContent("session  ", q5, e5, tok5, cap5, qv, true)),
+    row(""), // air between the rails so they don't read as one blob
+    row(meterContent("weekly   ", w7, e7, tok7, cap7, wv, false)),
+    row(""),
+    row(metaRow),
+    row(coachRow),
+    row(""),
   ];
-
-  let [ctext, ccol] = coachLine(st, ctxPct, sprintStart);
-  if (hcol === GREEN && ccol === AMBER) ccol = BRAND; // healthy → calm coach, no orange
-  const thoughtRows = pane(wrap("▸ " + ctext, hw).map((l) => fg(ccol, l)), hw, 4, "center", "center");
-  // who's online right now: prefer handles, else a bare count of others, else sign-off
-  let foot = "thanks for using /maxx";
-  if (who.length) {
-    const shown = who.slice(0, 2).join(", ");
-    const extra = who.length - Math.min(2, who.length);
-    foot = `vibing with ${shown}${extra > 0 ? ` +${extra}` : ""}`;
-  } else if (onlineN > 1) {
-    foot = `vibing with ${onlineN - 1} online`;
-  }
-  const coachRows = [...thoughtRows, padLine(fg(DIM, trunc(foot, hw)), hw, "right")];
-
-  const sep = Array(5).fill(fg(DIM, " │ "));
-  const row = joinH(pane(crow, cw, 5), sep, coachRows);
-
-  // rounded border with the panel bg, padding(0,1)
-  const line = (s) => fg(BORDER, "│") + blank(1) + padLine(s, inner) + blank(1) + fg(BORDER, "│");
-  const bar = (l, r) => fg(BORDER, l + "─".repeat(inner + 2) + r);
-  const out = [bar("╭", "╮"), ...row.map(line), bar("╰", "╯")];
   process.stdout.write(out.join("\n") + "\n");
 }
 main();
