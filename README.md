@@ -1,23 +1,52 @@
-# Maxx
+# maxx
 
-Maxx is now a Claude skill prototype for real-time prompt optimization.
+A build-companion statusline for Claude Code — and a `/maxx` usage card.
 
-The current prototype validates one thing:
+The statusline shows your **real** limits (session + weekly quota, straight from
+Claude's rate-limit data — the same numbers as `/usage`), how hot you're running,
+and a **coach**: a calm, Naval-esque product nudge drawn from what your session is
+actually doing ("have you thought about who this is for?", "ship the smallest thing
+that runs, then test it", "same command 3× — change the approach, not the input").
 
-Structured prompt transformation materially improves AI workflow quality before inference.
+```
+╭──────────────────────────────────────────────────────────────────╮
+│ ▛▜ │ ● session ███████░░░░ 30% 1h20m │ ▸ Is this about finding    │
+│ ▙▟ │   weekly  ██████░░░░░ 63% 2d    │   more people, or enriching │
+│    │   temp    cool                  │   the ones you have?        │
+│    │   Opus · main · sprint 22m      │                             │
+│    │   $9 · ctx 18%       thanks for using /maxx                   │
+╰──────────────────────────────────────────────────────────────────╯
+```
 
-## Planning
+## Install (plugin)
 
-- [Developer Skill v1](docs/developer-skill-v1.md)
-- [Prompt pipeline](docs/prompt-pipeline.md)
+```
+/plugin marketplace add goodindustries/Maxx
+/plugin install maxx@maxx
+```
 
-## Local Run
+This wires the `/maxx` skill and the coach hook. To turn on the statusline bar,
+run `tokenmaxx/install.sh` — it points `statusLine` in your `settings.json` at
+`node render.mjs`. Pure Node, no binary to build or download.
 
-- `npm start`
+## `/maxx`
 
-## CLI
+```
+/maxx            # usage card: total tokens, tokens/day, cache-hit, streak
+/maxx json       # raw stats payload
+/maxx optimize   # where your tokens went + ranked $ fixes
+```
 
-- `npm link`
-- `maxx "your prompt here"`
-- `printf 'your prompt here' | maxx`
-- `maxx --json --language TypeScript --repo-type app --model-type Claude "your prompt here"`
+`/maxx` reads only token/usage metadata — never prompt or message content. The
+coach (statusline) is separate: it reads recent transcript actions and, with your
+consent, redacted prompt text, to give live build guidance.
+
+## Layout
+
+- `tokenmaxx/` — the plugin (`SKILL.md`, `render.mjs` statusline, `brain.mjs` coach,
+  `tracker.mjs`/`optimize.mjs` for `/maxx`, `install.sh`).
+- `.claude-plugin/marketplace.json` — the marketplace catalog.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -1,37 +1,62 @@
 #!/usr/bin/env bash
-# Install the tokenmaxx skill into ~/.claude/skills.
-# Symlinks this directory so repo edits stay live. Pass --copy to hard-copy instead.
+# maxx installer — wires the statusline + /maxx skill into Claude Code.
+#   ./install.sh          copy files into ~/.claude (real install)
+#   ./install.sh --link   symlink instead (dev: repo edits stay live)
+# Idempotent. Backs up settings.json. Pure Node — no python, no compiled binary.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST="$HOME/.claude/skills/tokenmaxx"
-MODE="${1:-symlink}"
+CLAUDE="$HOME/.claude"
+SKILL="$CLAUDE/skills/maxx"
+ENDPOINT="${MAXX_ENDPOINT:-https://api.meetmaxx.co}"
+MODE="${1:-copy}"
 
-mkdir -p "$HOME/.claude/skills"
+command -v node >/dev/null || { echo "maxx needs node on PATH." >&2; exit 1; }
+mkdir -p "$SKILL" "$HOME/.tokenmaxx"
 
-if [ -e "$DEST" ] || [ -L "$DEST" ]; then
-  echo "removing existing $DEST"
-  rm -rf "$DEST"
-fi
+# place a file: link or copy, skipping when src and dst are already the same
+place() {
+  [ "$1" -ef "$2" ] 2>/dev/null && return 0
+  rm -f "$2"
+  if [ "$MODE" = "--link" ]; then ln -s "$1" "$2"; else cp "$1" "$2"; fi
+}
+place "$SRC/SKILL.md"     "$SKILL/SKILL.md"
+place "$SRC/render.mjs"   "$SKILL/render.mjs"
+place "$SRC/tracker.mjs"  "$SKILL/tracker.mjs"
+place "$SRC/optimize.mjs" "$SKILL/optimize.mjs"
+place "$SRC/brain.mjs"    "$SKILL/brain.mjs"
+place "$SRC/limit.mjs"    "$SKILL/limit.mjs"
 
-if [ "$MODE" = "--copy" ]; then
-  cp -R "$SRC" "$DEST"
-  echo "copied tokenmaxx skill → $DEST"
-else
-  ln -s "$SRC" "$DEST"
-  echo "linked tokenmaxx skill → $DEST"
-fi
+# wire the statusLine (node render.mjs) + the coach Stop hook into settings.json.
+[ -f "$CLAUDE/settings.json" ] && cp "$CLAUDE/settings.json" "$CLAUDE/settings.json.bak-maxx"
+RENDER="node $SKILL/render.mjs" BRAIN="node $SKILL/brain.mjs" \
+node - "$CLAUDE/settings.json" <<'JS'
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+const p = process.argv[2];
+let d = {}; try { d = JSON.parse(readFileSync(p, "utf8")); } catch {}
+d.statusLine = { type: "command", command: process.env.RENDER, padding: 0, refreshInterval: 1 };
+const stop = ((d.hooks ??= {}).Stop ??= []);
+if (!stop.some((h) => JSON.stringify(h).includes(process.env.BRAIN)))
+  stop.push({ hooks: [{ type: "command", command: process.env.BRAIN }] });
+mkdirSync(dirname(p), { recursive: true });
+writeFileSync(p, JSON.stringify(d, null, 2));
+JS
 
-# --- statusline: live context gauge + flair nudges ---
-SL="$HOME/.claude/statusline.py"
-[ -e "$SL" ] || [ -L "$SL" ] && rm -f "$SL"
-if [ "$MODE" = "--copy" ]; then
-  cp "$SRC/statusline.py" "$SL"; echo "copied statusline → $SL"
-else
-  ln -s "$SRC/statusline.py" "$SL"; echo "linked statusline → $SL"
-fi
-echo
-echo "to activate the statusline, add this to ~/.claude/settings.json:"
-echo '  "statusLine": { "type": "command", "command": "python3 '"$SL"'", "padding": 0 }'
-echo
-echo "run /tokenmaxx in Claude Code (restart the session if it doesn't appear)."
+# seed config (don't clobber existing keys)
+MAXX_EP="$ENDPOINT" node - <<'JS'
+import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+const p = join(homedir(), ".tokenmaxx", "config.json");
+let c = {}; try { c = JSON.parse(readFileSync(p, "utf8")); } catch {}
+c.endpoint ??= process.env.MAXX_EP;
+(c.ticker ??= {}).speed ??= 1;
+writeFileSync(p, JSON.stringify(c, null, 2));
+JS
+
+echo "maxx installed ($MODE)."
+echo "  statusline -> node $SKILL/render.mjs"
+echo "  skill      -> $SKILL   (/maxx)"
+echo "  endpoint   -> $ENDPOINT"
+echo "Start a new Claude Code session to see the bar."

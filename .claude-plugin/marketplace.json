@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "maxx",
+  "description": "maxx — a build-companion statusline and token-stats skill for Claude Code.",
+  "owner": {
+    "name": "Reif Tauati",
+    "email": "reif@thegoodproject.net"
+  },
+  "plugins": [
+    {
+      "name": "maxx",
+      "source": "./tokenmaxx",
+      "description": "A build-companion statusline + token stats for Claude Code."
+    }
+  ]
+}
