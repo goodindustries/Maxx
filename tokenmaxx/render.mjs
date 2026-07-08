@@ -95,6 +95,15 @@ function paceOf(rl, winSec, usedFrac) {
   return { ok: true, hot: true, col, breakMin };
 }
 
+// compact token count: 22.3M, 1.5B, 400K
+function tk(n) {
+  n = Math.max(0, Math.round(n));
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return Math.round(n / 1e3) + "K";
+  return String(n);
+}
+
 // ─── sidecar state ─────────────────────────────────────────────────────────────
 const HOME = homedir();
 const readJSON = (p, d = {}) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
@@ -202,6 +211,19 @@ function main() {
   const quota = haveQuota ? (rl.five_hour.used_percentage || 0) / 100 : 0;
   const week = haveWeek ? (rl.seven_day.used_percentage || 0) / 100 : 0;
 
+  // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
+  try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, ts: Date.now() })); } catch {}
+  // tokens burned in each window, re-summed against the live clock so idle time visibly
+  // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
+  const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
+  let tok5 = null, cap5 = null, tok7 = null, cap7 = null;
+  if (win && Array.isArray(win.buckets) && win.buckets.length) {
+    const now = Date.now();
+    const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
+    tok5 = sum(5 * 3600 * 1000); cap5 = win.cap5;
+    tok7 = sum(7 * 24 * 3600 * 1000); cap7 = win.cap7;
+  }
+
   const usd = (p.cost || {}).total_cost_usd || 0;
   const fam = modelFamily((p.model || {}).display_name);
   const branch = gitBranch((p.workspace || {}).project_dir || "");
@@ -215,7 +237,12 @@ function main() {
   const who = Array.isArray(st.pres_who) ? st.pres_who : []; // others' handles (not you)
 
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
-  const qcol = col(quota), wcol = col(week);
+  // the % shown comes from the SAME source as the token gauge (burned/cap) when we have it,
+  // so the number and the gauge always agree and recover together; stdin % is the fallback
+  // (and stays the anchor / pace input under the hood).
+  const q5 = tok5 != null && cap5 ? tok5 / cap5 : quota;
+  const w7 = tok7 != null && cap7 ? tok7 / cap7 : week;
+  const qcol = col(q5), wcol = col(w7);
   // cache reuse as a plain %, colored by the same heat thresholds (low reuse = burning
   // fresh tokens). A number, not a mood word, so it can't read as "all's well" next to
   // an off-pace line.
@@ -223,11 +250,11 @@ function main() {
   let cacheCol = GREEN;
   if (cache < 0.6) cacheCol = RED; else if (cache < 0.85) cacheCol = AMBER;
   let hcol = GREEN;
-  if (quota >= 0.9 || week >= 0.9) hcol = RED;
-  else if (quota >= 0.75 || week >= 0.75 || cache < 0.6) hcol = AMBER;
+  if (q5 >= 0.9 || w7 >= 0.9) hcol = RED;
+  else if (q5 >= 0.75 || w7 >= 0.75 || cache < 0.6) hcol = AMBER;
 
-  const qv = haveQuota ? `${Math.floor(quota * 100)}%` : "—";
-  const wv = haveWeek ? `${Math.floor(week * 100)}%` : "—";
+  const qv = haveQuota ? `${Math.min(99, Math.floor(q5 * 100))}%` : "—";
+  const wv = haveWeek ? `${Math.min(99, Math.floor(w7 * 100))}%` : "—";
   const qr = resetIn(haveQuota ? rl.five_hour.resets_at : 0);
   const wr = resetIn(haveWeek ? rl.seven_day.resets_at : 0);
 
@@ -275,9 +302,16 @@ function main() {
   const meta = fam + (branch ? " · " + trunc(branch, bcap) : "");
   const sessTxt = mine > 1 ? fg(DIM, "  ·  ") + fg(INK, `${mine}`) + fg(DIM, " sessions") : "";
 
-  // "label  used  reset": the limit rows stay simple — pace lives on its own line below.
-  const wallRow = (label, uv, ucol, reset) =>
-    fg(DIM, label) + fg(ucol, uv) + (reset ? fg(DIM, "  " + reset) : "");
+  // "label  burned/limit  reset": tokens lead (cooler than a bare %, and they visibly recover
+  // when idle); the % is only the fallback when the token window isn't computed yet. burned is
+  // colored by fullness, the /limit stays dim. No % shown → nothing to disagree with the gauge.
+  const cell = (uv, ucol, burned, cap) =>
+    burned != null && cap ? fg(ucol, tk(burned)) + fg(DIM, "/" + tk(cap)) : fg(ucol, uv);
+  const wallRow = (label, valueCell, reset) => {
+    let s = fg(DIM, label) + valueCell;
+    if (reset && dispWidth(s) + 2 + dispWidth(reset) <= cw) s += fg(DIM, "  " + reset);
+    return s;
+  };
   // pace line: names the hot wall(s) and the one switch to flip; "on track" when you'll coast.
   // If the label+move can't fit, drop the label and keep the move (the actionable half).
   let paceRow = fg(DIM, "pace     ");
@@ -291,8 +325,8 @@ function main() {
   if (dispWidth(costRow) + dispWidth(sessTxt) <= cw) costRow += sessTxt;
 
   const crow = [
-    wallRow("session  ", qv, qcol, qr),
-    wallRow("weekly   ", wv, wcol, wr),
+    wallRow("session  ", cell(qv, qcol, tok5, cap5), qr),
+    wallRow("weekly   ", cell(wv, wcol, tok7, cap7), wr),
     paceRow,
     fg(DIM, meta) + fg(scol, `  sprint ${left}m`),
     costRow,

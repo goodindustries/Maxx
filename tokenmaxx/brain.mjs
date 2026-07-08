@@ -27,8 +27,10 @@ const HOME = homedir();
 const STATE = path.join(HOME, ".tokenmaxx", "state.json");
 const PROJECTS = path.join(HOME, ".claude", "projects");
 const JUDGE_MARK = path.join(HOME, ".tokenmaxx", ".brain-judge");
+const LIMIT_MARK = path.join(HOME, ".tokenmaxx", ".limit-scan");
 const WINDOW = 50;            // how many recent transcript messages the brain looks at
 const CADENCE_MS = 5 * 60 * 1000;   // think (Haiku) at most this often, in the background
+const LIMIT_MS = 90 * 1000;         // refresh the rolling-token window (window.json) at most this often
 
 // ─── locate the session transcript ───────────────────────────────────────────
 async function newest(dir) {
@@ -169,6 +171,13 @@ function dueForJudge() {
 function markJudged() {
   try { mkdirSync(path.dirname(JUDGE_MARK), { recursive: true }); writeFileSync(JUDGE_MARK, String(Date.now())); } catch {}
 }
+// generic cadence gate (same shape, for the window.json refresh)
+function dueFor(mark, ms) {
+  try { return Date.now() - Number(readFileSync(mark, "utf8")) > ms; } catch { return true; }
+}
+function markNow(mark) {
+  try { mkdirSync(path.dirname(mark), { recursive: true }); writeFileSync(mark, String(Date.now())); } catch {}
+}
 
 // ─── write the verdict to the state bus (the face reads this) ─────────────────
 // Atomic write: temp + rename, so the 1s renderer never reads a half-written file.
@@ -248,6 +257,16 @@ async function main() {
 
   // Refresh the presence footer (cached ~60s, best-effort — never blocks the turn).
   if (!dry) await fetchPresence();
+
+  // Refresh the rolling-token window (window.json the bar reads for burned/limit). Heavy scan
+  // of all sessions, so it runs detached on a cadence — never on the hook's critical path.
+  if (!dry && dueFor(LIMIT_MARK, LIMIT_MS)) {
+    markNow(LIMIT_MARK);
+    try {
+      spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs")],
+            { detached: true, stdio: "ignore" }).unref();
+    } catch {}
+  }
 
   // Cadence: when the reflexes are quiet, let the brain THINK in the background.
   const strong = signals[0] && signals[0].sev >= 3;

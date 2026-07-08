@@ -22,7 +22,10 @@ const HOME = homedir();
 const PROJECTS = path.join(HOME, ".claude", "projects");
 const OUT = path.join(HOME, ".tokenmaxx", "window.json");
 const CONFIG = path.join(HOME, ".tokenmaxx", "config.json");
+const RL = path.join(HOME, ".tokenmaxx", "rl.json");   // render drops the live %s here to anchor caps
 const WINDOW_MS = 5 * 60 * 60 * 1000;     // Claude's ~5-hour limit window
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;  // the 7-day wall
+const BUCKET_MS = 5 * 60 * 1000;          // 5-min buckets: small enough to age out smoothly, few enough to re-sum every render tick
 
 async function files(dir) {
   const out = [];
@@ -90,7 +93,6 @@ function report(pts, now) {
   const inWin = pts.filter(([t]) => t > now - WINDOW_MS);
   const resetInMins = inWin.length ? Math.max(0, Math.round((inWin[0][0] + WINDOW_MS - now) / 60000)) : 0;
   // weekly limit — the other Claude plan wall (7-day rolling), same self-calibration
-  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
   const weekUsed = pts.filter(([t]) => t > now - WEEK_MS).reduce((a, [, k]) => a + k, 0);
   let weekCap = null;
   try { weekCap = JSON.parse(readFileSync(CONFIG, "utf8")).week_cap_tokens || null; } catch {}
@@ -99,12 +101,31 @@ function report(pts, now) {
   return { used, cap, peak, pct, burnPerHr, minsToCap, resetInMins, weekUsed, weekCap, weekPct, ts: now };
 }
 
+// bucket the last 7d of (ts, tokens) into 5-min bins so the renderer can re-sum the rolling
+// window against the live clock each tick — that's what makes "idle → the bar recovers" real.
+function bucketize(pts, now) {
+  const cutoff = now - WEEK_MS, m = new Map();
+  for (const [ts, tok] of pts) {
+    if (ts <= cutoff) continue;
+    const b = Math.floor(ts / BUCKET_MS) * BUCKET_MS;
+    m.set(b, (m.get(b) || 0) + tok);
+  }
+  return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([t, k]) => [t, Math.round(k)]);
+}
+
 async function main() {
   const now = Date.now();
   const pts = await collect();
   const r = report(pts, now);
   if (process.argv.includes("--json")) { console.log(JSON.stringify(r, null, 2)); return; }
+  // anchor the token caps to Claude's authoritative %s (render drops them in rl.json): with
+  // cap = burned / used%, the token gauge reads exactly the real % — weighting quirks cancel,
+  // and the cap stays put between scans so a shrinking `burned` shows as recovery.
+  let quota = 0, week = 0;
+  try { const rl = JSON.parse(readFileSync(RL, "utf8")); quota = rl.quota || 0; week = rl.week || 0; } catch {}
+  const cap5 = quota > 0.01 ? Math.round(r.used / quota) : r.cap;
+  const cap7 = week > 0.01 ? Math.round(r.weekUsed / week) : r.weekCap;
   mkdirSync(path.dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify(r));
+  writeFileSync(OUT, JSON.stringify({ buckets: bucketize(pts, now), cap5, cap7, ts: now }));
 }
 main().catch(e => { process.stderr.write("limit: " + e.message + "\n"); process.exit(1); });
