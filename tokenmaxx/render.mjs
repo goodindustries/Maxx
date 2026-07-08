@@ -273,12 +273,16 @@ function main() {
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
   const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
-  let tok5 = null, cap5 = null, tok7 = null, cap7 = null;
+  let tok5 = null, cap5 = null, tok7 = null, cap7 = null, mom5 = null;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
     const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
     tok5 = sum(5 * 3600 * 1000); cap5 = win.cap5;
     tok7 = sum(7 * 24 * 3600 * 1000); cap7 = win.cap7;
+    // momentum: net change in the 5h burn over the last 5 min. + = burning, − = recovering
+    // (idle → old buckets age out the back). the last window minus the same window 5 min ago.
+    const win5 = (end) => { let s = 0; const lo = end - 5 * 3600 * 1000; for (const b of win.buckets) if (b[0] > lo && b[0] <= end) s += b[1]; return s; };
+    mom5 = win5(now) - win5(now - 5 * 60 * 1000);
   }
 
   const usd = (p.cost || {}).total_cost_usd || 0;
@@ -381,6 +385,9 @@ function main() {
   // one calm meta line, lowercase, airy dot separators
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "")
     + `  ·  $${Math.round(usd)}  ·  ctx ${Math.floor(ctxPct)}%  ·  cache `) + fg(cacheCol, cacheV);
+  // last-5-min momentum: +burning / −recovering. green when recovering (nice), dim otherwise.
+  if (mom5 != null && Math.abs(mom5) > 40000)
+    metaRow += fg(DIM, "  ·  5m ") + fg(mom5 < 0 ? GREEN : DIM, (mom5 < 0 ? "−" : "+") + tk(Math.abs(mom5)));
 
   // coach line: italic, periwinkle, lowercase. when a wall's hot the move takes it over; /maxx (or
   // presence) sits quietly at the right.
