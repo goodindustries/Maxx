@@ -353,9 +353,12 @@ function main() {
   // ── quiet rail: borderless, airy, lowercase, calm. no frame — every line is just the dark
   //    panel bg, indented, so it reads as one soft band, not a box.
   const PAD = 2; // margin pulled left so the bars run wide and the movement is easy to feel
-  const W = Math.max(40, cols - PAD * 2);
-  const mw = Math.max(28, Math.min(Math.round(W * 0.72), W - 20)); // wide bar
+  const W = Math.max(40, cols - PAD * 2 - 2); // -2 = a right safety margin so nothing gets clipped
+  // meter width: wide, but CAPPED so it can't swallow the whole line — always leave room for the
+  // label before it and the (comma'd, up to ~16-char) cushion/over after it, plus a badge.
+  const mw = Math.max(24, Math.min(Math.round(W * 0.62), 90, W - 32));
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
+  const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
   // a wall's row: label · meter · cushion/over pace (live, in thousands) · fresh badge
   const meterContent = (label, u, e, tok, cap, uv, isSession) => {
@@ -364,11 +367,11 @@ function main() {
       const room = e * cap - tok; // + = cushion under the pace line (good); − = over it (hot)
       if (Math.abs(room) > 25000) {
         const good = room >= 0;
-        s += fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e),
-          `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
+        const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
+        if (fits(s, d)) s += d;
       }
-    } else if (uv) s += fg(DIM, "  ") + fg(zoneCol(u, e), uv); // no window yet → show the raw %
-    if (isSession && freshReset) s += fg(DIM, "  ") + fg(BRAND, "↺ just reset");
+    } else if (uv) { const d = fg(DIM, "  ") + fg(zoneCol(u, e), uv); if (fits(s, d)) s += d; } // no window → raw %
+    if (isSession && freshReset) { const b = fg(DIM, "  ") + fg(BRAND, "↺ just reset"); if (fits(s, b)) s += b; }
     return s;
   };
 
