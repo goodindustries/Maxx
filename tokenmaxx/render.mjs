@@ -43,6 +43,7 @@ const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade bel
 const GREEN  = hsl(150, 0.48, 0.37); // deep sage = safe (dark spent fill; the glint + dusty cushion read off it)
 const AMBER  = hsl(38, 0.66, 0.53);  // soft amber = elevated
 const RED    = hsl(354, 0.50, 0.58); // soft rose = danger
+const GOLD   = hsl(44, 0.74, 0.62);  // warm gold = the travelling shine
 const START  = hsl(266, 0.40, 0.44); // the start post (0)
 const WALL   = hsl(352, 0.62, 0.30); // the finish post = the limit (deep, darker than the overshoot)
 
@@ -136,24 +137,23 @@ function meter(u, e, w) {
   const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
   // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
   // doesn't glow or vibrate against the purple panel the way a bright mint did.
-  // a specular glint sweeps 0 → the used edge on a loop, so the spent fill reads as "filling up."
-  // the phase is the wall clock, so it only advances when Claude Code re-renders the statusline —
-  // it shimmers while you're active and naturally freezes when you go idle. center travels from
-  // just before the start to just past the used edge, then restarts from the bottom.
-  const GP = 2600, GHW = 2.4, GPEAK = 0.42;                 // sweep period ms · glint half-width (cells) · peak whiteness
-  const gc = ((Date.now() % GP) / GP) * (youN + GHW * 2) - GHW;
-  const gloss = (base, i) => {
-    const tube = 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2); // soft rounded-tube shading
-    const glint = GPEAK * Math.max(0, 1 - Math.abs(i - gc) / GHW);                             // the moving highlight
-    return mix(base, Math.min(0.6, tube + glint));
-  };
+  // a slow GOLD shine glides up the spent fill, BOUNCES off the used edge, glides back — then
+  // rests before the next bounce (one every ~9s, not a constant shimmer, so it can't nag). the
+  // phase is the wall clock, so it only advances when Claude Code re-renders: it moves while
+  // you're active and freezes when you go idle.
+  const GCYCLE = 9000, GSWEEP = 3600, GHW = 2.6, GPEAK = 0.5;    // loop ms · bounce portion · half-width (cells) · peak gold
+  const gph = Date.now() % GCYCLE, gOn = gph < GSWEEP;
+  const gp = gph / GSWEEP, tri = gp < 0.5 ? gp * 2 : (1 - gp) * 2; // 0→1→0: up to the used edge, then back down
+  const gc = gOn ? tri * youN : -1e9;                           // shine center, confined to the spent portion [0 … used edge]
+  const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2); // rounded-tube shading
+  const goldAt = (c, i) => { const g = GPEAK * Math.max(0, 1 - Math.abs(i - gc) / GHW); return g > 0.001 ? mix(c, Math.min(0.6, g), GOLD) : c; };
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
-    if (i < youN) s += fg(gloss(i < paceN ? GREEN : hot, i), "█");                 // spent: green on-schedule / hot overshoot
+    if (i < youN) s += fg(goldAt(mix(i < paceN ? GREEN : hot, tubeAt(i)), i), "█"); // spent: tube-shaded green + the bouncing gold shine
     else if (i === youN && part > 0.04)                                            // your leading edge (sub-cell)
-      s += esc(i < paceN ? GREEN : hot, i < paceN ? CUSH : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
-    else if (i < paceN) s += fg(CUSH, "█");                                        // cushion band: behind the pace line
-    else s += fg(TRACK, "█");                                                      // runway beyond the line
+      s += esc(goldAt(i < paceN ? GREEN : hot, i), i < paceN ? CUSH : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
+    else if (i < paceN) s += fg(CUSH, "█");                                        // cushion band (no shine — it bounced off the edge)
+    else s += fg(TRACK, "█");                                                      // runway beyond the pace line
   }
   return s + fg(WALL, "▌"); // finish post = the limit (the wall you don't want to reach)
 }
