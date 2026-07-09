@@ -344,15 +344,9 @@ function main() {
     const heat = col === RED ? "running hot" : "running a little hot";
     return { text: `${label} — ${lever}`, phrase: `${label} ${heat} — ${lever}`, col };
   }
-  const pm = paceMove();
-
-  // narrow terminal: one compact line — session used + the move + coach (coach fills the rest).
+  // narrow terminal: one compact line — the two quotas.
   if (cols < 88) {
-    let l = fg(DIM, "session ") + fg(qcol, qv);
-    if (pm) l += fg(DIM, "  ") + fg(pm.col, trunc(pm.text, 24));
-    const [ct, cc] = coachLine(coachSt, ctxPct, sprintStart);
-    const budget = Math.max(8, cols - dispWidth(l) - 4);
-    l += fg(DIM, "  ") + fg(cc, trunc(ct, budget));
+    const l = fg(DIM, "session ") + fg(qcol, qv) + fg(DIM, "   weekly ") + fg(wcol, wv);
     process.stdout.write(padLine(l, cols) + "\n");
     return;
   }
@@ -394,14 +388,12 @@ function main() {
     metaRow += fg(DIM, "  ·  5m ") + fg(gaining ? GREEN : INK, (gaining ? "+" : "−") + tkf(mom5));
   }
 
-  // coach line: italic, periwinkle, lowercase. when a wall's hot the move takes it over; /maxx (or
-  // presence) sits quietly at the right.
-  let [ctext, ccol] = coachLine(coachSt, ctxPct, sprintStart);
-  if (hcol === GREEN && ccol === AMBER) ccol = BRAND;
-  if (pm) { ctext = pm.phrase; ccol = pm.col; }
+  // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
+  // the right of the stats line.
   const footStr = fg(DIM, "/maxx");
-  const coachStr = ital(ccol, trunc(ctext.toLowerCase(), W - dispWidth(footStr) - 3));
-  const coachRow = coachStr + blank(Math.max(3, W - dispWidth(coachStr) - dispWidth(footStr))) + footStr;
+  const metaFull = dispWidth(metaRow) + 3 + dispWidth(footStr) <= W
+    ? metaRow + blank(W - dispWidth(metaRow) - dispWidth(footStr)) + footStr
+    : metaRow;
 
   const out = [
     row(""),
@@ -409,8 +401,7 @@ function main() {
     row(""), // air between the rails so they don't read as one blob
     row(meterContent("weekly   ", w7, e7, tok7, cap7, wv, false)),
     row(""),
-    row(metaRow),
-    row(coachRow),
+    row(metaFull),
     row(""),
   ];
   process.stdout.write(out.join("\n") + "\n");
