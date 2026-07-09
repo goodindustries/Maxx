@@ -40,9 +40,9 @@ const DIM    = hsl(266, 0.24, 0.52); // muted secondary text
 const BRAND  = hsl(264, 0.66, 0.54); // vivid periwinkle accent
 const BORDER = hsl(266, 0.36, 0.66); // meter caps / soft frame
 const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade below the panel bg
-const GREEN  = hsl(146, 0.64, 0.32); // forest / kelly = safe
-const AMBER  = hsl(36, 0.84, 0.44);  // deep amber = elevated
-const RED    = hsl(352, 0.64, 0.42); // scarlet / burgundy = danger
+const GREEN  = hsl(150, 0.40, 0.47); // soft sage = safe
+const AMBER  = hsl(38, 0.66, 0.53);  // soft amber = elevated
+const RED    = hsl(354, 0.50, 0.58); // soft rose = danger
 const START  = hsl(266, 0.40, 0.44); // the start post (0)
 const WALL   = hsl(352, 0.62, 0.30); // the finish post = the limit (deep, darker than the overshoot)
 
@@ -134,7 +134,7 @@ function meter(u, e, w) {
   const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
   const hot = zoneCol(u, e);
   const CUSH = mix(GREEN, 0.5, BG); // pale-green buffer between you and the pace line (when under)
-  const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
+  const gloss = (base, i) => mix(base, 0.15 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
     if (i < youN) s += fg(gloss(i < paceN ? GREEN : hot, i), "█");                 // spent: green on-schedule / hot overshoot
