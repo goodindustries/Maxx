@@ -9,7 +9,11 @@ lighter band shows your cushion), rose once you're past it. `+112k cushion` / `�
 exact gap in tokens, `5m ±` is your burn momentum, `↺ just reset` flags a fresh window. It re-sums
 against the live clock every second, so when you rest you watch the budget recover.
 
-![maxx statusline](assets/maxx-demo.gif)
+![maxx statusline, session in cushion](assets/maxx-live.gif)
+
+*…and once both tracks are past the pace line:*
+
+![maxx statusline, both tracks over](assets/maxx-demo.gif)
 
 ## Privacy — zero egress
 
