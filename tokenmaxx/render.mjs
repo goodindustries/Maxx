@@ -40,7 +40,7 @@ const DIM    = hsl(266, 0.24, 0.52); // muted secondary text
 const BRAND  = hsl(264, 0.66, 0.54); // vivid periwinkle accent
 const BORDER = hsl(266, 0.36, 0.66); // meter caps / soft frame
 const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade below the panel bg
-const GREEN  = hsl(150, 0.40, 0.47); // soft sage = safe
+const GREEN  = hsl(150, 0.44, 0.43); // sage = safe (a touch deeper so spent reads distinct from the mint cushion)
 const AMBER  = hsl(38, 0.66, 0.53);  // soft amber = elevated
 const RED    = hsl(354, 0.50, 0.58); // soft rose = danger
 const START  = hsl(266, 0.40, 0.44); // the start post (0)
@@ -133,7 +133,9 @@ function meter(u, e, w) {
   const you = u * w, youN = Math.floor(you), part = you - youN; // your position
   const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
   const hot = zoneCol(u, e);
-  const CUSH = mix(GREEN, 0.5, BG); // pale-green buffer between you and the pace line (when under)
+  const CUSH = mix(GREEN, 0.6); // light MINT buffer (mix toward white, not the purple bg) — the old
+  // 50%-toward-bg mix muddied it into the spent green and hid the pace line. Toward white keeps it
+  // clearly green but clearly lighter, so the spent→cushion boundary (the pace line) reads at a glance.
   const gloss = (base, i) => mix(base, 0.15 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
