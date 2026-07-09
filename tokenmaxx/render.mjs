@@ -258,7 +258,9 @@ function main() {
   const week = haveWeek ? (rl.seven_day.used_percentage || 0) / 100 : 0;
 
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
-  try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, ts: Date.now() })); } catch {}
+  // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
+  // sum at the real window start instead of a blind rolling 7d — see weekLo below.
+  try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
   const marksPath = path.join(HOME, ".tokenmaxx", "marks.json");
@@ -278,8 +280,14 @@ function main() {
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
     const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
+    const sumFrom = (lo) => { let s = 0; for (const b of win.buckets) if (b[0] > lo) s += b[1]; return s; };
     tok5 = sum(5 * 3600 * 1000); cap5 = win.cap5;
-    tok7 = sum(7 * 24 * 3600 * 1000); cap7 = win.cap7;
+    // weekly: sum from Anthropic's actual window start (resets_at − 7d), not a blind now − 7d, so a
+    // pre-reset burst stops counting the instant the wall zeroed. max() = never loosen past the
+    // rolling window, so a stale/absent resets_at falls back to old behavior (never counts more).
+    const WK = 7 * 24 * 3600 * 1000;
+    const weekLo = Math.max(now - WK, haveWeek ? rl.seven_day.resets_at * 1000 - WK : 0);
+    tok7 = sumFrom(weekLo); cap7 = win.cap7;
     // momentum: net change in the 5h burn over the last 5 min. + = burning, − = recovering
     // (idle → old buckets age out the back). the last window minus the same window 5 min ago.
     const win5 = (end) => { let s = 0; const lo = end - 5 * 3600 * 1000; for (const b of win.buckets) if (b[0] > lo && b[0] <= end) s += b[1]; return s; };

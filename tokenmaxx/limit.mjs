@@ -78,7 +78,7 @@ function historicalPeak(pts, win = WINDOW_MS) {
   return peak;
 }
 
-function report(pts, now) {
+function report(pts, now, weekLo = now - WEEK_MS) {
   const used = pts.filter(([t]) => t > now - WINDOW_MS).reduce((a, [, k]) => a + k, 0);
   // burn = tokens in the last 30 min, extrapolated to /hr
   const recent = pts.filter(([t]) => t > now - 30 * 60000).reduce((a, [, k]) => a + k, 0);
@@ -92,8 +92,10 @@ function report(pts, now) {
   // window reset: when the oldest token in the window ages out
   const inWin = pts.filter(([t]) => t > now - WINDOW_MS);
   const resetInMins = inWin.length ? Math.max(0, Math.round((inWin[0][0] + WINDOW_MS - now) / 60000)) : 0;
-  // weekly limit — the other Claude plan wall (7-day rolling), same self-calibration
-  const weekUsed = pts.filter(([t]) => t > now - WEEK_MS).reduce((a, [, k]) => a + k, 0);
+  // weekly limit — the other Claude plan wall. Anthropic's is a FIXED window that zeroes at
+  // resets_at, not a rolling sum, so cut at the window start (weekLo = resets_at − 7d passed in)
+  // — else a pre-reset burst inflates cap7's anchor for up to 7 days after the wall reset.
+  const weekUsed = pts.filter(([t]) => t > weekLo).reduce((a, [, k]) => a + k, 0);
   let weekCap = null;
   try { weekCap = JSON.parse(readFileSync(CONFIG, "utf8")).week_cap_tokens || null; } catch {}
   if (!weekCap) weekCap = Math.round(historicalPeak(pts, WEEK_MS) * 1.05);
@@ -116,13 +118,16 @@ function bucketize(pts, now) {
 async function main() {
   const now = Date.now();
   const pts = await collect();
-  const r = report(pts, now);
-  if (process.argv.includes("--json")) { console.log(JSON.stringify(r, null, 2)); return; }
   // anchor the token caps to Claude's authoritative %s (render drops them in rl.json): with
   // cap = burned / used%, the token gauge reads exactly the real % — weighting quirks cancel,
   // and the cap stays put between scans so a shrinking `burned` shows as recovery.
-  let quota = 0, week = 0;
-  try { const rl = JSON.parse(readFileSync(RL, "utf8")); quota = rl.quota || 0; week = rl.week || 0; } catch {}
+  let quota = 0, week = 0, weekResetAt = 0;
+  try { const rl = JSON.parse(readFileSync(RL, "utf8")); quota = rl.quota || 0; week = rl.week || 0; weekResetAt = rl.weekResetAt || 0; } catch {}
+  // weekly window start = Anthropic's reset − 7d; max() never loosens past the rolling 7d, so a
+  // stale/absent resets_at just falls back to the old behavior (weekUsed feeds cap7 below).
+  const weekLo = Math.max(now - WEEK_MS, weekResetAt ? weekResetAt * 1000 - WEEK_MS : 0);
+  const r = report(pts, now, weekLo);
+  if (process.argv.includes("--json")) { console.log(JSON.stringify(r, null, 2)); return; }
   const cap5 = quota > 0.01 ? Math.round(r.used / quota) : r.cap;
   const cap7 = week > 0.01 ? Math.round(r.weekUsed / week) : r.weekCap;
   mkdirSync(path.dirname(OUT), { recursive: true });
