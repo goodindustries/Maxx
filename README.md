@@ -2,19 +2,14 @@
 
 A build-companion statusline for Claude Code — live token-budget meters + a `/maxx` usage card.
 
-The statusline is a **quiet rail**: your session (5h) and weekly (7d) limits as glanceable
-timelines. Fill = where you are, the `╎` tick marks the pace line you have to stay under, and
-it's green under it, amber/burgundy over. Tokens left live **inside** the bar; `+112k cushion` /
-`−56k over` shows how far you are from pace; `5m ±` is your burn momentum; `↺ just reset` flags a
-fresh window. It re-sums against the live clock every second, so when you rest you watch the
-budget recover.
+The statusline is a **quiet rail** — your session (5h) and weekly (7d) limits as glanceable race
+tracks: start (`▐`, 0) on the left, the wall (your limit) on the right (`▌`). Your spend fills from
+the left, and the **pace line is where the colour turns** — sage-green while you're behind it (a
+lighter band shows your cushion), rose once you're past it. `+112k cushion` / `−225k over` is the
+exact gap in tokens, `5m ±` is your burn momentum, `↺ just reset` flags a fresh window. It re-sums
+against the live clock every second, so when you rest you watch the budget recover.
 
-```
-  session  ▕██████████╎················ 24M left ·▏   +112k cushion
-  weekly   ▕██████╎████················· 400M left ·▏  −56k over
-  opus  ·  main  ·  $36  ·  ctx 41%  ·  cache 90%  ·  5m +112k
-  weekly running a little hot — try sonnet                    /maxx
-```
+![maxx statusline](assets/maxx-demo.gif)
 
 ## Privacy — zero egress
 
