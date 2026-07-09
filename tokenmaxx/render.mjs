@@ -107,10 +107,10 @@ function paceOf(rl, winSec, usedFrac) {
   return { ok: true, hot: true, col, breakMin };
 }
 
-// fine token count for the live deltas (cushion/over, momentum): always in thousands, so you
-// watch usage tick by the thousand at every scale — 56k, 112k, 4112k, 129148k.
+// fine token count for the live deltas (cushion/over, momentum): always in thousands with comma
+// grouping, so you watch usage tick by the thousand at every scale — 56k, 112k, 4,112k, 129,148k.
 function tkf(n) {
-  return Math.round(Math.abs(n) / 1000) + "k";
+  return Math.round(Math.abs(n) / 1000).toLocaleString("en-US") + "k";
 }
 
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
