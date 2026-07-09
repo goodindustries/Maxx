@@ -1,60 +1,52 @@
 # maxx
 
-A build-companion statusline for Claude Code — live token-budget meters + a `/maxx` usage card.
+**You're deep in a Claude Code session. Flowing. Building. Then — *bam* — "you've hit your limit." Everything stops. You never saw it coming.**
 
-The statusline is a **quiet rail** — your session (5h) and weekly (7d) limits as glanceable race
-tracks: start (`▐`, 0) on the left, the wall (your limit) on the right (`▌`). Your spend fills from
-the left, and the **pace line is where the colour turns** — sage-green while you're behind it (a
-lighter band shows your cushion), rose once you're past it. `+112k cushion` / `−225k over` is the
-exact gap in tokens, `5m ±` is your burn momentum, `↺ just reset` flags a fresh window. It re-sums
-against the live clock every second, so when you rest you watch the budget recover.
+maxx is the fuel gauge that makes sure it never happens again. A quiet little bar at the bottom of Claude Code showing exactly how much you've got left — this session *and* this week — so you're never blindsided.
 
 ![maxx statusline, session in cushion](assets/maxx-live.gif)
 
-*…and once both tracks are past the pace line:*
+*…and when you're burning too fast, it goes red **before** you run out:*
 
 ![maxx statusline, both tracks over](assets/maxx-demo.gif)
 
-## Privacy — zero egress
+## How to read it
 
-maxx runs **entirely on your machine. Nothing leaves the box.**
+Two bars: your **session** (refills every 5 hours) and your **week**.
 
-- The **statusline** reads Claude's local rate-limit data (the same numbers as `/usage`) and your
-  `~/.claude/projects` token metadata. It displays only counts / percentages / timings — never
-  code, prompt, or message content.
-- The **coach** is **local heuristics only** — edit-loop, command-loop, and pace/model nudges. It
-  reads tool *actions* from the transcript (never your prompt or assistant text) and makes **no
-  network and no LLM calls**.
-- `/maxx` reads token/usage **metadata** only.
-- The single optional exception is the leaderboard: `maxx push` uploads content-free aggregate
-  stats, and it is **off unless you opt in** with `MAXX_ALLOW_PUSH=1`. Nothing uploads automatically.
+- **Green** — you're good, plenty in the tank.
+- **Red** — you're spending faster than the clock. Ease up, or you'll hit the wall.
 
-## Install (plugin)
+The number on the right is how far **ahead** or **behind** you are, in plain tokens (`+112k cushion` / `−225k over`). Best part: when you stop to think, you *watch it recover* — the bar refills as time passes. No more guessing.
+
+## Setup
+
+**1. Add maxx** — in Claude Code:
 
 ```
 /plugin marketplace add goodindustries/Maxx
 /plugin install maxx@maxx
 ```
 
-This wires the `/maxx` skill and the coach hook. To turn on the statusline bar, run
-`tokenmaxx/install.sh` — it points `statusLine` in your `settings.json` at `node render.mjs` and
-sets `refreshInterval: 1` (so the budget recovers live while idle). Pure Node, no binary to build
-or download.
-
-## `/maxx`
+**2. Turn on the bar** — one line in your terminal (Claude Code can't switch the bottom bar on itself, so this does it):
 
 ```
-/maxx            # usage card: total tokens, tokens/day, cache-hit, streak
-/maxx json       # raw stats payload
-/maxx optimize   # where your tokens went + ranked $ fixes
+git clone https://github.com/goodindustries/Maxx.git && Maxx/tokenmaxx/install.sh
 ```
 
-## Layout
+Restart Claude Code — the bar's there. (Needs [Node](https://nodejs.org).)
 
-- `tokenmaxx/` — the plugin (`SKILL.md`, `render.mjs` statusline, `brain.mjs` local coach,
-  `limit.mjs` rolling-window token engine, `tracker.mjs`/`optimize.mjs` for `/maxx`, `install.sh`).
-- `.claude-plugin/marketplace.json` — the marketplace catalog.
+## Your stuff stays yours
+
+maxx runs entirely on your computer. **Nothing leaves the box** — not your code, not your prompts, not your chats. It only reads the same usage numbers Claude already shows you and adds them up. That's it. (There's an optional leaderboard — off unless you turn it on.)
+
+## Want your numbers?
+
+Type **`/maxx`** any time:
+
+- **`/maxx`** — your usage card: total tokens, per day, your streak
+- **`/maxx optimize`** — where your tokens went, and easy ways to spend less
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — free to use. See [LICENSE](LICENSE).
