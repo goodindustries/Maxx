@@ -133,9 +133,9 @@ function meter(u, e, w) {
   const you = u * w, youN = Math.floor(you), part = you - youN; // your position
   const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
   const hot = zoneCol(u, e);
-  const CUSH = mix(GREEN, 0.6); // light MINT buffer (mix toward white, not the purple bg) — the old
-  // 50%-toward-bg mix muddied it into the spent green and hid the pace line. Toward white keeps it
-  // clearly green but clearly lighter, so the spent→cushion boundary (the pace line) reads at a glance.
+  const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
+  // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
+  // doesn't glow or vibrate against the purple panel the way a bright mint did.
   const gloss = (base, i) => mix(base, 0.15 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
