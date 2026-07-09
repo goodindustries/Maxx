@@ -40,7 +40,7 @@ const DIM    = hsl(266, 0.24, 0.52); // muted secondary text
 const BRAND  = hsl(264, 0.66, 0.54); // vivid periwinkle accent
 const BORDER = hsl(266, 0.36, 0.66); // meter caps / soft frame
 const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade below the panel bg
-const GREEN  = hsl(150, 0.44, 0.43); // sage = safe (a touch deeper so spent reads distinct from the mint cushion)
+const GREEN  = hsl(150, 0.48, 0.37); // deep sage = safe (dark spent fill; the glint + dusty cushion read off it)
 const AMBER  = hsl(38, 0.66, 0.53);  // soft amber = elevated
 const RED    = hsl(354, 0.50, 0.58); // soft rose = danger
 const START  = hsl(266, 0.40, 0.44); // the start post (0)
@@ -136,7 +136,17 @@ function meter(u, e, w) {
   const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
   // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
   // doesn't glow or vibrate against the purple panel the way a bright mint did.
-  const gloss = (base, i) => mix(base, 0.15 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
+  // a specular glint sweeps 0 → the used edge on a loop, so the spent fill reads as "filling up."
+  // the phase is the wall clock, so it only advances when Claude Code re-renders the statusline —
+  // it shimmers while you're active and naturally freezes when you go idle. center travels from
+  // just before the start to just past the used edge, then restarts from the bottom.
+  const GP = 2600, GHW = 2.4, GPEAK = 0.42;                 // sweep period ms · glint half-width (cells) · peak whiteness
+  const gc = ((Date.now() % GP) / GP) * (youN + GHW * 2) - GHW;
+  const gloss = (base, i) => {
+    const tube = 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2); // soft rounded-tube shading
+    const glint = GPEAK * Math.max(0, 1 - Math.abs(i - gc) / GHW);                             // the moving highlight
+    return mix(base, Math.min(0.6, tube + glint));
+  };
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
     if (i < youN) s += fg(gloss(i < paceN ? GREEN : hot, i), "█");                 // spent: green on-schedule / hot overshoot
