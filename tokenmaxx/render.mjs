@@ -378,9 +378,12 @@ function main() {
   // one calm meta line, lowercase, airy dot separators
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "")
     + `  ·  $${Math.round(usd)}  ·  ctx ${Math.floor(ctxPct)}%  ·  cache `) + fg(cacheCol, cacheV);
-  // last-5-min momentum: +burning / −recovering. green when recovering (nice), dim otherwise.
-  if (mom5 != null && Math.abs(mom5) > 25000)
-    metaRow += fg(DIM, "  ·  5m ") + fg(mom5 < 0 ? GREEN : DIM, (mom5 < 0 ? "−" : "+") + tkf(mom5));
+  // last-5-min momentum, signed like cushion/over: + = gaining ground (aging out faster than you
+  // burn → recovering, green), − = losing ground (burning it down, dim).
+  if (mom5 != null && Math.abs(mom5) > 25000) {
+    const gaining = mom5 < 0;
+    metaRow += fg(DIM, "  ·  5m ") + fg(gaining ? GREEN : DIM, (gaining ? "+" : "−") + tkf(mom5));
+  }
 
   // coach line: italic, periwinkle, lowercase. when a wall's hot the move takes it over; /maxx (or
   // presence) sits quietly at the right.
