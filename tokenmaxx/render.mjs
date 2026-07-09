@@ -43,6 +43,8 @@ const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade bel
 const GREEN  = hsl(146, 0.64, 0.32); // forest / kelly = safe
 const AMBER  = hsl(36, 0.84, 0.44);  // deep amber = elevated
 const RED    = hsl(352, 0.64, 0.42); // scarlet / burgundy = danger
+const START  = hsl(266, 0.40, 0.44); // the start post (0)
+const WALL   = hsl(352, 0.62, 0.30); // the finish post = the limit (deep, darker than the overshoot)
 
 // ─── ANSI: every glyph carries the panel bg so the band stays unbroken ─────────
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -133,7 +135,7 @@ function meter(u, e, w) {
   const hot = zoneCol(u, e);
   const CUSH = mix(GREEN, 0.5, BG); // pale-green buffer between you and the pace line (when under)
   const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
-  let s = fg(BORDER, "▕");
+  let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
     if (i < youN) s += fg(gloss(i < paceN ? GREEN : hot, i), "█");                 // spent: green on-schedule / hot overshoot
     else if (i === youN && part > 0.04)                                            // your leading edge (sub-cell)
@@ -141,7 +143,7 @@ function meter(u, e, w) {
     else if (i < paceN) s += fg(CUSH, "█");                                        // cushion band: behind the pace line
     else s += fg(TRACK, "█");                                                      // runway beyond the line
   }
-  return s + fg(BORDER, "▏");
+  return s + fg(WALL, "▌"); // finish post = the limit (the wall you don't want to reach)
 }
 
 // ─── sidecar state ─────────────────────────────────────────────────────────────
