@@ -131,7 +131,7 @@ function meter(u, e, w) {
   const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((full > 1 ? i / (full - 1) : 0) - 0.45) * 2));
   let s = fg(BORDER, "▕");
   for (let i = 0; i < w; i++) {
-    if (i === mark) s += fg(INK, "╎");
+    if (i === mark) s += fg(INK, "⚑"); // the pace flag — stay behind it (you're racing it to the wall)
     else if (i < full) s += fg(gloss(i < mark ? GREEN : hot, i), "█");
     else if (i === full && part > 0.04) s += esc(i < mark ? GREEN : hot, TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
     else s += fg(TRACK, "█");
@@ -375,9 +375,10 @@ function main() {
     return s;
   };
 
-  // one calm meta line, lowercase, airy dot separators
-  let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "")
-    + `  ·  $${Math.round(usd)}  ·  ctx ${Math.floor(ctxPct)}%  ·  cache `) + fg(cacheCol, cacheV);
+  // one calm meta line, lowercase, airy dot separators. ctx + cache carry contextual color.
+  const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
+  let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
+    + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
   // last-5-min momentum, signed like cushion/over: + = gaining ground (aging out faster than you
   // burn → recovering, green), − = losing ground (burning it down, dim).
   if (mom5 != null && Math.abs(mom5) > 25000) {
