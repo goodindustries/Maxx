@@ -25,7 +25,7 @@ const CONFIG = path.join(HOME, ".tokenmaxx", "config.json");
 const RL = path.join(HOME, ".tokenmaxx", "rl.json");   // render drops the live %s here to anchor caps
 const WINDOW_MS = 5 * 60 * 60 * 1000;     // Claude's ~5-hour limit window
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;  // the 7-day wall
-const BUCKET_MS = 5 * 60 * 1000;          // 5-min buckets: small enough to age out smoothly, few enough to re-sum every render tick
+const BUCKET_MS = 30 * 1000;              // 30-sec buckets: fine enough that the momentum + recovery step every ~30s, still cheap to re-sum every render tick
 
 async function files(dir) {
   const out = [];
