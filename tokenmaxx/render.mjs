@@ -59,6 +59,15 @@ function esc(fgHex, bgHex, s) {
   const [fr, fgg, fb] = rgb(fgHex), [br, bgg, bb] = rgb(bgHex);
   return `\x1b[38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
 }
+// tiny deterministic integer hash → [0,1). Used to schedule the gold shine's irregular launches
+// (salt feeds one index into several independent random streams). No state, so every render tick
+// agrees on where each shine is — that's what keeps the motion continuous while looking random.
+const hashN = (n, salt = 0) => {
+  let x = Math.imul((n | 0) ^ Math.imul(salt, 0x9e3779b9), 2654435761);
+  x = Math.imul(x ^ (x >>> 16), 2246822519);
+  x = (x ^ (x >>> 13)) >>> 0;
+  return x / 4294967296;
+};
 const fg = (c, s) => esc(c, BG, s);
 // italic variant (adds SGR 3) — for the calm coach line; degrades gracefully if unsupported
 function ital(fgHex, s) {
@@ -137,16 +146,26 @@ function meter(u, e, w) {
   const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
   // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
   // doesn't glow or vibrate against the purple panel the way a bright mint did.
-  // a slow GOLD shine glides up the spent fill, BOUNCES off the used edge, glides back — then
-  // rests before the next bounce (one every ~9s, not a constant shimmer, so it can't nag). the
-  // phase is the wall clock, so it only advances when Claude Code re-renders: it moves while
-  // you're active and freezes when you go idle.
-  const GCYCLE = 9000, GSWEEP = 3600, GHW = 2.6, GPEAK = 0.5;    // loop ms · bounce portion · half-width (cells) · peak gold
-  const gph = Date.now() % GCYCLE, gOn = gph < GSWEEP;
-  const gp = gph / GSWEEP, tri = gp < 0.5 ? gp * 2 : (1 - gp) * 2; // 0→1→0: up to the used edge, then back down
-  const gc = gOn ? tri * youN : -1e9;                           // shine center, confined to the spent portion [0 … used edge]
+  // GOLD shine: gold shoots off up the spent fill at irregular intervals, eases to a stop AT the
+  // used edge (a natural gravity turn via sin), and falls back. Launch times are a hash of the
+  // bounce index — deterministic per render tick so motion stays continuous, yet fires at uneven
+  // gaps with ~1/5 skipped for longer lulls. Overlapping launches coexist as separate spots (no
+  // jump). Wall-clock phase, so it moves while you're active and freezes when you go idle.
+  const GHW = 2.6, GPEAK = 0.5;               // shine half-width (cells) · peak gold
+  const BASE = 7000, JIT = 3200, DUR = 4600;  // mean ms between launches · start jitter · bounce duration (slow)
+  const now = Date.now(), n0 = Math.floor(now / BASE), centers = [];  // active shine centers this tick (usually 0–1, sometimes 2)
+  for (let n = n0 - 2; n <= n0 + 1; n++) {
+    if (hashN(n, 2) < 0.2) continue;                                  // ~20% skipped → longer random gaps
+    const start = n * BASE + hashN(n, 1) * JIT;                       // jittered launch time
+    const dur = DUR * (0.85 + hashN(n, 3) * 0.5);                     // each shine a little faster/slower
+    if (now >= start && now < start + dur) {
+      const p = (now - start) / dur;                                 // 0..1 through this bounce
+      const amp = Math.min(1, Math.min(p, 1 - p) / 0.12);            // fade in/out at the ends → no pop at the base
+      centers.push([Math.sin(p * Math.PI) * youN, amp]);            // [center (0→edge→0, eased apex), brightness envelope]
+    }
+  }
   const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2); // rounded-tube shading
-  const goldAt = (c, i) => { const g = GPEAK * Math.max(0, 1 - Math.abs(i - gc) / GHW); return g > 0.001 ? mix(c, Math.min(0.6, g), GOLD) : c; };
+  const goldAt = (c, i) => { let g = 0; for (const [gc, amp] of centers) g = Math.max(g, GPEAK * amp * Math.max(0, 1 - Math.abs(i - gc) / GHW)); return g > 0.001 ? mix(c, Math.min(0.6, g), GOLD) : c; };
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
     if (i < youN) s += fg(goldAt(mix(i < paceN ? GREEN : hot, tubeAt(i)), i), "█"); // spent: tube-shaded green + the bouncing gold shine
