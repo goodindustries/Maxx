@@ -120,21 +120,26 @@ function zoneCol(u, e) {
   return u >= 0.9 || proj >= 1.25 ? RED : proj >= 0.9 ? AMBER : GREEN;
 }
 const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; // sub-cell fill: 0..8 eighths
-// budget timeline: fill = where you are, ╎ = the pace line, rest = runway. Fill is GREEN up to the
-// line and hot past it (the overshoot). The leading edge is drawn to 1/8-cell precision so the bar
-// creeps smoothly as tokens change — you feel it recede while you rest.
+// budget timeline as a race — no marker glyph, the PACE LINE is where the colour changes:
+//   [ forest green: what you've spent ] then either
+//   · behind pace → [ pale-green cushion band up to the line ][ lavender runway ]   (you're ahead)
+//   · past pace   → [ red overshoot band past the line ][ lavender runway ]         (you're over)
+// so the cushion / overshoot is a band whose length you read at a glance. Your leading edge is
+// drawn to 1/8-cell precision so it still creeps as tokens change.
 function meter(u, e, w) {
   u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
-  const fillF = u * w, full = Math.floor(fillF), part = fillF - full;
-  const mark = Math.min(w - 1, Math.max(0, Math.round(e * w)));
+  const you = u * w, youN = Math.floor(you), part = you - youN; // your position
+  const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
   const hot = zoneCol(u, e);
-  const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((full > 1 ? i / (full - 1) : 0) - 0.45) * 2));
+  const CUSH = mix(GREEN, 0.5, BG); // pale-green buffer between you and the pace line (when under)
+  const gloss = (base, i) => mix(base, 0.28 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2));
   let s = fg(BORDER, "▕");
   for (let i = 0; i < w; i++) {
-    if (i === mark) s += fg(INK, "⚑"); // the pace flag — stay behind it (you're racing it to the wall)
-    else if (i < full) s += fg(gloss(i < mark ? GREEN : hot, i), "█");
-    else if (i === full && part > 0.04) s += esc(i < mark ? GREEN : hot, TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
-    else s += fg(TRACK, "█");
+    if (i < youN) s += fg(gloss(i < paceN ? GREEN : hot, i), "█");                 // spent: green on-schedule / hot overshoot
+    else if (i === youN && part > 0.04)                                            // your leading edge (sub-cell)
+      s += esc(i < paceN ? GREEN : hot, i < paceN ? CUSH : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
+    else if (i < paceN) s += fg(CUSH, "█");                                        // cushion band: behind the pace line
+    else s += fg(TRACK, "█");                                                      // runway beyond the line
   }
   return s + fg(BORDER, "▏");
 }
@@ -379,11 +384,12 @@ function main() {
   const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
     + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
-  // last-5-min momentum, signed like cushion/over: + = gaining ground (aging out faster than you
-  // burn → recovering, green), − = losing ground (burning it down, dim).
-  if (mom5 != null && Math.abs(mom5) > 25000) {
+  // last-5-min momentum, signed like cushion/over: + = gaining ground (recovering, green), − =
+  // losing ground (burning it down). Keep it legible in BOTH states — INK when burning, not the
+  // faintest dim, so it doesn't read as missing.
+  if (mom5 != null && Math.abs(mom5) > 15000) {
     const gaining = mom5 < 0;
-    metaRow += fg(DIM, "  ·  5m ") + fg(gaining ? GREEN : DIM, (gaining ? "+" : "−") + tkf(mom5));
+    metaRow += fg(DIM, "  ·  5m ") + fg(gaining ? GREEN : INK, (gaining ? "+" : "−") + tkf(mom5));
   }
 
   // coach line: italic, periwinkle, lowercase. when a wall's hot the move takes it over; /maxx (or
