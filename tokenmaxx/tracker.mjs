@@ -10,6 +10,7 @@
  * Reads only usage/token metadata. Never emits prompt or message content.
  */
 import { createReadStream, realpathSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
@@ -72,11 +73,13 @@ function setUser(raw) {
 //   whoami            → print identity
 // flags: --dir PATH, --server URL
 function parseArgs(argv) {
-  const out = { cmd: "card", dir: DEFAULT_DIR, server: DEFAULT_SERVER, handle: null };
+  const out = { cmd: "card", dir: DEFAULT_DIR, server: DEFAULT_SERVER, handle: null, raw: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--json" || a === "json") out.cmd = "json";
+    if (a === "session") out.cmd = "session";
+    else if (a === "raw") out.raw = true;
+    else if (a === "--json" || a === "json") { if (out.cmd === "session") out.raw = true; else out.cmd = "json"; }
     else if (a === "--push" || a === "push") out.cmd = "push";
     else if (a === "set-user" || a === "set-handle") { out.cmd = "set-user"; }
     else if (a === "whoami") out.cmd = "whoami";
@@ -207,6 +210,55 @@ function computeStreaks(days) {
   return { current, longest };
 }
 
+// ─── live 5h session window ───────────────────────────────────────────────────
+// The bar's watchdog (limit.mjs) caches the rolling 5h token window in window.json,
+// and render.mjs drops the live rate-limit %s + reset time in rl.json. Reading both
+// here lets /maxx (and any agent reading --json) see where the CURRENT session sits:
+// tokens burned, tokens left, and minutes until the wall resets. Limit-weighted
+// tokens (cache-reads count ~0.1x) so used/cap matches Claude's real quota %.
+function sessionWindow() {
+  let win, rl;
+  try { win = JSON.parse(readFileSync(path.join(CONFIG_DIR, "window.json"), "utf8")); } catch { return null; }
+  try { rl = JSON.parse(readFileSync(path.join(CONFIG_DIR, "rl.json"), "utf8")); } catch { rl = {}; }
+  if (!win || !Array.isArray(win.buckets) || !win.cap5) return null;
+  const now = Date.now();
+  let used = 0, burn5 = 0;
+  for (const b of win.buckets) {
+    if (b[0] > now - 5 * 3600 * 1000) used += b[1];
+    if (b[0] > now - 5 * 60 * 1000) burn5 += b[1];
+  }
+  used = Math.round(used);
+  const cap = win.cap5;
+  const left = Math.max(0, cap - used);
+  const pct = cap > 0 ? used / cap : 0;
+  // use-it-or-lose-it pace: to fully use a rolling 5h budget you must sustain cap/300 per minute.
+  // burning less than that leaves tokens to expire — "behind pace" = under-using, not over-using.
+  const needPerMin = Math.round(cap / 300);
+  const nowPerMin = Math.round(burn5 / 5);
+  const behind = nowPerMin < needPerMin;
+  // minutes until the wall clears. Prefer Anthropic's authoritative fixed-window reset
+  // (rl.json); fall back to when the oldest in-window token ages out of the rolling 5h.
+  let resetInMins = null;
+  if (rl.fiveResetAt) resetInMins = Math.max(0, Math.round((rl.fiveResetAt * 1000 - now) / 60000));
+  else {
+    const inWin = win.buckets.filter((b) => b[0] > now - 5 * 3600 * 1000);
+    if (inWin.length) resetInMins = Math.max(0, Math.round((inWin[0][0] + 5 * 3600 * 1000 - now) / 60000));
+  }
+  return { used, cap, left, pct, resetInMins, burn5: Math.round(burn5), needPerMin, nowPerMin, behind };
+}
+
+// Keep window.json fresh for a fast query without a full history scan: if the cache is older than
+// maxAgeMs, run the incremental tail (~0.25s) inline. That's what lets an agent call `maxx session`
+// and get near-live numbers even when the statusline isn't the thing refreshing the cache.
+function refreshWindow(maxAgeMs = 4000) {
+  const wp = path.join(CONFIG_DIR, "window.json");
+  let ts = 0;
+  try { ts = JSON.parse(readFileSync(wp, "utf8")).ts || 0; } catch {}
+  if (Date.now() - ts < maxAgeMs) return;
+  const limit = path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs");
+  try { execFileSync(process.execPath, [limit], { stdio: "ignore", timeout: 12000 }); } catch {}
+}
+
 // ─── build the public stats payload ───────────────────────────────────────────
 function buildStats(acc) {
   const t = acc.totals;
@@ -244,9 +296,17 @@ function buildStats(acc) {
     lastDay: days[activeDays - 1] || null,
     streak: streaks.current,
     longestStreak: streaks.longest,
+    session: sessionWindow(),
     models,
     perDay,
   };
+}
+
+// minutes → "2h 14m" / "47m"
+function fmtMins(m) {
+  if (m == null) return "—";
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 // ─── pretty print ─────────────────────────────────────────────────────────────
@@ -271,6 +331,15 @@ function pretty(s) {
   L.push(`  active days       ${s.activeDays}   (${s.firstDay} → ${s.lastDay})`);
   L.push(`  sessions          ${fmt(s.sessions)}`);
   L.push(`  messages          ${fmt(s.messages)}`);
+  if (s.session) {
+    const sw = s.session;
+    L.push("  ─────────────────────────────────────────");
+    L.push("  session (5h rolling window)");
+    L.push(`    used            ${human(sw.used)}  (${(sw.pct * 100).toFixed(0)}%)`);
+    L.push(`    unused          ${human(sw.left)}  of ${human(sw.cap)}   use-it-or-lose-it`);
+    L.push(`    pace            ${human(sw.needPerMin)}/min needed · ${human(sw.nowPerMin)}/min now  (${sw.behind ? "behind" : "on pace"})`);
+    L.push(`    resets in       ${fmtMins(sw.resetInMins)}`);
+  }
   L.push("  ─────────────────────────────────────────");
   L.push("  breakdown");
   L.push(`    input           ${human(s.totals.input)}`);
@@ -351,6 +420,24 @@ if (isMainModule()) {
     } else if (a.cmd === "set-user") {
       const cfg = setUser(a.handle);
       w(`handle set: ${cfg.handle}  (install ${cfg.installId.slice(0, 8)}…)`);
+    } else if (a.cmd === "session") {
+      // fast path: refresh the 5h window incrementally (~0.25s), then read the cache — no full
+      // history scan. `maxx session` for a human line, `maxx session raw` for JSON (agents).
+      refreshWindow();
+      const sw = sessionWindow();
+      if (!sw) {
+        w(a.raw ? "null" : "  session: no window data yet — run the statusline once to seed it.");
+      } else if (a.raw) {
+        w(JSON.stringify(sw));
+      } else {
+        w("");
+        w("  ⚡ maxx — session (5h rolling window)");
+        w(`  used        ${human(sw.used)}  (${(sw.pct * 100).toFixed(0)}%)`);
+        w(`  unused      ${human(sw.left)}  of ${human(sw.cap)}  ← use-it-or-lose-it`);
+        w(`  pace        ${human(sw.needPerMin)}/min needed · ${human(sw.nowPerMin)}/min now  (${sw.behind ? "behind — burn more" : "on pace"})`);
+        w(`  resets in   ${fmtMins(sw.resetInMins)}`);
+        w("");
+      }
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));
     } else if (a.cmd === "push") {

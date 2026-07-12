@@ -128,7 +128,7 @@ const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; //
 //   · past pace   → [ red overshoot band past the line ][ lavender runway ]         (you're over)
 // so the cushion / overshoot is a band whose length you read at a glance. Your leading edge is
 // drawn to 1/8-cell precision so it still creeps as tokens change.
-function meter(u, e, w) {
+function meter(u, e, w, seed = 0) {
   u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
   const you = u * w, youN = Math.floor(you), part = you - youN; // your position
   const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
@@ -139,13 +139,22 @@ function meter(u, e, w) {
   // "you are here" pulse: a soft highlight breathing at the leading (spent) edge — it just marks
   // where your usage sits, no busy streaks. Wall-clock phase, so it breathes while you're active
   // and holds still when idle. HEAD = glow half-width in cells; TIP = the pale highlight color.
-  const TIP = hsl(150, 0.42, 0.80);           // pale sage highlight = the breathing edge marker
-  const HEAD = 2.2;                           // glow half-width (cells) around the leading edge
+  const TIP = hsl(150, 0.42, 0.80);           // pale sage highlight = the travelling glint
+  const HEAD = 3.2;                           // glow half-width (cells) — wide + soft, so it's pronounced
   const now = Date.now();
-  const pulse = 0.30 + 0.30 * Math.sin(now / 650); // gentle breathing brightness, 0..0.6, ~4s period
-  const tip = you - 0.5;                       // sub-cell leading edge = where usage currently is
   const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2); // rounded-tube shading
-  const glowAt = (c, i) => { const g = pulse * Math.max(0, 1 - Math.abs(i - tip) / HEAD); return g > 0.001 ? mix(c, Math.min(0.6, g), TIP) : c; };
+  // a single slow glint gliding across the SPENT region. The full pass is scaled to the region's
+  // length so it moves at a steady, calm speed (roughly one cell every few seconds), clamped to a
+  // 7–24s pass. The two bars run offset phases (seed 0 = session, 1 = week) so they never sweep in
+  // lockstep. As usage grows the spent region lengthens, so the sweep covers more of the line and
+  // the whole bar reads as alive. Wall-clock driven → it keeps drifting even while you idle.
+  // sweep only the healthy up-to-pace region: when you're OVER (youN past the pace line), the glint
+  // stops at pace instead of gliding into the red overshoot — it shouldn't celebrate the overspend.
+  const span = Math.max(1, Math.min(youN, paceN));
+  const SWEEP_MS = Math.min(24000, Math.max(7000, span * 900));
+  const t01 = (((now / SWEEP_MS) + seed * 0.41) % 1 + 1) % 1;   // 0..1 phase, offset per bar
+  const center = -HEAD + t01 * (span + 2 * HEAD);               // glides from before 0 to past the edge
+  const glowAt = (c, i) => { const g = 0.85 * Math.max(0, 1 - Math.abs(i - center) / HEAD); return g > 0.001 ? mix(c, Math.min(0.85, g), TIP) : c; };
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
     if (i < youN) s += fg(glowAt(mix(i < paceN ? GREEN : hot, tubeAt(i)), i), "█"); // spent: tube-shaded green + the breathing edge glow
@@ -271,7 +280,7 @@ function main() {
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
   // sum at the real window start instead of a blind rolling 7d — see weekLo below.
-  try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
+  try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
   const marksPath = path.join(HOME, ".tokenmaxx", "marks.json");
@@ -299,8 +308,9 @@ function main() {
     const WK = 7 * 24 * 3600 * 1000;
     const weekLo = Math.max(now - WK, haveWeek ? rl.seven_day.resets_at * 1000 - WK : 0);
     tok7 = sumFrom(weekLo); cap7 = win.cap7;
-    // momentum: net change in the 5h burn over the last 5 min. + = burning, − = recovering
-    // (idle → old buckets age out the back). the last window minus the same window 5 min ago.
+    // 5m net momentum: the 5h burn now minus the same 5h burn 5 min ago. + = net BURN (spending
+    // budget, catching up); − = net GAIN (capacity aged back in while idle = tokens left unused).
+    // A 5h token budget is use-it-or-lose-it, so a gain while idle is waste, not savings.
     const win5 = (end) => { let s = 0; const lo = end - 5 * 3600 * 1000; for (const b of win.buckets) if (b[0] > lo && b[0] <= end) s += b[1]; return s; };
     mom5 = win5(now) - win5(now - 5 * 60 * 1000);
   }
@@ -382,7 +392,7 @@ function main() {
 
   // a wall's row: label · meter · cushion/over pace (live, in thousands) · fresh badge
   const meterContent = (label, u, e, tok, cap, uv, isSession) => {
-    let s = fg(DIM, label) + meter(u, e, mw);
+    let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1);
     if (tok != null && cap) {
       const room = e * cap - tok; // + = cushion under the pace line (good); − = over it (hot)
       if (Math.abs(room) > 25000) {
@@ -399,12 +409,16 @@ function main() {
   const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
     + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
-  // last-5-min momentum, signed like cushion/over: + = gaining ground (recovering, green), − =
-  // losing ground (burning it down). Keep it legible in BOTH states — INK when burning, not the
-  // faintest dim, so it doesn't read as missing.
-  if (mom5 != null && Math.abs(mom5) > 15000) {
-    const gaining = mom5 < 0;
-    metaRow += fg(DIM, "  ·  5m ") + fg(gaining ? GREEN : INK, (gaining ? "+" : "−") + tkf(mom5));
+  // 5m net, coloured by PACE (not just direction) for the use-it-or-lose-it model. To fully use a
+  // rolling 5h budget you must burn ≈ cap5/60 every 5 min; anything less leaves tokens to expire.
+  //   GREEN  burn ≥ pace  → keeping up / catching up
+  //   AMBER  burn < pace  → spending, but too slow — still falling behind (e.g. "222k burn")
+  //   RED    net gain     → idle, capacity aging out unused — losing ground fastest
+  if (mom5 != null && Math.abs(mom5) > 15000 && cap5) {
+    const burning = mom5 > 0, pace = cap5 / 60;
+    const col = !burning ? RED : mom5 >= pace ? GREEN : AMBER;
+    const sign = burning ? "+" : "−"; // + = burning (using budget, catching up), − = gaining (idle, losing ground)
+    metaRow += fg(DIM, "  ·  5m ") + fg(col, sign + tkf(Math.abs(mom5)) + (burning ? " burn" : " gain"));
   }
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at

@@ -25,8 +25,10 @@ const HOME = homedir();
 const STATE = path.join(HOME, ".tokenmaxx", "state.json");
 const PROJECTS = path.join(HOME, ".claude", "projects");
 const LIMIT_MARK = path.join(HOME, ".tokenmaxx", ".limit-scan");
+const FULL_MARK  = path.join(HOME, ".tokenmaxx", ".limit-full");
 const WINDOW = 50;            // how many recent transcript messages the brain looks at
-const LIMIT_MS = 90 * 1000;  // refresh the rolling-token window (window.json) at most this often
+const LIMIT_MS = 5 * 1000;    // incremental tail (~0.25s) — refresh window.json this often so 5m burn is near-live
+const FULL_MS  = 5 * 60 * 1000; // authoritative full rescan this often, to reconcile any tail drift
 
 // ─── locate the session transcript ───────────────────────────────────────────
 async function newest(dir) {
@@ -142,12 +144,15 @@ async function main() {
   if (!dry && advice) publish(advice, sid);
   if (dry) console.log(JSON.stringify({ turns: turns.length, signals, advice }, null, 2));
 
-  // Refresh the rolling-token window (window.json the bar reads for burned/limit). A LOCAL scan of
-  // all sessions, run detached on a cadence — off the hook's critical path.
+  // Refresh the rolling-token window (window.json the bar reads for burned/limit). Detached, off
+  // the hook's critical path. Default run tails only appended bytes (~0.25s); every FULL_MS we pass
+  // --full for an authoritative rescan that reconciles any incremental drift.
   if (!dry && dueFor(LIMIT_MARK, LIMIT_MS)) {
     markNow(LIMIT_MARK);
+    const full = dueFor(FULL_MARK, FULL_MS);
+    if (full) markNow(FULL_MARK);
     try {
-      spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs")],
+      spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs"), ...(full ? ["--full"] : [])],
             { detached: true, stdio: "ignore" }).unref();
     } catch {}
   }
