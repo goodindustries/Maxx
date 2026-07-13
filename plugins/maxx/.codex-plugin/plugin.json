@@ -1,0 +1,27 @@
+{
+  "name": "maxx",
+  "version": "0.1.0",
+  "description": "A local Codex usage fuel gauge and context companion.",
+  "author": {
+    "name": "Reif Tauati",
+    "email": "reif@thegoodproject.net"
+  },
+  "homepage": "https://github.com/goodindustries/Maxx",
+  "repository": "https://github.com/goodindustries/Maxx",
+  "license": "MIT",
+  "keywords": ["codex", "usage", "tokens", "quota", "context", "productivity"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Maxx",
+    "shortDescription": "See Codex limits, tokens, context, and streaks",
+    "longDescription": "Maxx turns Codex usage and local token metadata into a clear fuel gauge, history card, and context-health report without sending data to Maxx or another third party.",
+    "developerName": "Good Industries",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Use $maxx:usage to show my Codex fuel gauge.",
+      "Use $maxx:usage to optimize this Codex session.",
+      "Use $maxx:usage to configure my Codex status line."
+    ]
+  }
+}
