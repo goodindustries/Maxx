@@ -41,6 +41,15 @@ Reads only token/usage metadata — never prompt or message content.
 That's it — the script does the parsing and formatting. Do not re-implement the
 parse. If the script errors, report the error; don't guess the numbers.
 
+## Live status (agent-readable)
+
+The statusline renderer writes a machine-readable snapshot every render tick to
+`~/.tokenmaxx/status.json` — the same numbers the bars paint, as plain fields:
+per-window `usedPct / used / cap / headroom / resetIn / secLeft / needPerMin`
+(tokens/min to fully use the session by reset) and `burn5m` (gross tokens spent in
+the last 5 min). Read that file to check pace mid-task, or run
+`node ~/.claude/skills/maxx/render.mjs --status` (prints the JSON; no stdin needed).
+
 ## Notes
 
 - First run scans every session file (a few seconds on a large history).

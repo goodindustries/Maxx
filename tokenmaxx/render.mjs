@@ -128,11 +128,16 @@ const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; //
 //   · past pace   → [ red overshoot band past the line ][ lavender runway ]         (you're over)
 // so the cushion / overshoot is a band whose length you read at a glance. Your leading edge is
 // drawn to 1/8-cell precision so it still creeps as tokens change.
-function meter(u, e, w, seed = 0) {
+// maximize=true (the session bar): the goal is to USE the whole window, so being ahead of even-burn
+// is good — all spent cells stay green (never the red "overshoot"), and the shortfall BELOW the pace
+// line paints amber (that's the budget you're on track to waste). maximize=false (weekly): the old
+// pace model — green up to pace, red past it, sage cushion below — since you're not trying to max it.
+function meter(u, e, w, seed = 0, maximize = false) {
   u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
   const you = u * w, youN = Math.floor(you), part = you - youN; // your position
   const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
   const hot = zoneCol(u, e);
+  const SHORT = hsl(38, 0.30, 0.66); // maximize: dusty amber = the shortfall to even-burn (budget at risk of waste)
   const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
   // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
   // doesn't glow or vibrate against the purple panel the way a bright mint did.
@@ -150,17 +155,20 @@ function meter(u, e, w, seed = 0) {
   // the whole bar reads as alive. Wall-clock driven → it keeps drifting even while you idle.
   // sweep only the healthy up-to-pace region: when you're OVER (youN past the pace line), the glint
   // stops at pace instead of gliding into the red overshoot — it shouldn't celebrate the overspend.
-  const span = Math.max(1, Math.min(youN, paceN));
+  // maximize: sweep the whole spent region (all spending is progress); weekly: stop the glint at pace.
+  const span = Math.max(1, maximize ? youN : Math.min(youN, paceN));
   const SWEEP_MS = Math.min(24000, Math.max(7000, span * 900));
   const t01 = (((now / SWEEP_MS) + seed * 0.41) % 1 + 1) % 1;   // 0..1 phase, offset per bar
   const center = -HEAD + t01 * (span + 2 * HEAD);               // glides from before 0 to past the edge
   const glowAt = (c, i) => { const g = 0.85 * Math.max(0, 1 - Math.abs(i - center) / HEAD); return g > 0.001 ? mix(c, Math.min(0.85, g), TIP) : c; };
+  const below = maximize ? SHORT : CUSH;             // color of the band below the pace line
+  const spentC = (i) => maximize ? GREEN : (i < paceN ? GREEN : hot); // maximize: spent is always green
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
-    if (i < youN) s += fg(glowAt(mix(i < paceN ? GREEN : hot, tubeAt(i)), i), "█"); // spent: tube-shaded green + the breathing edge glow
+    if (i < youN) s += fg(glowAt(mix(spentC(i), tubeAt(i)), i), "█");               // spent: tube-shaded + breathing edge glow
     else if (i === youN && part > 0.04)                                            // your leading edge (sub-cell)
-      s += esc(glowAt(i < paceN ? GREEN : hot, i), i < paceN ? CUSH : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
-    else if (i < paceN) s += fg(CUSH, "█");                                        // cushion band (past the edge glow)
+      s += esc(glowAt(spentC(i), i), i < paceN ? below : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
+    else if (i < paceN) s += fg(below, "█");                                       // below pace: cushion (weekly) / shortfall (session)
     else s += fg(TRACK, "█");                                                      // runway beyond the pace line
   }
   return s + fg(WALL, "▌"); // finish post = the limit (the wall you don't want to reach)
@@ -257,8 +265,17 @@ function wrap(text, w) {
 }
 
 function main() {
-  let p = {};
-  try { p = JSON.parse(readFileSync(0, "utf8")); } catch {}
+  const wantStatus = process.argv.includes("--status");
+  let p = {}, rawIn = "";
+  // don't block on an interactive TTY: `node render.mjs --status` from a shell has no piped JSON,
+  // so reading fd 0 would hang forever. Only slurp stdin when it's actually a pipe.
+  if (!process.stdin.isTTY) { try { rawIn = readFileSync(0, "utf8"); p = JSON.parse(rawIn); } catch {} }
+  // `--status` with no stdin (an agent calling us directly) → echo the last snapshot the live
+  // statusline wrote. Nothing fresh to compute without Claude Code's JSON, so read the file.
+  if (wantStatus && !rawIn.trim()) {
+    try { process.stdout.write(readFileSync(path.join(HOME, ".tokenmaxx", "status.json"), "utf8") + "\n"); } catch { process.stdout.write("{}\n"); }
+    return;
+  }
   const cols = parseInt(process.env.COLUMNS || "130", 10) || 130;
 
   const st = readJSON(statePath);
@@ -296,23 +313,26 @@ function main() {
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
   const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
-  let tok5 = null, cap5 = null, tok7 = null, cap7 = null, mom5 = null;
+  let tok5 = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
     const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
     const sumFrom = (lo) => { let s = 0; for (const b of win.buckets) if (b[0] > lo) s += b[1]; return s; };
-    tok5 = sum(5 * 3600 * 1000); cap5 = win.cap5;
+    // session: sum from the real window start (resets_at − 5h), same as weekly below — NOT a blind
+    // rolling 5h. So the instant the wall resets (resets_at leaps +5h), pre-reset burn stops counting
+    // and the bar drops to ~0 immediately, instead of decaying stale over the next 5 hours.
+    const FIVE = 5 * 3600 * 1000;
+    const fiveLo = Math.max(now - FIVE, haveQuota ? rl.five_hour.resets_at * 1000 - FIVE : 0);
+    tok5 = sumFrom(fiveLo); cap5 = win.cap5;
     // weekly: sum from Anthropic's actual window start (resets_at − 7d), not a blind now − 7d, so a
     // pre-reset burst stops counting the instant the wall zeroed. max() = never loosen past the
     // rolling window, so a stale/absent resets_at falls back to old behavior (never counts more).
     const WK = 7 * 24 * 3600 * 1000;
     const weekLo = Math.max(now - WK, haveWeek ? rl.seven_day.resets_at * 1000 - WK : 0);
     tok7 = sumFrom(weekLo); cap7 = win.cap7;
-    // 5m net momentum: the 5h burn now minus the same 5h burn 5 min ago. + = net BURN (spending
-    // budget, catching up); − = net GAIN (capacity aged back in while idle = tokens left unused).
-    // A 5h token budget is use-it-or-lose-it, so a gain while idle is waste, not savings.
-    const win5 = (end) => { let s = 0; const lo = end - 5 * 3600 * 1000; for (const b of win.buckets) if (b[0] > lo && b[0] <= end) s += b[1]; return s; };
-    mom5 = win5(now) - win5(now - 5 * 60 * 1000);
+    // gross tokens burned in the last 5 min (always ≥ 0). This is the live "are you actually using
+    // the session" signal — coloured against the maximize pace, and shown as "idle" when it's ~0.
+    burn5 = sum(5 * 60 * 1000);
   }
 
   const usd = (p.cost || {}).total_cost_usd || 0;
@@ -355,6 +375,35 @@ function main() {
   const p5 = haveQuota ? paceOf(rl.five_hour, 5 * 3600, quota) : { ok: false, hot: false };
   const p7 = haveWeek ? paceOf(rl.seven_day, 7 * 24 * 3600, week) : { ok: false, hot: false };
 
+  // ── derived, machine-readable: every number the bars compute — time left, tokens burned, and
+  //    needPerMin — as plain fields, so an agent can read ~/.tokenmaxx/status.json (or
+  //    `node render.mjs --status`) instead of scraping ANSI.
+  //    needPerMin = the rate that MAXIMIZES throughput: burn all the way to the session cap right as
+  //    it resets, since unused session budget just evaporates (the week is maximized by never
+  //    leaving a session on the table). = headroom-to-cap ÷ minutes left. Falls to 0 once you're at
+  //    the cap — "without going over the session max" — so it never tells you to overshoot.
+  function windowStat(tokV, capV, usedFrac, resetAt, winSec) {
+    const secLeft = resetAt ? Math.max(0, Math.round(resetAt - nowS)) : 0;
+    const minLeft = secLeft / 60;
+    const cap = capV || 0;
+    const used = tokV != null ? Math.round(tokV) : Math.round(usedFrac * cap);
+    const headroom = Math.max(0, cap - used);                    // room left before the session max
+    const needPerMin = cap && minLeft > 0 ? Math.round(headroom / minLeft) : 0; // fully use it by reset
+    const pacePerMin = cap ? Math.round(cap / (winSec / 60)) : 0; // even burn that lands at 100%
+    return { usedPct: Math.round(usedFrac * 1000) / 10, used, cap, headroom, resetAt: resetAt || 0,
+             secLeft, minLeft: Math.round(minLeft), resetIn: resetIn(resetAt), needPerMin, pacePerMin };
+  }
+  const sStat = windowStat(tok5, cap5, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
+  const wStat = windowStat(tok7, cap7, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
+  const status = {
+    ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
+    costUsd: Math.round(usd * 100) / 100, sessions: mine,
+    session: sStat, weekly: wStat,
+    burn5m: burn5 != null ? Math.round(burn5) : null, // gross tokens spent in the last 5 min (≥ 0)
+  };
+  try { writeFileSync(path.join(HOME, ".tokenmaxx", "status.json"), JSON.stringify(status)); } catch {}
+  if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
+
   // paceMove: when a wall's hot, the ONE thing the human can actually flip right now — ranked
   // by leverage against what the bar already sees. Opus burns the cap fastest (one keystroke
   // to Sonnet); N parallel sessions burn N×; a cold cache pays full freight; else just step
@@ -386,21 +435,33 @@ function main() {
   const W = Math.max(40, cols - PAD * 2 - 2); // -2 = a right safety margin so nothing gets clipped
   // meter width: wide, but CAPPED so it can't swallow the whole line — always leave room for the
   // label before it and the (comma'd, up to ~16-char) cushion/over after it, plus a badge.
-  const mw = Math.max(24, Math.min(Math.round(W * 0.62), 90, W - 32));
+  // widen with the terminal: no fixed 90-cell cap (that left half a wide screen empty). Scale to
+  // ~0.68 of the rail, leaving ~46 cells for the label + cushion/over + time-left + need/min badges.
+  const mw = Math.max(24, Math.min(Math.round(W * 0.68), 160, W - 46));
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
   // a wall's row: label · meter · cushion/over pace (live, in thousands) · fresh badge
-  const meterContent = (label, u, e, tok, cap, uv, isSession) => {
-    let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1);
+  const meterContent = (label, u, e, tok, cap, uv, isSession, stat) => {
+    let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
     if (tok != null && cap) {
-      const room = e * cap - tok; // + = cushion under the pace line (good); − = over it (hot)
+      const room = e * cap - tok; // + = below even-burn pace, − = above it
       if (Math.abs(room) > 25000) {
-        const good = room >= 0;
-        const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
-        if (fits(s, d)) s += d;
+        if (isSession) {
+          // maximize: AHEAD of pace = good (using the window); BEHIND = under-using, the real risk.
+          const behind = room > 0;
+          const d = fg(DIM, "  ") + fg(behind ? AMBER : DIM, `${behind ? "−" : "+"}${tkf(room)} ${behind ? "behind" : "ahead"}`);
+          if (fits(s, d)) s += d;
+        } else {
+          // weekly: not trying to max it — under pace is a cushion, over it is the concern.
+          const good = room >= 0;
+          const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
+          if (fits(s, d)) s += d;
+        }
       }
     } else if (uv) { const d = fg(DIM, "  ") + fg(zoneCol(u, e), uv); if (fits(s, d)) s += d; } // no window → raw %
+    // time left in the window (the session catch-up rate rides the meta line, next to 5m burn).
+    if (stat && stat.resetIn) { const d = fg(DIM, "  ") + fg(DIM, stat.resetIn + " left"); if (fits(s, d)) s += d; }
     if (isSession && freshReset) { const b = fg(DIM, "  ") + fg(BRAND, "↺ just reset"); if (fits(s, b)) s += b; }
     return s;
   };
@@ -409,17 +470,19 @@ function main() {
   const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
     + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
-  // 5m net, coloured by PACE (not just direction) for the use-it-or-lose-it model. To fully use a
-  // rolling 5h budget you must burn ≈ cap5/60 every 5 min; anything less leaves tokens to expire.
-  //   GREEN  burn ≥ pace  → keeping up / catching up
-  //   AMBER  burn < pace  → spending, but too slow — still falling behind (e.g. "222k burn")
-  //   RED    net gain     → idle, capacity aging out unused — losing ground fastest
-  if (mom5 != null && Math.abs(mom5) > 15000 && cap5) {
-    const burning = mom5 > 0, pace = cap5 / 60;
-    const col = !burning ? RED : mom5 >= pace ? GREEN : AMBER;
-    const sign = burning ? "+" : "−"; // + = burning (using budget, catching up), − = gaining (idle, losing ground)
-    metaRow += fg(DIM, "  ·  5m ") + fg(col, sign + tkf(Math.abs(mom5)) + (burning ? " burn" : " gain"));
+  // 5m burn: gross tokens spent in the last 5 min, coloured by the maximize pace. To fully use a
+  // 5h budget you must burn ≈ cap5/60 every 5 min; less than that leaves tokens to expire.
+  //   GREEN  burn ≥ pace  → keeping up / maxing the session
+  //   AMBER  0 < burn < pace → spending, but too slow (e.g. "222k burn")
+  //   RED    ~idle        → not using it, the session is aging out unused
+  if (burn5 != null && cap5) {
+    const pace = cap5 / 60, idle = burn5 <= 15000;
+    const col = idle ? RED : burn5 >= pace ? GREEN : AMBER;
+    metaRow += fg(DIM, "  ·  5m ") + fg(col, idle ? "idle" : tkf(burn5) + " burn");
   }
+  // rate to fully use the session by reset (headroom ÷ time left) — sits with 5m burn, both are
+  // "how am I pacing now". Session only: max the session and the week follows. Hides once maxed.
+  if (sStat.needPerMin > 0) metaRow += fg(DIM, "  ·  need ") + fg(AMBER, tkf(sStat.needPerMin) + "/min");
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
   // the right of the stats line.
@@ -429,9 +492,9 @@ function main() {
     : metaRow;
 
   const out = [
-    row(meterContent("session  ", q5, e5, tok5, cap5, qv, true)),
+    row(meterContent("session  ", q5, e5, tok5, cap5, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("weekly   ", w7, e7, tok7, cap7, wv, false)),
+    row(meterContent("weekly   ", w7, e7, tok7, cap7, wv, false, wStat)),
     row(metaFull),
   ];
   process.stdout.write(out.join("\n") + "\n");
