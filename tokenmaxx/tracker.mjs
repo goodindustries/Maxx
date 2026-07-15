@@ -247,18 +247,6 @@ function sessionWindow() {
   return { used, cap, left, pct, resetInMins, burn5: Math.round(burn5), needPerMin, nowPerMin, behind };
 }
 
-// Keep window.json fresh for a fast query without a full history scan: if the cache is older than
-// maxAgeMs, run the incremental tail (~0.25s) inline. That's what lets an agent call `maxx session`
-// and get near-live numbers even when the statusline isn't the thing refreshing the cache.
-function refreshWindow(maxAgeMs = 4000) {
-  const wp = path.join(CONFIG_DIR, "window.json");
-  let ts = 0;
-  try { ts = JSON.parse(readFileSync(wp, "utf8")).ts || 0; } catch {}
-  if (Date.now() - ts < maxAgeMs) return;
-  const limit = path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs");
-  try { execFileSync(process.execPath, [limit], { stdio: "ignore", timeout: 12000 }); } catch {}
-}
-
 // ─── build the public stats payload ───────────────────────────────────────────
 function buildStats(acc) {
   const t = acc.totals;

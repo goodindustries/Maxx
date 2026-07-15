@@ -113,16 +113,16 @@ The rollout format is not a documented stable API, so the parser is isolated, fi
 
 ## Claude Code implementation notes
 
-Claude tokens are use-it-or-lose-it. The session budget is a rolling five-hour window that refills continuously. Tokens that age out are wasted rather than saved, so its sustainable full-use rate is `cap ÷ 300` per minute.
+Claude enforces two hard walls at once: a five-hour session cap and a seven-day weekly cap. Maxing the raw 5h cap every window drains the week days before it refreshes — then you're locked out. So maxx paces you to the **sustainable per-session budget** = weekly-remaining ÷ 5h-sessions-left-in-week (`realMax`), bounded by the 5h wall. Idle or take a break and it climbs back; overspend and it shrinks. That's the number `maxx session` reports as "to spend".
 
 Fast live query:
 
 ```bash
-node ~/.claude/skills/maxx/tracker.mjs session
-node ~/.claude/skills/maxx/tracker.mjs session raw
+node ~/.claude/skills/maxx/tracker.mjs session       # "how much to spend this session" (weekly-paced)
+node ~/.claude/skills/maxx/tracker.mjs session raw   # machine-readable status.json
 ```
 
-The second form returns machine-readable session usage, burn, pace, and reset timing. Token figures are limit-weighted so cache reads contribute less pressure than fresh input.
+Both delegate to `render.mjs`, the only component with the weekly rate-limit data (via the statusline's stdin / `~/.tokenmaxx/status.json`). Pace off `toSpend` / `over` / `spendPerMin` / `capKind`; the raw 5h window is exposed separately as `rawCap` / `rawUsedPct` / `rawHeadroom` — informational only, not the budget.
 
 Claude data flow:
 
