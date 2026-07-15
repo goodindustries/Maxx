@@ -165,40 +165,26 @@ function zoneCol(u, e) {
   const proj = u / Math.max(e, 0.02); // projected fullness at reset if you hold this pace
   return u >= 0.9 || proj >= 1.25 ? RED : proj >= 0.9 ? AMBER : GREEN;
 }
-const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; // sub-cell fill: 0..8 eighths
-// budget timeline as a race — no marker glyph, the PACE LINE is where the colour changes:
-//   [ forest green: what you've spent ] then either
-//   · behind pace → [ pale-green cushion band up to the line ][ lavender runway ]   (you're ahead)
-//   · past pace   → [ red overshoot band past the line ][ lavender runway ]         (you're over)
-// so the cushion / overshoot is a band whose length you read at a glance. Your leading edge is
-// drawn to 1/8-cell precision so it still creeps as tokens change.
-// maximize=true (the session bar): the goal is to USE the whole window, so being ahead of even-burn
-// is good — all spent cells stay green (never the red "overshoot"). The below-pace band stays the
-// calm light-green cushion (the "behind" nudge lives in the text + meta line, not an alarm colour).
-// maximize=false (weekly): the old pace model — green up to pace, red past it, cushion below.
-function meter(u, e, w, seed = 0, maximize = false) {
-  u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
-  const you = u * w, youN = Math.floor(you), part = you - youN; // your position
-  const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
-  const hot = zoneCol(u, e);
-  const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
-  // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
-  // doesn't glow or vibrate against the purple panel the way a bright mint did.
-  // static rounded-tube shading (lit through the middle) for a touch of depth — NO animation. The
-  // travelling glint was removed: it read as twinkle, and a status bar shouldn't move for its own
-  // sake. The bar now changes only when the numbers do.
-  const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2);
-  const below = CUSH;                                 // light-green cushion below the pace line (both bars)
-  const spentC = (i) => maximize ? GREEN : (i < paceN ? GREEN : hot); // maximize: spent is always green
-  let s = fg(START, "▐"); // start post (0)
+
+// FUEL gauge — the bar is what's LEFT, not what's spent. Full budget = full tank; spending drains it
+// (green shrinks from the right), and for the roll-session the rolling window REFILLS it as old usage
+// ages out — so banking visibly GAINS fuel. A pace tick marks the fuel you'd have at even burn: tank
+// past the tick = ahead/banked (green), short of it = burning too fast (amber → red near empty).
+function fuelMeter(fuelFrac, e, w) {
+  fuelFrac = Math.max(0, Math.min(1, fuelFrac));
+  const fuelN = Math.round(fuelFrac * w);
+  const paceFuel = Math.max(0, Math.min(1, 1 - e));            // fuel remaining if spending at even burn
+  const paceN = Math.min(w, Math.round(paceFuel * w));
+  const ratio = paceFuel > 0.02 ? fuelFrac / paceFuel : 1;    // >1 = more fuel than pace (banked)
+  const col = (fuelFrac < 0.1 || ratio < 0.5) ? RED : ratio < 0.85 ? AMBER : GREEN;
+  const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((fuelN > 1 ? i / (fuelN - 1) : 0) - 0.45) * 2);
+  let s = fg(START, "▐"); // full-tank end
   for (let i = 0; i < w; i++) {
-    if (i < youN) s += fg(mix(spentC(i), tubeAt(i)), "█");                          // spent: tube-shaded
-    else if (i === youN && part > 0.04)                                            // your leading edge (sub-cell)
-      s += esc(spentC(i), i < paceN ? below : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
-    else if (i < paceN) s += fg(below, "█");                                       // below pace: cushion (weekly) / shortfall (session)
-    else s += fg(TRACK, "█");                                                      // runway beyond the pace line
+    if (i < fuelN) s += fg(mix(col, tubeAt(i)), "█");          // fuel in the tank
+    else if (i === paceN && paceN >= fuelN) s += fg(BORDER, "╎"); // even-burn marker, sitting in the drained zone
+    else s += fg(TRACK, "█");                                  // drained
   }
-  return s + fg(WALL, "▌"); // finish post = the limit (the wall you don't want to reach)
+  return s + fg(WALL, "▌"); // empty end
 }
 
 // ─── sidecar state ─────────────────────────────────────────────────────────────
@@ -343,17 +329,29 @@ function main() {
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
   const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
-  let tok5 = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null;
+  let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
     const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
     const sumFrom = (lo) => { let s = 0; for (const b of win.buckets) if (b[0] > lo) s += b[1]; return s; };
+    // SMOOTH rolling window (age-weighted decay): every bucket's weight fades LINEARLY from 1 (just now)
+    // to 0 (5h old), so all recent spend is continuously decaying — not a hard cutoff that only drops the
+    // trailing bucket. `now` advances every render (~1s), so the weighted sum shrinks a little each second
+    // and the fuel tank refills smoothly per second while you idle, at ~(last-5h spend)/5h per second.
+    // A spend fully "returns" 5h after it happened; idling just lets the decay run. This is the roll-
+    // session's own pacing clock, not Anthropic's hard 5h wall (that stays in the raw* fields).
+    const decaySum = (winMs) => { let s = 0; for (const b of win.buckets) { const age = now - b[0]; if (age >= winMs) continue; s += b[1] * (1 - age / winMs); } return s; };
     // session: sum from the real window start (resets_at − 5h), same as weekly below — NOT a blind
     // rolling 5h. So the instant the wall resets (resets_at leaps +5h), pre-reset burn stops counting
     // and the bar drops to ~0 immediately, instead of decaying stale over the next 5 hours.
     const FIVE = 5 * 3600 * 1000;
     const fiveLo = Math.max(now - FIVE, haveQuota ? rl.five_hour.resets_at * 1000 - FIVE : 0);
     tok5 = sumFrom(fiveLo); cap5 = win.cap5;
+    // ROLLING 5h window for the roll-session fuel: sum the trailing 5h regardless of Anthropic's fixed
+    // reset boundary. Old buckets age out the back continuously, so idling REFILLS the tank (bank by
+    // chilling) instead of waiting for a cliff at resets_at. This is the roll-session's own clock; the
+    // hard Anthropic 5h wall stays exposed via the raw* fields (quota).
+    tok5roll = decaySum(FIVE);
     // weekly: sum from Anthropic's actual window start (resets_at − 7d), not a blind now − 7d, so a
     // pre-reset burst stops counting the instant the wall zeroed. max() = never loosen past the
     // rolling window, so a stale/absent resets_at falls back to old behavior (never counts more).
@@ -417,7 +415,11 @@ function main() {
     const delta = tok != null ? tok - (toka ?? tok) : 0;          // burn since the last %-tick
     return Math.max(0, Math.min(capS, Math.round(base + f * delta)));
   };
-  const used5 = liveUsed(haveQuota, quota, cap5s, tok5, tok5a);
+  // roll-session usage = the ROLLING 5h bucket sum (recovers as old buckets age out → fuel refills when
+  // you idle). Falls back to the fixed-block pinned value when buckets are missing. Weekly stays PINNED to
+  // Anthropic's seven_day % (the weekly bar must match /usage). Both in the same (maxx) token units as the
+  // caps, so the fuel fractions below are honest ratios even though the absolute magnitudes are estimates.
+  const used5 = tok5roll != null ? Math.round(tok5roll) : liveUsed(haveQuota, quota, cap5s, tok5, tok5a);
   const used7 = liveUsed(haveWeek, week, cap7s, tok7, tok7a);
   // ROLL-SESSION — one sentence: weekly tokens LEFT ÷ the 5h windows left this week = tokens good to use
   // this session. Spend up to it and the week lasts; max Anthropic's raw 5h wall instead and you're out in
@@ -496,10 +498,13 @@ function main() {
   sStat.capKind = sStat.weeklyPaced ? "weekly-paced" : "5h-cap";   // what set session.cap / realMax
   sStat.sessionResetsInMin = sStat.minLeft;                         // minutes until the 5h wall resets
   sStat.spendPerMin = sStat.toSpend > 0 && sStat.minLeft > 0 ? Math.round(sStat.toSpend / sStat.minLeft) : 0;
+  // raw* = Anthropic's ACTUAL fixed 5h wall (from quota), NOT the rolling roll-session usage above. Pinned
+  // to the five_hour % so it matches /usage; the roll-session uses its own rolling window.
+  const rawUsedFixed = Math.round((haveQuota ? quota : 0) * (cap5s || 0));
   sStat.rawCap = cap5s || 0;                                        // Anthropic's real 5h token cap
-  sStat.rawUsed = used5;
-  sStat.rawUsedPct = cap5s ? Math.round((used5 / cap5s) * 1000) / 10 : 0; // % of the ACTUAL 5h window
-  sStat.rawHeadroom = Math.max(0, (cap5s || 0) - used5);            // tokens left before the 5h wall
+  sStat.rawUsed = rawUsedFixed;
+  sStat.rawUsedPct = haveQuota ? Math.round(quota * 1000) / 10 : 0; // % of the ACTUAL fixed 5h window (= /usage)
+  sStat.rawHeadroom = Math.max(0, (cap5s || 0) - rawUsedFixed);     // tokens left before the 5h wall
   const status = {
     ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
     costUsd: Math.round(usd * 100) / 100, sessions: mine,
@@ -569,7 +574,9 @@ function main() {
   // (realMax − used); counts down as you burn, climbs back after a break. Negative → "over — ease
   // off" (you're starting to eat future weeks). WEEKLY: "X left" — the reserve. + time left.
   const meterContent = (label, u, e, uv, isSession, stat) => {
-    let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
+    // fuel gauge: bar shows what's LEFT (1 − usage fraction), draining as you spend, refilling (session)
+    // as the rolling window ages out. e = elapsed → the even-burn pace tick lives inside fuelMeter.
+    let s = fg(DIM, label) + fuelMeter(1 - u, e, mw);
     if (stat && stat.cap) {
       if (isSession) {
         const spend = Math.max(0, Math.round(stat.cap - stat.used)); // realMax − used, clamped: safe to spend now
