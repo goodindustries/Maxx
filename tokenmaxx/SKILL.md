@@ -15,6 +15,7 @@ Reads only token/usage metadata — never prompt or message content.
 
 ```
 /maxx            # print the usage card
+/maxx session    # how much to spend THIS session (weekly-paced budget, plain language)
 /maxx json       # print the raw stats payload (JSON)
 /maxx optimize   # analyze your latest session: where tokens went + ranked $ fixes
 ```

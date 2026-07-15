@@ -119,6 +119,35 @@ function tkfull(n) {
   return Math.round(Math.abs(n)).toLocaleString("en-US");
 }
 
+// `/maxx session` brief — reads the snapshot the statusline writes and answers the one question:
+// how much can I spend this session? First line is machine-ingestible (KEY=value); the rest is human.
+function sessionBrief(st) {
+  if (!st || !st.session) return "maxx — no usage data yet. Open Claude Code so the statusline can write ~/.tokenmaxx/status.json, then retry.";
+  const s = st.session, w = st.weekly || {};
+  const spend = Math.round((s.cap || 0) - (s.used || 0)); // realMax − used: safe to spend now
+  const minLeft = s.minLeft || 0;                          // minutes until THIS session resets
+  const perMin = spend > 0 && minLeft > 0 ? Math.round(spend / minLeft) : 0; // even pace for the rest
+  const sess = st.sessionsLeftInWeek;
+  const out = [];
+  out.push(`SPEND_THIS_SESSION=${Math.max(0, spend)} SPEND_PER_MIN=${perMin} OVER=${spend < 0 ? -spend : 0} SESSION_RESETS_IN=${s.resetIn || "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
+  out.push("");
+  out.push("maxx — how much to spend this session");
+  out.push("");
+  if (spend >= 0) {
+    out.push(`  spend up to   ${tkfull(spend)} tokens   before this session resets in ${s.resetIn || "?"}`);
+    out.push(`  even pace     ~${perMin.toLocaleString("en-US")} tokens/min   to spread it across the time left`);
+  } else {
+    out.push(`  ease off  —   ${tkfull(-spend)} tokens OVER your sustainable share   (session resets in ${s.resetIn || "?"})`);
+  }
+  out.push(`  weekly left   ${tkfull(w.headroom || 0)} tokens   ·   resets in ${w.resetIn || "?"}`);
+  out.push(`  ~${sess ?? "?"} five-hour sessions left in the week`);
+  out.push("");
+  out.push("  This is your weekly budget sliced evenly across the sessions left in the week.");
+  out.push("  Maxing Anthropic's raw 5h cap instead would burn the week out days early — so pace");
+  out.push("  to this number. Idle a while (or reset the session) and it climbs back up.");
+  return out.join("\n");
+}
+
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
 // line → safe, on it → elevated, headed past the wall → danger. Colors the meter + the number.
 function zoneCol(u, e) {
@@ -269,14 +298,17 @@ function wrap(text, w) {
 
 function main() {
   const wantStatus = process.argv.includes("--status");
+  const wantSession = process.argv.includes("--session"); // `/maxx session` — how much to spend now
   let p = {}, rawIn = "";
   // don't block on an interactive TTY: `node render.mjs --status` from a shell has no piped JSON,
   // so reading fd 0 would hang forever. Only slurp stdin when it's actually a pipe.
   if (!process.stdin.isTTY) { try { rawIn = readFileSync(0, "utf8"); p = JSON.parse(rawIn); } catch {} }
-  // `--status` with no stdin (an agent calling us directly) → echo the last snapshot the live
-  // statusline wrote. Nothing fresh to compute without Claude Code's JSON, so read the file.
-  if (wantStatus && !rawIn.trim()) {
-    try { process.stdout.write(readFileSync(path.join(HOME, ".tokenmaxx", "status.json"), "utf8") + "\n"); } catch { process.stdout.write("{}\n"); }
+  // `--status`/`--session` with no stdin (a user or agent calling us directly) → read the last
+  // snapshot the live statusline wrote. Nothing fresh to compute without Claude Code's JSON.
+  if ((wantStatus || wantSession) && !rawIn.trim()) {
+    const st = readJSON(path.join(HOME, ".tokenmaxx", "status.json"), null);
+    if (wantSession) { process.stdout.write(sessionBrief(st) + "\n"); return; }
+    process.stdout.write((st ? JSON.stringify(st, null, 2) : "{}") + "\n");
     return;
   }
   const cols = parseInt(process.env.COLUMNS || "130", 10) || 130;
