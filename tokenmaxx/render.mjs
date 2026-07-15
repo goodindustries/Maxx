@@ -498,9 +498,6 @@ function main() {
     const col = idle ? RED : burn5 >= pace ? GREEN : AMBER;
     metaRow += fg(DIM, "  ·  5m ") + fg(col, idle ? "idle" : tkf(burn5) + " burn");
   }
-  // rate to fully use the session by reset (headroom ÷ time left) — sits with 5m burn, both are
-  // "how am I pacing now". Session only: max the session and the week follows. Hides once maxed.
-  if (sStat.needPerMin > 0) metaRow += fg(DIM, "  ·  need ") + fg(AMBER, tkf(sStat.needPerMin) + "/min");
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
   // the right of the stats line.
