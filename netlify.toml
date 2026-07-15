@@ -1,0 +1,4 @@
+# maxx landing page — static, no build step
+[build]
+  publish = "site"
+  command = ""

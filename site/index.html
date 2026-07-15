@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maxx — never get blindsided by a rate limit</title>
+<meta name="description" content="A Claude Code status bar that shows your session and weekly token limits before you hit them. Zero egress — everything stays on your machine.">
+<meta property="og:title" content="maxx — the Claude Code fuel gauge">
+<meta property="og:description" content="See your rate limits before you hit them. One line to install. Nothing leaves your box.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:hsl(265 60% 96%);
+    --panel:hsl(265 62% 93%);
+    --ink:hsl(266 46% 22%);
+    --dim:hsl(266 22% 44%);
+    --brand:hsl(264 66% 54%);
+    --brand-deep:hsl(266 60% 40%);
+    --green:hsl(150 46% 40%);
+    --amber:hsl(38 70% 50%);
+    --red:hsl(354 58% 56%);
+    --track:hsl(266 42% 84%);
+    --wall:hsl(352 62% 30%);
+    --line:hsl(266 30% 86%);
+    --radius:16px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:hsl(266 30% 10%);
+      --panel:hsl(266 28% 14%);
+      --ink:hsl(266 40% 92%);
+      --dim:hsl(266 20% 66%);
+      --brand:hsl(264 72% 72%);
+      --brand-deep:hsl(266 60% 78%);
+      --track:hsl(266 24% 26%);
+      --line:hsl(266 22% 22%);
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;font-family:var(--sans);color:var(--ink);
+    background:
+      radial-gradient(1200px 600px at 50% -10%, hsl(264 66% 88% / .55), transparent 60%),
+      var(--bg);
+    line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-color-scheme:dark){
+    body{background:radial-gradient(1200px 600px at 50% -10%, hsl(264 60% 30% / .45), transparent 60%),var(--bg);}
+  }
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+
+  /* nav */
+  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0;max-width:960px;margin:0 auto;padding-left:24px;padding-right:24px}
+  .logo{font-family:var(--mono);font-weight:700;font-size:20px;letter-spacing:.02em;color:var(--ink)}
+  .logo b{color:var(--brand)}
+  nav .links{display:flex;gap:22px;align-items:center;font-size:15px}
+  nav .links a{color:var(--dim)}
+
+  /* hero */
+  header{text-align:center;padding:56px 0 20px}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);margin-bottom:18px}
+  h1{font-size:clamp(34px,6vw,58px);line-height:1.05;margin:0 0 18px;letter-spacing:-.02em;font-weight:800}
+  .sub{font-size:clamp(17px,2.4vw,21px);color:var(--dim);max-width:620px;margin:0 auto 30px}
+
+  /* install */
+  .install{display:inline-flex;align-items:stretch;gap:0;background:var(--ink);border-radius:12px;overflow:hidden;max-width:100%;box-shadow:0 12px 30px hsl(266 50% 30% / .18)}
+  .install code{font-family:var(--mono);font-size:14px;color:hsl(265 60% 94%);padding:15px 18px;white-space:nowrap;overflow-x:auto;display:block}
+  .install code .p{color:hsl(264 66% 74%)}
+  .install button{border:0;background:var(--brand);color:#fff;font-family:var(--sans);font-weight:600;font-size:14px;padding:0 18px;cursor:pointer;transition:background .15s;white-space:nowrap}
+  .install button:hover{background:var(--brand-deep)}
+  .install button.done{background:var(--green)}
+  .hint{font-size:13px;color:var(--dim);margin-top:12px}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+  .btn{padding:11px 22px;border-radius:10px;font-weight:600;font-size:15px;border:1px solid var(--line)}
+  .btn.primary{background:var(--brand);color:#fff;border-color:transparent}
+  .btn.primary:hover{background:var(--brand-deep);text-decoration:none}
+  .btn.ghost{color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--brand);text-decoration:none}
+
+  /* demo */
+  .demo{margin:46px auto 10px;max-width:900px}
+  .term{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:0 24px 60px hsl(266 50% 30% / .16)}
+  .term .dots{display:flex;gap:7px;padding:4px 6px 12px}
+  .term .dots i{width:11px;height:11px;border-radius:50%;display:block;background:var(--track)}
+  .term img{width:100%;display:block;border-radius:9px}
+  .caption{text-align:center;color:var(--dim);font-size:14px;margin-top:14px}
+
+  /* sections */
+  section{padding:52px 0}
+  h2{font-size:clamp(24px,3.6vw,32px);margin:0 0 8px;letter-spacing:-.01em}
+  .lead{color:var(--dim);font-size:17px;margin:0 0 30px;max-width:640px}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .card h3{margin:0 0 6px;font-size:17px;display:flex;align-items:center;gap:9px}
+  .card p{margin:0;color:var(--dim);font-size:15px}
+  .swatch{width:14px;height:14px;border-radius:4px;flex:none}
+
+  /* reading the bar */
+  .rail{font-family:var(--mono);font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;margin-bottom:14px}
+  .rail .lbl{color:var(--dim)}
+  .bar{display:inline-block;border-radius:4px;height:14px;vertical-align:middle;margin:0 2px}
+  .b-track{background:var(--track)}
+  .b-green{background:var(--green)}
+  .b-red{background:var(--red)}
+  .b-amber{background:var(--amber)}
+  .k-red{color:var(--red)} .k-green{color:var(--green)} .k-dim{color:var(--dim)} .k-ink{color:var(--ink)}
+  .readlist{list-style:none;padding:0;margin:18px 0 0}
+  .readlist li{padding:10px 0;border-top:1px solid var(--line);color:var(--dim);font-size:15px}
+  .readlist li b{color:var(--ink)}
+
+  /* privacy */
+  .privacy{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:30px;text-align:center}
+  .privacy h2{margin-bottom:8px}
+
+  footer{border-top:1px solid var(--line);margin-top:40px;padding:30px 0 60px;text-align:center;color:var(--dim);font-size:14px}
+  footer a{color:var(--dim)}
+  .steps{background:var(--ink);color:hsl(265 60% 94%);border-radius:12px;padding:18px 20px;font-family:var(--mono);font-size:13.5px;overflow-x:auto}
+  .steps .c{color:hsl(266 20% 66%)}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><b>maxx</b></div>
+  <div class="links">
+    <a href="#read">How to read it</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/goodindustries/Maxx">GitHub ↗</a>
+  </div>
+</nav>
+
+<header class="wrap">
+  <div class="eyebrow">Claude Code status bar</div>
+  <h1>Never get blindsided<br>by a rate limit again.</h1>
+  <p class="sub">You're deep in an agent session. Flowing. Building. Then&nbsp;— <em>bam</em> — “you've hit your limit.” Everything stops. <b>maxx</b> is the fuel gauge that shows the walls coming, so you can pace instead of crash.</p>
+
+  <div class="install" id="install-top">
+    <code><span class="p">$</span> curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash</code>
+    <button data-copy="curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash">Copy</button>
+  </div>
+  <div class="hint">One line. Installs the bar and the <code>/maxx</code> skill, backs up your settings. Needs Node + git.</div>
+
+  <div class="cta">
+    <a class="btn primary" href="#install">Install maxx</a>
+    <a class="btn ghost" href="https://github.com/goodindustries/Maxx">View source</a>
+  </div>
+</header>
+
+<div class="wrap demo">
+  <div class="term">
+    <div class="dots"><i></i><i></i><i></i></div>
+    <img src="maxx-session-bar.gif" alt="maxx statusline: session and week rails updating live" loading="lazy">
+  </div>
+  <p class="caption">Two live rails — your rolling 5-hour standing and your weekly reserve — right in the status line.</p>
+</div>
+
+<section class="wrap" id="features">
+  <h2>What it shows you</h2>
+  <p class="lead">Anchored to the exact <code>five_hour</code> / <code>seven_day</code> percentages Claude reports — the same numbers <code>/usage</code> shows.</p>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="swatch b-green"></span><span class="swatch b-red"></span> Directional standing</h3>
+      <p>The session rail fills <b style="color:var(--green)">green from the left</b> when you're banking a cushion, <b style="color:var(--red)">red from the right</b> when you're over your sustainable pace. Longer red = deeper hole.</p>
+    </div>
+    <div class="card">
+      <h3><span>🔢</span> Numbers that roll</h3>
+      <p>Every figure counts one digit at a time like an odometer — never a jarring jump — with a trailing <b>↑ / ↓ k/min</b> that tells you if you're catching up or falling behind right now.</p>
+    </div>
+    <div class="card">
+      <h3><span>⛽</span> Weekly fuel tank</h3>
+      <p>A second rail for the seven-day wall, with an even-burn pace tick. Maxing your 5-hour cap every window drains the week early — maxx paces you so it lasts.</p>
+    </div>
+    <div class="card">
+      <h3><span>🔒</span> Nothing leaves your box</h3>
+      <p>No analytics, no third party, no phone-home. All parsing of your Claude Code usage happens entirely on your own machine.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="read">
+  <h2>How to read the bar</h2>
+  <p class="lead">Two rails, always on.</p>
+
+  <div class="rail">
+    <span class="lbl">session</span>&nbsp;&nbsp;▐<span class="bar b-track" style="width:40px"></span><span class="bar b-red" style="width:120px"></span>▌&nbsp;&nbsp;<span class="k-red">2,773k over</span> <span class="k-dim">·</span> <span class="k-green">↑ 80k/min</span>
+  </div>
+  <div class="rail">
+    <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;▐<span class="bar b-amber" style="width:70px"></span><span class="bar b-track" style="width:90px"></span>▌&nbsp;&nbsp;<span class="k-ink">234,978k left</span> <span class="k-dim">·</span> <span class="k-red">−102,274k over</span> <span class="k-dim">·</span> 5d
+  </div>
+
+  <ul class="readlist">
+    <li><b>session</b> — your rolling 5-hour standing. Green = banked, red = over. The number is your signed cushion; the arrow is your live recovery/loss rate.</li>
+    <li><b>week</b> — your weekly reserve as a fuel tank: fill is budget remaining, the tick marks even-burn pace, then tokens left and days to reset.</li>
+    <li><b>context</b> — a meta line shows how full the model context is (separate from the account limit), plus model, branch, spend and cache-hit rate.</li>
+  </ul>
+</section>
+
+<section class="wrap" id="install">
+  <h2>Install</h2>
+  <p class="lead">One pasteable line in your terminal. Restart Claude Code — done.</p>
+  <div class="install" style="display:flex;width:100%">
+    <code style="flex:1"><span class="p">$</span> curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash</code>
+    <button data-copy="curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash">Copy</button>
+  </div>
+  <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
+  <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak — or <code>/maxx session</code> for how much to burn this window.</p>
+</section>
+
+<section class="wrap">
+  <div class="privacy">
+    <h2>Your stuff stays yours</h2>
+    <p class="lead" style="margin:0 auto">maxx has no analytics service and sends no data anywhere. Fully on-box, zero egress. Open source under MIT.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><span class="logo" style="font-size:16px"><b>maxx</b></span> · a fuel gauge for Claude Code</p>
+    <p><a href="https://github.com/goodindustries/Maxx">GitHub</a> · <a href="https://github.com/goodindustries/Maxx/blob/main/LICENSE">MIT License</a></p>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('button[data-copy]').forEach(function(b){
+    b.addEventListener('click',function(){
+      navigator.clipboard.writeText(b.getAttribute('data-copy')).then(function(){
+        var t=b.textContent;b.textContent='Copied ✓';b.classList.add('done');
+        setTimeout(function(){b.textContent=t;b.classList.remove('done')},1600);
+      });
+    });
+  });
+</script>
+</body>
+</html>
