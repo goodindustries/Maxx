@@ -11,6 +11,16 @@ SKILL="$CLAUDE/skills/maxx"
 MODE="${1:-copy}"
 
 command -v node >/dev/null || { echo "maxx needs node on PATH." >&2; exit 1; }
+
+# Run standalone via `curl … | bash`? The sibling .mjs files aren't here — fetch the repo and re-exec.
+if [ ! -f "$SRC/render.mjs" ]; then
+  command -v git >/dev/null || { echo "maxx needs git to self-install (or clone the repo and run tokenmaxx/install.sh)." >&2; exit 1; }
+  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  echo "maxx: fetching…"
+  git clone --depth 1 https://github.com/goodindustries/Maxx.git "$TMP/Maxx" >/dev/null 2>&1 || { echo "maxx: clone failed." >&2; exit 1; }
+  exec bash "$TMP/Maxx/tokenmaxx/install.sh" "$@"
+fi
+
 mkdir -p "$SKILL" "$HOME/.tokenmaxx"
 
 # place a file: link or copy, skipping when src and dst are already the same

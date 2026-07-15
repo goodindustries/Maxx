@@ -12,7 +12,30 @@ maxx has an animated two-rail status line:
 
 ![maxx statusline, both tracks over](assets/maxx-demo.gif)
 
+*The session rail shows your live standing — red grows in from the right when you're over your sustainable pace, green from the left when you're banking — the numbers roll one digit at a time, and a trailing ↑/↓ rate tells you if you're catching up or falling behind:*
+
+![maxx session and week rails, live](assets/maxx-session-bar.gif)
+
 ## Setup
+
+One line in your terminal. Installs the bar **and** the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash
+```
+
+Restart Claude Code — done. (Needs Node and git on your `PATH`.)
+
+<details>
+<summary>Rather clone than pipe curl into bash?</summary>
+
+```bash
+git clone https://github.com/goodindustries/Maxx.git && Maxx/tokenmaxx/install.sh
+```
+</details>
+
+<details>
+<summary>Just want the <code>/maxx</code> skill (no status bar) via the plugin manager?</summary>
 
 In Claude Code:
 
@@ -20,14 +43,7 @@ In Claude Code:
 /plugin marketplace add goodindustries/Maxx
 /plugin install maxx@maxx
 ```
-
-Then turn on the custom bar from your terminal:
-
-```bash
-git clone https://github.com/goodindustries/Maxx.git && Maxx/tokenmaxx/install.sh
-```
-
-Restart Claude Code. The bar needs Node on your `PATH`.
+</details>
 
 Type `/maxx` any time:
 
@@ -36,14 +52,17 @@ Type `/maxx` any time:
 
 ## How to read it
 
-The persistent gauges show the usage windows reported by your agent.
+Two rails, always on. Both anchored to the exact `five_hour` / `seven_day` percentages `/usage` reports.
 
-- **Green** — you have runway.
-- **Red** — your current pace is heading toward the wall before reset.
-- **Reset** — when that window becomes available again.
-- **Context** — how full the current model context is; this is separate from the account rate limit.
+**`session` — your rolling 5-hour standing.** One directional fill:
 
-The custom rails show your signed token cushion/overage and visibly recover as usage ages out. The weekly rail carries a live drain speedometer (`↓X/min`) so the number reads as motion, not a frozen odometer.
+- **green from the left** — banked: under your sustainable pace, building a cushion.
+- **red from the right** — over: burning faster than sustainable; longer red = deeper hole.
+- The number beside it (`Xk over` / `Xk tokens`) rolls one digit at a time, and a trailing **↑ / ↓ k/min** tells you whether you're recovering or falling behind *right now*.
+
+**`week` — your weekly reserve.** A fuel tank: the fill is budget **remaining**, draining as you spend (green → amber → red as it runs low). The `┊` tick marks even-burn pace — past it you're ahead, short of it you're hot. Then `Xk left`, your pace standing (`banked` / `over`), and days to reset.
+
+**Context** — the meta line shows how full the model context is (separate from the account rate limit), plus model, branch, spend, and cache-hit rate.
 
 ## Your stuff stays yours
 
