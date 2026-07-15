@@ -369,7 +369,20 @@ function main() {
   // used = the FINE bucket sum (moves by the token, so cushion/left tick live); fall back to wall%×cap.
   const used5 = tok5 != null ? tok5 : Math.round((haveQuota ? quota : 0) * cap5s);
   const used7 = tok7 != null ? tok7 : Math.round((haveWeek ? week : 0) * cap7s);
-  const q5 = cap5s ? Math.min(1, used5 / cap5s) : (haveQuota ? quota : 0);
+  // THE REAL SESSION budget. Anthropic's 5h cap, if maxed every window, would drain the week fast —
+  // so the sustainable per-session budget is the weekly REMAINING sliced across the 5h sessions still
+  // left in the week: realMax = (cap7 − used7) / (weekTimeLeft ÷ 5h). Pace the session against THAT.
+  // Bounded by the hard 5h wall (can't spend past it), and falls back to the raw 5h cap without week
+  // data. As the week runs down, sessionsLeft shrinks → realMax grows if you banked, shrinks if you
+  // overspent — a self-correcting sustainable pace.
+  const nowS0 = Date.now() / 1000;
+  const weekLeftSec = haveWeek ? Math.max(0, rl.seven_day.resets_at - nowS0) : 0;
+  const sessionsLeft = Math.max(1, weekLeftSec / (5 * 3600));
+  const realMax = haveWeek && cap7s
+    ? Math.min(cap5s || Infinity, Math.round(Math.max(0, cap7s - used7) / sessionsLeft))
+    : cap5s;
+  // session bar is now the REAL session: used against realMax, not the raw 5h wall.
+  const q5 = realMax ? Math.min(1, used5 / realMax) : (haveQuota ? quota : 0);
   const w7 = cap7s ? Math.min(1, used7 / cap7s) : (haveWeek ? week : 0);
   const qcol = col(q5), wcol = col(w7);
   // how far into each window you are (the pace line): elapsed = 1 - timeLeft/window.
@@ -413,7 +426,7 @@ function main() {
     return { usedPct: Math.round(usedFrac * 1000) / 10, used, cap, headroom, resetAt: resetAt || 0,
              secLeft, minLeft: Math.round(minLeft), resetIn: resetIn(resetAt), needPerMin, pacePerMin };
   }
-  const sStat = windowStat(used5, cap5s, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
+  const sStat = windowStat(used5, realMax, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
   const wStat = windowStat(used7, cap7s, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
   // pace gap (points): elapsed − used. + = behind even-burn (under-using), − = ahead. Cap-independent.
   sStat.elapsedPct = Math.round(e5 * 100); sStat.behindPts = Math.round((e5 - q5) * 100);
@@ -421,8 +434,10 @@ function main() {
   const status = {
     ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
     costUsd: Math.round(usd * 100) / 100, sessions: mine,
+    // session.cap = realMax (weekly-derived sustainable budget), NOT Anthropic's raw 5h cap.
     session: sStat, weekly: wStat,
-    burn5m: burn5 != null ? Math.round(burn5) : null, // gross tokens spent in the last 5 min (≥ 0)
+    sessionsLeftInWeek: Math.round(sessionsLeft * 10) / 10, // 5h windows remaining until the weekly resets
+    burn5m: burn5 != null ? Math.round(burn5) : null,       // gross tokens spent in the last 5 min (≥ 0)
   };
   try { writeFileSync(path.join(HOME, ".tokenmaxx", "status.json"), JSON.stringify(status)); } catch {}
   if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
