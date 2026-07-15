@@ -114,6 +114,13 @@ function paceOf(rl, winSec, usedFrac) {
 function tkf(n) {
   return Math.round(Math.abs(n) / 1000).toLocaleString("en-US") + "k";
 }
+// compact token count for headroom / "tokens available": 1.2B, 118M, 1.5M, 640k, 12k
+function tkc(n) {
+  n = Math.abs(n);
+  if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+  return Math.round(n / 1000) + "k";
+}
 
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
 // line → safe, on it → elevated, headed past the wall → danger. Colors the meter + the number.
@@ -450,20 +457,13 @@ function main() {
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
-  // a wall's row. SESSION (maximize): one pace number in POINTS — how far off even-burn you are
-  // (cap-independent = e−q, immune to any cap drift) — plus time left; the rate to fix it (need/min)
-  // rides the meta line next to 5m burn. WEEKLY (a ceiling, not a target): just used% + reset.
+  // a wall's row: label · meter · TOKENS AVAILABLE (headroom, the number you actually want) · time
+  // left · fresh badge. The rate to fully use the session (need/min) rides the meta line by 5m burn.
   const meterContent = (label, u, e, uv, isSession, stat) => {
     let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
-    if (isSession) {
-      const gap = Math.round((e - u) * 100); // + = behind even-burn (under-using), − = ahead of it
-      if (Math.abs(gap) >= 1) {
-        const behind = gap > 0;
-        const d = fg(DIM, "  ") + fg(behind ? AMBER : DIM, `${Math.abs(gap)}% ${behind ? "behind" : "ahead"}`);
-        if (fits(s, d)) s += d;
-      }
-    } else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; }
-    if (stat && stat.resetIn) { const d = fg(DIM, "  ") + fg(DIM, stat.resetIn + " left"); if (fits(s, d)) s += d; }
+    if (stat && stat.cap) { const d = fg(DIM, "  ") + fg(INK, tkc(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d; }
+    else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; } // no cap → raw %
+    if (stat && stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
     if (isSession && freshReset) { const b = fg(DIM, "  ") + fg(BRAND, "↺ just reset"); if (fits(s, b)) s += b; }
     return s;
   };
