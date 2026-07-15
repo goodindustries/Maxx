@@ -114,6 +114,10 @@ function paceOf(rl, winSec, usedFrac) {
 function tkf(n) {
   return Math.round(Math.abs(n) / 1000).toLocaleString("en-US") + "k";
 }
+// full token count, comma-grouped — ticks by the single token: 77,732,145
+function tkfull(n) {
+  return Math.round(Math.abs(n)).toLocaleString("en-US");
+}
 
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
 // line → safe, on it → elevated, headed past the wall → danger. Colors the meter + the number.
@@ -469,10 +473,10 @@ function main() {
       if (isSession) {
         const room = Math.round(e * stat.cap - stat.used); // + = cushion under pace, − = over it
         const good = room >= 0;
-        const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
+        const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkfull(room)} ${good ? "cushion" : "over"}`);
         if (fits(s, d)) s += d;
       } else {
-        const d = fg(DIM, "  ") + fg(INK, tkf(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
+        const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
       }
     } else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; } // no cap → raw %
     if (stat && stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
