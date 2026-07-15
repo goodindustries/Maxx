@@ -431,8 +431,8 @@ function main() {
   // pace gap (points): elapsed − used. + = behind even-burn (under-using), − = ahead. Cap-independent.
   sStat.elapsedPct = Math.round(e5 * 100); sStat.behindPts = Math.round((e5 - q5) * 100);
   wStat.elapsedPct = Math.round(e7 * 100); wStat.behindPts = Math.round((e7 - w7) * 100);
-  // is the weekly the binding wall (realMax below the raw 5h cap)? → the session is being paced down
-  // to protect the week, so maxing it would burn the week out early. Drives the "weekly-paced" tag.
+  // is the weekly the binding wall (realMax below the raw 5h cap)? = the session allowance is being
+  // held down to protect the week. Kept for agents; no longer a separate tag on the bar.
   sStat.weeklyPaced = !!(haveWeek && cap5s && realMax < cap5s);
   const status = {
     ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
@@ -482,20 +482,18 @@ function main() {
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
-  // a wall's row. SESSION: cushion/over — tokens under (or past) the even-burn pace line, in fine k
-  // so it ticks: UP as time advances, DOWN as you burn. WEEKLY: how much is left (headroom). time
-  // left + fresh badge trail. The rate to fully use the session (need/min) rides the meta line.
+  // a wall's row, plain-language. SESSION: "X to spend" — your sustainable allowance for THIS window
+  // (realMax − used); counts down as you burn, climbs back after a break. Negative → "over — ease
+  // off" (you're starting to eat future weeks). WEEKLY: "X left" — the reserve. + time left.
   const meterContent = (label, u, e, uv, isSession, stat) => {
     let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
     if (stat && stat.cap) {
       if (isSession) {
-        const room = Math.round(e * stat.cap - stat.used); // + = cushion under pace, − = over it
-        const good = room >= 0;
-        const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkfull(room)} ${good ? "cushion" : "over"}`);
+        const spend = Math.round(stat.cap - stat.used); // realMax − used: what you can still spend now
+        const d = spend >= 0
+          ? fg(DIM, "  ") + fg(INK, tkfull(spend)) + fg(DIM, " to spend")
+          : fg(DIM, "  ") + fg(zoneCol(u, e), tkfull(-spend) + " over — ease off");
         if (fits(s, d)) s += d;
-        // why the cap is smaller than Anthropic's 5h: the week is pacing you down (don't max the
-        // session or you'll burn the week out early). Only shown when weekly is the binding wall.
-        if (stat.weeklyPaced) { const t = fg(DIM, "  ·  ") + fg(BRAND, "weekly-paced"); if (fits(s, t)) s += t; }
       } else {
         const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
       }
