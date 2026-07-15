@@ -125,29 +125,56 @@ function historicalPeak(pts, win = WINDOW_MS) {
   return peak;
 }
 
-function report(pts, now, weekLo = now - WEEK_MS) {
+// ROLL-SESSION — the safe spend for THIS 5h window = weekly-tokens-LEFT ÷ 5h-windows-left, capped at the
+// raw 5h wall. THIS is the number a governor gates on: cap an unattended/overnight agent to its sustainable
+// per-window share and the week never drains in one burst — yet it can still run all night, and if it banks
+// (underspends a window) the share climbs so it can burst later. Everything anchored to Anthropic's %s.
+function rollSession(cap5, cap7, used5, weekUsed, weekResetAt, now) {
+  const weekLeftSec = weekResetAt ? Math.max(0, weekResetAt - now / 1000) : 0;
+  const sessionsLeft = Math.max(1, weekLeftSec / (5 * 3600));         // 5h windows until the weekly resets
+  const weekLeft = Math.max(0, (cap7 || 0) - weekUsed);
+  const safe = (cap7 && weekResetAt) ? Math.min(cap5 || Infinity, Math.round(weekLeft / sessionsLeft)) : (cap5 || 0);
+  return {
+    sessionSafe: safe,                                 // tokens good to use this 5h window
+    sessionToSpend: Math.max(0, safe - used5),         // headroom left this window (0 → governor should pause)
+    sessionOver: Math.max(0, used5 - safe),            // spent past the safe share (governor blocks when > 0)
+    sessionsLeft: Math.round(sessionsLeft * 10) / 10,
+  };
+}
+
+function report(pts, now, weekLo = now - WEEK_MS, quota = 0, week = 0, weekResetAt = 0) {
   const used = pts.filter(([t]) => t > now - WINDOW_MS).reduce((a, [, k]) => a + k, 0);
   // burn = tokens in the last 30 min, extrapolated to /hr
   const recent = pts.filter(([t]) => t > now - 30 * 60000).reduce((a, [, k]) => a + k, 0);
   const burnPerHr = recent * 2;
   const peak = historicalPeak(pts);
-  let cap = null;
-  try { cap = JSON.parse(readFileSync(CONFIG, "utf8")).window_cap_tokens || null; } catch {}
-  if (!cap) cap = Math.round(peak * 1.05);   // your own ceiling, +5% headroom, until you set it
-  const pct = cap ? used / cap : null;
+  // 5h cap ANCHORED to Anthropic's authoritative 5h % (rl.json quota): cap = used ÷ realPct, so pct reads
+  // back the exact % /usage shows. Falls back to config/peak only with no live % (never a hardcoded guess).
+  let cap, pct;
+  if (quota > 0.01) { cap = Math.round(used / quota); pct = quota; }
+  else {
+    try { cap = JSON.parse(readFileSync(CONFIG, "utf8")).window_cap_tokens || null; } catch { cap = null; }
+    if (!cap) cap = Math.round(peak * 1.05);
+    pct = cap ? used / cap : null;
+  }
   const minsToCap = (cap && burnPerHr > 0 && used < cap) ? Math.round((cap - used) / burnPerHr * 60) : null;
   // window reset: when the oldest token in the window ages out
   const inWin = pts.filter(([t]) => t > now - WINDOW_MS);
   const resetInMins = inWin.length ? Math.max(0, Math.round((inWin[0][0] + WINDOW_MS - now) / 60000)) : 0;
-  // weekly limit — the other Claude plan wall. Anthropic's is a FIXED window that zeroes at
-  // resets_at, not a rolling sum, so cut at the window start (weekLo = resets_at − 7d passed in)
-  // — else a pre-reset burst inflates cap7's anchor for up to 7 days after the wall reset.
+  // weekly limit — the other Claude plan wall. Anthropic's is a FIXED window that zeroes at resets_at, not a
+  // rolling sum, so cut at the window start (weekLo = resets_at − 7d). Cap ANCHORED to Anthropic's 7d %:
+  // weekCap = used ÷ realPct, weekPct = the real %. Consumers MUST gate on weekPct / sessionOver — NEVER a
+  // raw bucket sum ÷ a hardcoded cap (that read 760M ÷ 750M = 101% and false-blocked at a real 37%).
   const weekUsed = pts.filter(([t]) => t > weekLo).reduce((a, [, k]) => a + k, 0);
-  let weekCap = null;
-  try { weekCap = JSON.parse(readFileSync(CONFIG, "utf8")).week_cap_tokens || null; } catch {}
-  if (!weekCap) weekCap = Math.round(historicalPeak(pts, WEEK_MS) * 1.05);
-  const weekPct = weekCap ? weekUsed / weekCap : null;
-  return { used, cap, peak, pct, burnPerHr, minsToCap, resetInMins, weekUsed, weekCap, weekPct, ts: now };
+  let weekCap, weekPct;
+  if (week > 0.01) { weekCap = Math.round(weekUsed / week); weekPct = week; }
+  else {
+    try { weekCap = JSON.parse(readFileSync(CONFIG, "utf8")).week_cap_tokens || null; } catch { weekCap = null; }
+    if (!weekCap) weekCap = Math.round(historicalPeak(pts, WEEK_MS) * 1.05);
+    weekPct = weekCap ? weekUsed / weekCap : null;
+  }
+  const roll = rollSession(cap, weekCap, used, weekUsed, weekResetAt, now);
+  return { used, cap, peak, pct, burnPerHr, minsToCap, resetInMins, weekUsed, weekCap, weekPct, weekResetAt, ...roll, ts: now };
 }
 
 // bucket the last 7d of (ts, tokens) into 5-min bins so the renderer can re-sum the rolling
@@ -174,7 +201,7 @@ async function main() {
 
   // --json prints the full report (authoritative scan); other invocations refresh window.json.
   if (process.argv.includes("--json")) {
-    const r = report(await collect(), now, weekLo);
+    const r = report(await collect(), now, weekLo, quota, week, weekResetAt);
     console.log(JSON.stringify(r, null, 2));
     return;
   }
@@ -203,8 +230,12 @@ async function main() {
   for (const [t, k] of buckets) { if (t > now - WINDOW_MS) used += k; if (t > weekLo) weekUsed += k; }
   const cap5 = quota > 0.01 ? Math.round(used / quota) : (prev.cap5 || Math.round(used * 1.05) || 1);
   const cap7 = week  > 0.01 ? Math.round(weekUsed / week) : (prev.cap7 || Math.round(weekUsed * 1.05) || 1);
+  // the roll-session gate, written into the cache so a governor reads the SAFE per-window spend directly —
+  // no re-summing raw buckets, no hardcoded cap. Gate on sessionOver > 0 (or sessionToSpend === 0) to pause
+  // an unattended agent until the 5h window resets; weekPct is the authoritative weekly % (= /usage).
+  const roll = rollSession(cap5, cap7, used, weekUsed, weekResetAt, now);
   mkdirSync(path.dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify({ buckets, cap5, cap7, ts: now }));
+  writeFileSync(OUT, JSON.stringify({ buckets, cap5, cap7, used5: used, weekUsed, weekPct: week, weekResetAt, ...roll, ts: now }));
   writeFileSync(CURSOR, JSON.stringify({ offsets, ts: now }));
 }
 main().catch(e => { process.stderr.write("limit: " + e.message + "\n"); process.exit(1); });

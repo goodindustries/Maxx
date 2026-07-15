@@ -393,25 +393,48 @@ function main() {
   const anchorCap = (have, pct, tok, prevPct, prevCap, brainCap) => {
     if (have && pct > 0.02 && tok != null) {
       if (prevCap && prevPct != null && Math.abs(prevPct - pct) < 0.005) return prevCap; // wall % steady → hold
-      return Math.round(tok / pct);                                                       // first anchor / wall ticked
+      // wall ticked → re-anchor, but EMA-smooth the jump (½ old, ½ new). The cap is an estimate (tok is
+      // cache-inflated, so tok/pct can leap on a tick); blending keeps roll-session from lurching on noise
+      // while still tracking the real magnitude over a few ticks. First-ever anchor: take it straight.
+      return prevCap ? Math.round(0.5 * prevCap + 0.5 * (tok / pct)) : Math.round(tok / pct);
     }
     return prevCap || brainCap || 0; // below the 2% floor (or no stdin) → keep the last good cap
   };
   const cap5s = anchorCap(haveQuota, quota, tok5, caps.q5, caps.cap5, cap5);
   const cap7s = anchorCap(haveWeek, week, tok7, caps.q7, caps.cap7, cap7);
-  try { writeFileSync(capsPath, JSON.stringify({ q5: haveQuota ? quota : caps.q5, cap5: cap5s, q7: haveWeek ? week : caps.q7, cap7: cap7s })); } catch {}
-  // used = the FINE bucket sum (moves by the token, so cushion/left tick live); fall back to wall%×cap.
-  const used5 = tok5 != null ? tok5 : Math.round((haveQuota ? quota : 0) * cap5s);
-  const used7 = tok7 != null ? tok7 : Math.round((haveWeek ? week : 0) * cap7s);
-  // THE REAL SESSION budget. Anthropic's 5h cap, if maxed every window, would drain the week fast —
-  // so the sustainable per-session budget is the weekly REMAINING sliced across the 5h sessions still
-  // left in the week: realMax = (cap7 − used7) / (weekTimeLeft ÷ 5h). Pace the session against THAT.
-  // Bounded by the hard 5h wall (can't spend past it), and falls back to the raw 5h cap without week
-  // data. As the week runs down, sessionsLeft shrinks → realMax grows if you banked, shrinks if you
-  // overspent — a self-correcting sustainable pace.
+  // did the cap just re-anchor (first anchor OR the wall % ticked ≥0.5pt)? If so we re-snapshot the
+  // bucket sum as the new "anchor tok" — the live delta below is measured from there, so it resets to
+  // ~0 at every tick and can never accumulate into the old 2× drift.
+  const didAnchor = (have, pct, tok, prevPct, prevCap) =>
+    have && pct > 0.02 && tok != null && !(prevCap && prevPct != null && Math.abs(prevPct - pct) < 0.005);
+  const tok5a = didAnchor(haveQuota, quota, tok5, caps.q5, caps.cap5) ? tok5 : (caps.tok5a ?? (tok5 ?? 0));
+  const tok7a = didAnchor(haveWeek, week, tok7, caps.q7, caps.cap7) ? tok7 : (caps.tok7a ?? (tok7 ?? 0));
+  try { writeFileSync(capsPath, JSON.stringify({ q5: haveQuota ? quota : caps.q5, cap5: cap5s, tok5a, q7: haveWeek ? week : caps.q7, cap7: cap7s, tok7a })); } catch {}
+  // LIVE used = authoritative base + scaled burn since the last %-tick. The base (wall% × cap) is
+  // Anthropic's truth — what /usage shows. On top we add the tokens burned since the anchor, but the raw
+  // bucket delta over-counts (cache reads at full weight), so we scale it by the deflation factor we can
+  // MEASURE right now: f = base ÷ tok = how many Anthropic-charged tokens per maxx-counted token over the
+  // window. That makes "left" tick down every render as you spend (≈1s cadence) while staying pinned to
+  // the real % — and f→0 as the gap widens, so the live add is bounded (worst case ~2× base, never the
+  // old unbounded drift). Falls back to the raw bucket sum only with no wall data (offline).
+  const liveUsed = (have, pct, capS, tok, toka) => {
+    if (!have || !capS) return tok != null ? Math.round(tok) : 0;
+    const base = pct * capS;
+    const f = Math.max(0, Math.min(1, tok > 0 ? base / tok : 1)); // measured deflation, clamped
+    const delta = tok != null ? tok - (toka ?? tok) : 0;          // burn since the last %-tick
+    return Math.max(0, Math.min(capS, Math.round(base + f * delta)));
+  };
+  const used5 = liveUsed(haveQuota, quota, cap5s, tok5, tok5a);
+  const used7 = liveUsed(haveWeek, week, cap7s, tok7, tok7a);
+  // ROLL-SESSION — one sentence: weekly tokens LEFT ÷ the 5h windows left this week = tokens good to use
+  // this session. Spend up to it and the week lasts; max Anthropic's raw 5h wall instead and you're out in
+  // days. It BANKS: it's LIVE, so as you spend, weekly-left drops and it ticks down (~1:1); when you go
+  // light, windows-left counts down with the clock and it ticks UP — frugal now = more later, no ledger.
+  // Capped at the hard 5h wall (can't spend past it); falls back to the raw 5h cap with no weekly data.
+  // The cap-smoothing above keeps this from jittering on estimate noise — it moves for spend + time only.
   const nowS0 = Date.now() / 1000;
   const weekLeftSec = haveWeek ? Math.max(0, rl.seven_day.resets_at - nowS0) : 0;
-  const sessionsLeft = Math.max(1, weekLeftSec / (5 * 3600));
+  const sessionsLeft = Math.max(1, weekLeftSec / (5 * 3600));         // 5h windows until the weekly resets
   const realMax = haveWeek && cap7s
     ? Math.min(cap5s || Infinity, Math.round(Math.max(0, cap7s - used7) / sessionsLeft))
     : cap5s;
@@ -475,6 +498,7 @@ function main() {
   //    consumer that genuinely wants "% of the 5h window" instead of misreading the paced one.
   sStat.toSpend = Math.max(0, realMax - used5);                     // safe to spend this session (≥ 0)
   sStat.over = Math.max(0, used5 - realMax);                        // past your sustainable share (≥ 0)
+  sStat.name = "roll-session";                                     // brand: weekly-left ÷ windows-left, banks when light
   sStat.capKind = sStat.weeklyPaced ? "weekly-paced" : "5h-cap";   // what set session.cap / realMax
   sStat.sessionResetsInMin = sStat.minLeft;                         // minutes until the 5h wall resets
   sStat.spendPerMin = sStat.toSpend > 0 && sStat.minLeft > 0 ? Math.round(sStat.toSpend / sStat.minLeft) : 0;
@@ -526,7 +550,7 @@ function main() {
   // label before it and the (comma'd, up to ~16-char) cushion/over after it, plus a badge.
   // widen with the terminal: no fixed 90-cell cap (that left half a wide screen empty). Scale to
   // ~0.68 of the rail, leaving ~46 cells for the label + cushion/over + time-left + need/min badges.
-  const mw = Math.max(24, Math.min(Math.round(W * 0.68), 160, W - 46));
+  const mw = Math.max(24, Math.min(Math.round(W * 0.68), 160, W - 58));
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
@@ -544,6 +568,14 @@ function main() {
         if (fits(s, d)) s += d;
       } else {
         const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
+        // live drain speedometer: 126M "left" moves ~30k/min — invisible on the odometer, so show the
+        // VELOCITY you actually feel. burn5 (gross maxx tokens/5min) deflated by f = real÷maxx so it's
+        // the real weekly drain rate. Hidden when idle (nothing draining).
+        if (burn5 != null && cap7s && tok7 > 0) {
+          const f7 = Math.max(0, Math.min(1, (week * cap7s) / tok7));
+          const drainMin = Math.round((burn5 / 5) * f7);
+          if (drainMin >= 500) { const dr = fg(DIM, "  ·  ") + fg(zoneCol(u, e), "↓" + tkf(drainMin) + "/min"); if (fits(s, dr)) s += dr; }
+        }
       }
     } else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; } // no cap → raw %
     if (stat && stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
@@ -555,16 +587,6 @@ function main() {
   const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
     + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
-  // 5m burn: gross tokens spent in the last 5 min, coloured by the maximize pace. To fully use a
-  // 5h budget you must burn ≈ cap5/60 every 5 min; less than that leaves tokens to expire.
-  //   GREEN  burn ≥ pace  → keeping up / maxing the session
-  //   AMBER  0 < burn < pace → spending, but too slow (e.g. "222k burn")
-  //   RED    ~idle        → not using it, the session is aging out unused
-  if (burn5 != null && cap5) {
-    const pace = cap5 / 60, idle = burn5 <= 15000;
-    const col = idle ? RED : burn5 >= pace ? GREEN : AMBER;
-    metaRow += fg(DIM, "  ·  5m ") + fg(col, idle ? "idle" : tkf(burn5) + " burn");
-  }
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
   // the right of the stats line.
@@ -574,9 +596,11 @@ function main() {
     : metaRow;
 
   const out = [
-    row(meterContent("session  ", q5, e5, qv, true, sStat)),
+    // "roll-session" — weekly-left ÷ 5h-windows-left = tokens good to use this session; banks when you go
+    // light. Branded to distinguish it from Anthropic's raw 5h wall. Labels padded to equal width.
+    row(meterContent("roll-session ", q5, e5, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("weekly   ", w7, e7, wv, false, wStat)),
+    row(meterContent("weekly       ", w7, e7, wv, false, wStat)),
     row(metaFull),
   ];
   process.stdout.write(out.join("\n") + "\n");
