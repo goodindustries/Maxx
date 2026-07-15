@@ -120,6 +120,13 @@ function tkf(n) {
 function tkfull(n) {
   return Math.round(Math.abs(n)).toLocaleString("en-US");
 }
+// compact magnitude for the bank readout: 2.1M, 850k, 85M — one glanceable figure, sign added by caller.
+function compact(n) {
+  const a = Math.abs(n);
+  if (a >= 1e6) return (a / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (a >= 1e3) return Math.round(a / 1e3) + "k";
+  return String(Math.round(a));
+}
 
 // `/maxx session` brief — reads the snapshot the statusline writes and answers the one question:
 // how much can I spend this session? First line is machine-ingestible (KEY=value); the rest is human.
@@ -499,6 +506,7 @@ function main() {
   //    toSpend/over/spendPerMin are the actionable pace numbers. raw* are the ACTUAL 5h window, for a
   //    consumer that genuinely wants "% of the 5h window" instead of misreading the paced one.
   sStat.toSpend = Math.max(0, realMax - used5);                     // safe to spend this session (≥ 0)
+  sStat.bank = Math.round((cap7s || 0) * e7 - used7);               // + banked vs even-pace, − spent-ahead (the roll)
   sStat.over = Math.max(0, used5 - realMax);                        // past your sustainable share (≥ 0)
   sStat.name = "roll-session";                                     // brand: weekly-left ÷ windows-left, banks when light
   sStat.capKind = sStat.weeklyPaced ? "weekly-paced" : "5h-cap";   // what set session.cap / realMax
@@ -580,11 +588,20 @@ function main() {
     let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
     if (stat && stat.cap) {
       if (isSession) {
-        const spend = Math.round(stat.cap - stat.used); // realMax − used: what you can still spend now
-        const d = spend >= 0
-          ? fg(DIM, "  ") + fg(INK, tkfull(spend)) + fg(DIM, " to spend")
-          : fg(DIM, "  ") + fg(zoneCol(u, e), tkfull(-spend) + " over — ease off");
+        const spend = Math.max(0, Math.round(stat.cap - stat.used)); // realMax − used, clamped: safe to spend now
+        const d = fg(DIM, "  ") + fg(spend > 0 ? INK : zoneCol(u, e), tkfull(spend)) + fg(DIM, " to spend");
         if (fits(s, d)) s += d;
+        // BANK — the rolling model made visible: your standing vs even-pace over the week
+        // (cap7 × elapsed − used7). Positive = you banked (went light, surplus rolls forward, roll-session
+        // climbs); negative = spent-ahead (burned faster than even-pace, roll-session shrinks — this is
+        // the "ease off" signal). It's the "+/- gain": why the budget above ticked up or down.
+        if (haveWeek && cap7s) {
+          const bank = Math.round(cap7s * e7 - used7);
+          const b = bank >= 0
+            ? fg(DIM, "  ·  ") + fg(GREEN, "banked +" + compact(bank))
+            : fg(DIM, "  ·  ") + fg(RED, "spent-ahead −" + compact(-bank));
+          if (fits(s, b)) s += b;
+        }
       } else {
         const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
         // live drain speedometer: 126M "left" moves ~30k/min — invisible on the odometer, so show the
