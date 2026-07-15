@@ -32,7 +32,7 @@ Restart Claude Code. The bar needs Node on your `PATH`.
 Type `/maxx` any time:
 
 - `/maxx` — total tokens, tokens/day, cache-hit rate, and streak
-- `/maxx session` — how much is safe to spend this session
+- `/maxx session` — session fuel: how much to burn this rolling 5h window
 
 ## How to read it
 

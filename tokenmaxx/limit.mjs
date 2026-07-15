@@ -234,15 +234,15 @@ function nazi(wantJSON) {
   if (wantJSON) {
     process.stdout.write(JSON.stringify({
       verdict, weekly: { left: W.headroom || 0, usedPct: W.usedPct || 0, resetIn: W.resetIn || "?" },
-      session: { name: "roll-session", toSpend: S.toSpend || 0, perMin: S.spendPerMin || 0, over: S.over || 0, resetIn: S.resetIn || "?" },
+      session: { name: "session", fuel: S.toSpend || 0, perMin: S.spendPerMin || 0, over: S.over || 0, resetIn: S.resetIn || "?" },
       burn: { last1h: Math.round(burn1h), last6h: Math.round(burn6h), trend },
       context: { ctxPct, cachePct, claudeMdTok, claudeMdFiles: mdFiles }, sessions, model, drains, topMove,
     }, null, 2) + "\n"); return;
   }
   const L = [machine, "", `token nazi — hourly posture  ·  verdict: ${verdict.toUpperCase()}`, "",
-    `  weekly        ${num(W.headroom)} left  ·  ${W.usedPct || 0}% used  ·  resets ${W.resetIn || "?"}`,
-    sessOver ? `  roll-session  ${num(S.over)} OVER your sustainable share  ·  ease off  ·  resets ${S.resetIn || "?"}`
-             : `  roll-session  ${num(S.toSpend)} to spend  ·  ~${num(S.spendPerMin)}/min  ·  resets ${S.resetIn || "?"}`,
+    `  week          ${num(W.headroom)} left  ·  ${W.usedPct || 0}% used  ·  resets ${W.resetIn || "?"}`,
+    sessOver ? `  session       ${num(S.over)} over your paced share  ·  ease off (tank refuels as usage ages out)  ·  ${S.resetIn || "?"}`
+             : `  session       ${num(S.toSpend)} fuel  ·  ~${num(S.spendPerMin)}/min even burn  ·  rolling 5h`,
     `  burn          ${tk(burn1h)}/hr now  ·  ${tk(burn6h)} last 6h  ·  ${trend}`, ""];
   if (drains.length) { L.push("  biggest drains (highest leverage first):"); for (const d of drains) L.push(`    · ${d.sink.padEnd(9)} ${d.detail}  →  ${d.lever}`); }
   else L.push("  no standout drains — cache warm, context light, single session.");

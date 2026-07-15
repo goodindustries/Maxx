@@ -141,21 +141,21 @@ function sessionBrief(st) {
   // machine line: session.cap is realMax (weekly-paced), NOT the 5h wall — RAW_* are the real 5h window.
   out.push(`SPEND_THIS_SESSION=${toSpend} SPEND_PER_MIN=${perMin} OVER=${over} SESSION_RESETS_IN=${s.resetIn || "?"} SESSION_RESETS_IN_MIN=${s.minLeft ?? "?"} CAP_KIND=${s.capKind || "?"} RAW_5H_CAP=${s.rawCap ?? "?"} RAW_5H_USED_PCT=${s.rawUsedPct ?? "?"} RAW_5H_LEFT=${s.rawHeadroom ?? "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
   out.push("");
-  out.push("maxx — how much to spend this session");
+  out.push("maxx — session fuel (how much to burn this rolling 5h window)");
   out.push("");
   if (over <= 0) {
-    out.push(`  spend up to   ${tkfull(toSpend)} tokens   before this session resets in ${s.resetIn || "?"}`);
-    out.push(`  even pace     ~${perMin.toLocaleString("en-US")} tokens/min   to spread it across the time left`);
+    out.push(`  fuel        ${tkfull(toSpend)} tokens   good to burn in this rolling 5h window`);
+    out.push(`  even burn   ~${perMin.toLocaleString("en-US")} tokens/min   to spread it across the time left`);
   } else {
-    out.push(`  ease off  —   ${tkfull(over)} tokens OVER your sustainable share   (session resets in ${s.resetIn || "?"})`);
+    out.push(`  over        ${tkfull(over)} tokens past your paced share   — ease off (the tank refills as usage ages out)`);
   }
-  out.push(`  weekly left   ${tkfull(w.headroom || 0)} tokens   ·   resets in ${w.resetIn || "?"}`);
-  out.push(`  ~${sess ?? "?"} five-hour sessions left in the week`);
-  out.push(`  (raw 5h window: ${s.rawUsedPct ?? "?"}% used, ${tkfull(s.rawHeadroom || 0)} left — NOT the pacing budget above)`);
+  out.push(`  week left   ${tkfull(w.headroom || 0)} tokens   ·   resets in ${w.resetIn || "?"}`);
+  out.push(`  ~${sess ?? "?"} five-hour windows left in the week`);
+  out.push(`  (raw 5h wall: ${s.rawUsedPct ?? "?"}% used, ${tkfull(s.rawHeadroom || 0)} left — Anthropic's hard cap, NOT the fuel above)`);
   out.push("");
-  out.push("  This is your weekly budget sliced evenly across the sessions left in the week.");
-  out.push("  Maxing Anthropic's raw 5h cap instead would burn the week out days early — so pace");
-  out.push("  to this number. Idle a while (or reset the session) and it climbs back up.");
+  out.push("  Fuel = your week's tokens-left ÷ the 5h windows left, over a rolling 5h window. Burn under");
+  out.push("  it and the week lasts; max Anthropic's raw 5h wall instead and you're out in days. Idle and");
+  out.push("  the tank refuels as old usage ages out — bank by chilling.");
   return out.join("\n");
 }
 
@@ -329,7 +329,7 @@ function main() {
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
   const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
-  let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null;
+  let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null, refuelPerMin = 0;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
     const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
@@ -352,6 +352,10 @@ function main() {
     // chilling) instead of waiting for a cliff at resets_at. This is the roll-session's own clock; the
     // hard Anthropic 5h wall stays exposed via the raw* fields (quota).
     tok5roll = decaySum(FIVE);
+    // refuel rate: how fast the rolling tank refills while you idle. The whole in-window burn decays away
+    // over 5h (300 min), so fuel returns at ≈ (in-window burn) / 300 per minute. This is the "where's the
+    // rolling update" number — it shows fuel coming back even when the tank reads 0.
+    refuelPerMin = Math.round(sum(FIVE) / 300);
     // weekly: sum from Anthropic's actual window start (resets_at − 7d), not a blind now − 7d, so a
     // pre-reset burst stops counting the instant the wall zeroed. max() = never loosen past the
     // rolling window, so a stale/absent resets_at falls back to old behavior (never counts more).
@@ -579,34 +583,37 @@ function main() {
     let s = fg(DIM, label) + fuelMeter(1 - u, e, mw);
     if (stat && stat.cap) {
       if (isSession) {
-        const spend = Math.max(0, Math.round(stat.cap - stat.used)); // realMax − used, clamped: safe to spend now
-        const d = fg(DIM, "  ") + fg(spend > 0 ? INK : zoneCol(u, e), tkfull(spend)) + fg(DIM, " to spend");
+        // SESSION = the rolling-5h fuel tank. FUEL = tokens good to burn now (realMax − rolling usage,
+        // clamped ≥ 0). refuel = the recovery rate — fuel returning per minute as the 5h window ages out
+        // (so you SEE the roll even when fuel reads 0). All session-horizon; no contradictory signs.
+        const fuel = Math.max(0, Math.round(stat.cap - stat.used));
+        const d = fg(DIM, "  ") + fg(fuel > 0 ? INK : zoneCol(u, e), tkfull(fuel)) + fg(DIM, " fuel");
         if (fits(s, d)) s += d;
-        // BANK — the rolling model made visible: your standing vs even-pace over the week
-        // (cap7 × elapsed − used7). Positive = you banked (went light, surplus rolls forward, roll-session
-        // climbs); negative = spent-ahead (burned faster than even-pace, roll-session shrinks — this is
-        // the "ease off" signal). It's the "+/- gain": why the budget above ticked up or down.
-        if (haveWeek && cap7s) {
+        // ONE net rate = refuel (old usage aging out) − current burn. ↑ green = tank filling (idle/banking),
+        // ↓ = draining (burning faster than it recovers). No separate refuel/burn to reconcile in your head.
+        const burnPerMin = burn5 != null ? Math.round(burn5 / 5) : 0;
+        const net = refuelPerMin - burnPerMin;
+        if (Math.abs(net) >= 500) {
+          const r = net >= 0
+            ? fg(DIM, "  ·  ") + fg(GREEN, "↑ " + tkf(net) + "/min")
+            : fg(DIM, "  ·  ") + fg(zoneCol(u, e), "↓ " + tkf(-net) + "/min");
+          if (fits(s, r)) s += r;
+        }
+        const rl = fg(DIM, "  ·  ") + fg(DIM, "rolling 5h"); if (fits(s, rl)) s += rl;
+      } else {
+        // WEEK = the reserve. LEFT = tokens remaining. bank = standing vs even-burn (cap7 × elapsed −
+        // used7): + banked (green, ahead of pace) / − over (red, burning too fast). burn = drain rate.
+        const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
+        if (cap7s) {
           const bank = Math.round(cap7s * e7 - used7);
           const b = bank >= 0
-            ? fg(DIM, "  ·  ") + fg(GREEN, "banked +" + compact(bank))
-            : fg(DIM, "  ·  ") + fg(RED, "spent-ahead −" + compact(-bank));
+            ? fg(DIM, "  ·  ") + fg(GREEN, "+" + compact(bank) + " banked")
+            : fg(DIM, "  ·  ") + fg(RED, "−" + compact(-bank) + " over");
           if (fits(s, b)) s += b;
         }
-      } else {
-        const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
-        // live drain speedometer: 126M "left" moves ~30k/min — invisible on the odometer, so show the
-        // VELOCITY you actually feel. burn5 (gross maxx tokens/5min) deflated by f = real÷maxx so it's
-        // the real weekly drain rate. Hidden when idle (nothing draining).
-        if (burn5 != null && cap7s && tok7 > 0) {
-          const f7 = Math.max(0, Math.min(1, (week * cap7s) / tok7));
-          const drainMin = Math.round((burn5 / 5) * f7);
-          if (drainMin >= 500) { const dr = fg(DIM, "  ·  ") + fg(zoneCol(u, e), "↓" + tkf(drainMin) + "/min"); if (fits(s, dr)) s += dr; }
-        }
+        if (stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
       }
     } else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; } // no cap → raw %
-    if (stat && stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
-    if (isSession && freshReset) { const b = fg(DIM, "  ") + fg(BRAND, "↺ just reset"); if (fits(s, b)) s += b; }
     return s;
   };
 
@@ -623,11 +630,11 @@ function main() {
     : metaRow;
 
   const out = [
-    // "roll-session" — weekly-left ÷ 5h-windows-left = tokens good to use this session; banks when you go
-    // light. Branded to distinguish it from Anthropic's raw 5h wall. Labels padded to equal width.
-    row(meterContent("roll-session ", q5, e5, qv, true, sStat)),
+    // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
+    // when you go light). "week" — the weekly reserve. Labels padded to equal width so the bars align.
+    row(meterContent("session      ", q5, e5, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("weekly       ", w7, e7, wv, false, wStat)),
+    row(meterContent("week         ", w7, e7, wv, false, wStat)),
     row(metaFull),
   ];
   process.stdout.write(out.join("\n") + "\n");
