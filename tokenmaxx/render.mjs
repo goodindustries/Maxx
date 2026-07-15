@@ -184,33 +184,17 @@ function meter(u, e, w, seed = 0, maximize = false) {
   const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
   // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
   // doesn't glow or vibrate against the purple panel the way a bright mint did.
-  // "you are here" pulse: a soft highlight breathing at the leading (spent) edge — it just marks
-  // where your usage sits, no busy streaks. Wall-clock phase, so it breathes while you're active
-  // and holds still when idle. HEAD = glow half-width in cells; TIP = the pale highlight color.
-  const TIP = hsl(150, 0.42, 0.80);           // pale sage highlight = the travelling glint
-  const HEAD = 3.2;                           // glow half-width (cells) — wide + soft, so it's pronounced
-  const now = Date.now();
-  const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2); // rounded-tube shading
-  // a single slow glint gliding across the SPENT region. The full pass is scaled to the region's
-  // length so it moves at a steady, calm speed (roughly one cell every few seconds), clamped to a
-  // 7–24s pass. The two bars run offset phases (seed 0 = session, 1 = week) so they never sweep in
-  // lockstep. As usage grows the spent region lengthens, so the sweep covers more of the line and
-  // the whole bar reads as alive. Wall-clock driven → it keeps drifting even while you idle.
-  // sweep only the healthy up-to-pace region: when you're OVER (youN past the pace line), the glint
-  // stops at pace instead of gliding into the red overshoot — it shouldn't celebrate the overspend.
-  // maximize: sweep the whole spent region (all spending is progress); weekly: stop the glint at pace.
-  const span = Math.max(1, maximize ? youN : Math.min(youN, paceN));
-  const SWEEP_MS = Math.min(24000, Math.max(7000, span * 900));
-  const t01 = (((now / SWEEP_MS) + seed * 0.41) % 1 + 1) % 1;   // 0..1 phase, offset per bar
-  const center = -HEAD + t01 * (span + 2 * HEAD);               // glides from before 0 to past the edge
-  const glowAt = (c, i) => { const g = 0.85 * Math.max(0, 1 - Math.abs(i - center) / HEAD); return g > 0.001 ? mix(c, Math.min(0.85, g), TIP) : c; };
+  // static rounded-tube shading (lit through the middle) for a touch of depth — NO animation. The
+  // travelling glint was removed: it read as twinkle, and a status bar shouldn't move for its own
+  // sake. The bar now changes only when the numbers do.
+  const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((youN > 1 ? i / (youN - 1) : 0) - 0.45) * 2);
   const below = CUSH;                                 // light-green cushion below the pace line (both bars)
   const spentC = (i) => maximize ? GREEN : (i < paceN ? GREEN : hot); // maximize: spent is always green
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
-    if (i < youN) s += fg(glowAt(mix(spentC(i), tubeAt(i)), i), "█");               // spent: tube-shaded + breathing edge glow
+    if (i < youN) s += fg(mix(spentC(i), tubeAt(i)), "█");                          // spent: tube-shaded
     else if (i === youN && part > 0.04)                                            // your leading edge (sub-cell)
-      s += esc(glowAt(spentC(i), i), i < paceN ? below : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
+      s += esc(spentC(i), i < paceN ? below : TRACK, EIGHTHS[Math.max(1, Math.round(part * 8))]);
     else if (i < paceN) s += fg(below, "█");                                       // below pace: cushion (weekly) / shortfall (session)
     else s += fg(TRACK, "█");                                                      // runway beyond the pace line
   }
@@ -577,7 +561,7 @@ function main() {
   // label before it and the (comma'd, up to ~16-char) cushion/over after it, plus a badge.
   // widen with the terminal: no fixed 90-cell cap (that left half a wide screen empty). Scale to
   // ~0.68 of the rail, leaving ~46 cells for the label + cushion/over + time-left + need/min badges.
-  const mw = Math.max(24, Math.min(Math.round(W * 0.68), 160, W - 58));
+  const mw = Math.max(20, Math.min(Math.round(W * 0.4), 64, W - 46));
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
