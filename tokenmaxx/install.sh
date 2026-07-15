@@ -8,7 +8,6 @@ set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE="$HOME/.claude"
 SKILL="$CLAUDE/skills/maxx"
-ENDPOINT="${MAXX_ENDPOINT:-https://api.meetmaxx.co}"
 MODE="${1:-copy}"
 
 command -v node >/dev/null || { echo "maxx needs node on PATH." >&2; exit 1; }
@@ -45,20 +44,7 @@ mkdirSync(dirname(p), { recursive: true });
 writeFileSync(p, JSON.stringify(d, null, 2));
 JS
 
-# seed config (don't clobber existing keys)
-MAXX_EP="$ENDPOINT" node - <<'JS'
-import { readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-const p = join(homedir(), ".tokenmaxx", "config.json");
-let c = {}; try { c = JSON.parse(readFileSync(p, "utf8")); } catch {}
-c.endpoint ??= process.env.MAXX_EP;
-(c.ticker ??= {}).speed ??= 1;
-writeFileSync(p, JSON.stringify(c, null, 2));
-JS
-
 echo "maxx installed ($MODE)."
 echo "  statusline -> node $SKILL/render.mjs"
 echo "  skill      -> $SKILL   (/maxx)"
-echo "  endpoint   -> $ENDPOINT"
 echo "Start a new Claude Code session to see the bar."
