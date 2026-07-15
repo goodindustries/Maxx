@@ -1,93 +1,45 @@
 #!/usr/bin/env node
 /**
- * maxx tracker — parse ~/.claude/projects/*.jsonl into a shareable stats payload.
+ * maxx tracker — parse ~/.claude/projects/*.jsonl into a local stats card.
  *
  * Usage:
  *   node tokenmaxx/tracker.mjs            — pretty summary
+ *   node tokenmaxx/tracker.mjs session    — delegate to render.mjs (how much to spend)
  *   node tokenmaxx/tracker.mjs --json     — machine-readable stats payload
  *   node tokenmaxx/tracker.mjs --dir PATH — override projects dir
  *
- * Reads only usage/token metadata. Never emits prompt or message content.
+ * Fully on-box: reads only usage/token metadata, sends nothing anywhere, never
+ * emits prompt or message content.
  */
-import { createReadStream, realpathSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createReadStream, realpathSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 const HOME = homedir();
 const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
-const CONFIG_DIR = path.join(HOME, ".tokenmaxx");
-const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
-const DEFAULT_SERVER = process.env.MAXX_SERVER || "https://meetmaxx.co";
-
-// ─── identity ─────────────────────────────────────────────────────────────────
-// installId is a stable anonymous key minted once per machine. handle is the
-// chosen display name (the /u/<handle> slug). Same installId across runs → same
-// person, even before they pick a handle.
-function loadConfig() {
-  try {
-    return JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
-  } catch {
-    return {};
-  }
-}
-function saveConfig(cfg) {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n");
-}
-function identity() {
-  const cfg = loadConfig();
-  if (!cfg.installId) {
-    cfg.installId = randomUUID();
-    saveConfig(cfg);
-  }
-  return cfg;
-}
-function normalizeHandle(raw) {
-  const h = String(raw || "").trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9-]{1,31}$/.test(h)) {
-    throw new Error(
-      "handle must be 2-32 chars, lowercase letters/digits/dashes, not starting with a dash"
-    );
-  }
-  return h;
-}
-function setUser(raw) {
-  const handle = normalizeHandle(raw);
-  const cfg = identity();
-  cfg.handle = handle;
-  saveConfig(cfg);
-  return cfg;
-}
+const CONFIG_DIR = path.join(HOME, ".tokenmaxx"); // local state dir (window.json / rl.json) — read-only here
 
 // ─── args ───────────────────────────────────────────────────────────────────
 // forms:
 //   (none)            → card
+//   session [raw]     → delegate to render.mjs (--session / --status)
 //   json | --json     → JSON payload
-//   push | --push     → collect + upload, print rank
-//   set-user <handle> → set display handle
-//   whoami            → print identity
-// flags: --dir PATH, --server URL
+// flags: --dir PATH
 function parseArgs(argv) {
-  const out = { cmd: "card", dir: DEFAULT_DIR, server: DEFAULT_SERVER, handle: null, raw: false };
+  const out = { cmd: "card", dir: DEFAULT_DIR, raw: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "session") out.cmd = "session";
     else if (a === "raw") out.raw = true;
     else if (a === "--json" || a === "json") { if (out.cmd === "session") out.raw = true; else out.cmd = "json"; }
-    else if (a === "--push" || a === "push") out.cmd = "push";
-    else if (a === "set-user" || a === "set-handle") { out.cmd = "set-user"; }
-    else if (a === "whoami") out.cmd = "whoami";
     else if (a === "--dir") out.dir = argv[++i];
-    else if (a === "--server") out.server = argv[++i];
     else rest.push(a);
   }
-  if (out.cmd === "set-user") out.handle = rest[0];
   return out;
 }
 
@@ -347,26 +299,6 @@ function pretty(s) {
   return L.join("\n");
 }
 
-// ─── push to leaderboard ──────────────────────────────────────────────────────
-async function pushStats(stats, server) {
-  const id = identity();
-  const body = { installId: id.installId, handle: id.handle || null, stats };
-  const res = await fetch(`${server.replace(/\/$/, "")}/ingest`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`ingest failed ${res.status}: ${text.slice(0, 200)}`);
-  let out;
-  try {
-    out = JSON.parse(text);
-  } catch {
-    throw new Error(`ingest returned non-JSON: ${text.slice(0, 200)}`);
-  }
-  return { id, out };
-}
-
 // ─── main ─────────────────────────────────────────────────────────────────────
 export async function collectStats(dir = DEFAULT_DIR) {
   const acc = {
@@ -404,13 +336,7 @@ if (isMainModule()) {
   const a = parseArgs(process.argv.slice(2));
   const w = (s) => process.stdout.write(s + "\n");
   try {
-    if (a.cmd === "whoami") {
-      const id = identity();
-      w(JSON.stringify({ installId: id.installId, handle: id.handle || null }, null, 2));
-    } else if (a.cmd === "set-user") {
-      const cfg = setUser(a.handle);
-      w(`handle set: ${cfg.handle}  (install ${cfg.installId.slice(0, 8)}…)`);
-    } else if (a.cmd === "session") {
+    if (a.cmd === "session") {
       // PACING is NOT computed here. The sustainable per-session budget is weekly ÷ sessions-left,
       // and only render.mjs has the weekly rate-limit data (from the statusline's stdin, via
       // status.json). tracker's own 5h log-scan is a RAW window, not the pacing budget — a consumer
@@ -427,21 +353,6 @@ if (isMainModule()) {
       }
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));
-    } else if (a.cmd === "push") {
-      // zero-egress by default: the ONLY thing in maxx that leaves the box is this leaderboard
-      // upload, and it stays off until you explicitly opt in. Nothing here runs automatically.
-      if (!process.env.MAXX_ALLOW_PUSH) {
-        w("maxx is zero-egress by default — leaderboard sharing is off.");
-        w("to share your (content-free) token stats, opt in with:  MAXX_ALLOW_PUSH=1 maxx push");
-      } else {
-        const stats = await collectStats(a.dir);
-        const { id, out } = await pushStats(stats, a.server);
-        w(pretty(stats));
-        const who = id.handle ? `@${id.handle}` : `install ${id.installId.slice(0, 8)}…`;
-        w(`  pushed as ${who}` + (out.rank ? `  →  rank #${out.rank} of ${out.total}` : ""));
-        if (!id.handle) w(`  (no handle yet — run: maxx set-user <name>)`);
-        w("");
-      }
     } else {
       w(pretty(await collectStats(a.dir)));
     }

@@ -74,4 +74,4 @@ raw wall, not the sustainable budget.)
 - First run scans every session file (a few seconds on a large history).
 - `cache-hit` = cache-read tokens ÷ all input-side tokens.
 - `streak` = consecutive local-calendar days with activity, ending today/yesterday.
-- The JSON payload is the upload format for the (future) maxx leaderboard.
+- maxx is fully on-box: it reads local logs only and sends nothing anywhere.
