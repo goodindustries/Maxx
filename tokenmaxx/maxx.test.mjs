@@ -1,0 +1,61 @@
+// maxx — tests for the correctness-critical paths: the roll-session governor gate (rollSession) and the
+// "used pinned to Anthropic's real %" invariant (the 2× cache-inflation fix). Run: `npm test`.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { rollSession } from "./limit.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const NOW = Date.now();
+const in6d = NOW / 1000 + 6 * 24 * 3600; // 6 days of week left → 6*24/5 = 28.8 five-hour windows
+
+test("rollSession: safe = weekly-left ÷ 5h-windows-left, under the raw 5h wall", () => {
+  const r = rollSession(30e6, 200e6, 0, 50e6, in6d, NOW);
+  assert.ok(Math.abs(r.sessionSafe - 5.21e6) < 0.15e6, `safe ${r.sessionSafe}`); // (200-50)/28.8
+  assert.equal(r.sessionToSpend, r.sessionSafe);                                 // used5 = 0
+  assert.equal(r.sessionOver, 0);
+});
+
+test("rollSession: over the paced share → toSpend 0, over positive (governor blocks here)", () => {
+  const r = rollSession(30e6, 200e6, 10e6, 50e6, in6d, NOW);
+  assert.equal(r.sessionToSpend, 0);
+  assert.ok(r.sessionOver > 4e6 && r.sessionOver < 6e6, `over ${r.sessionOver}`);
+});
+
+test("rollSession: capped at the raw 5h wall when the paced share is larger", () => {
+  const r = rollSession(2e6, 900e6, 0, 0, in6d, NOW);
+  assert.equal(r.sessionSafe, 2e6); // 900M/28.8 ≫ 2M wall → capped to the wall
+});
+
+test("rollSession: banking — a lighter week raises the safe share", () => {
+  const light = rollSession(30e6, 200e6, 0, 20e6, in6d, NOW);
+  const heavy = rollSession(30e6, 200e6, 0, 120e6, in6d, NOW);
+  assert.ok(light.sessionSafe > heavy.sessionSafe, "frugal → more fuel");
+});
+
+test("rollSession: no weekly data → falls back to the raw 5h cap", () => {
+  const r = rollSession(30e6, 0, 0, 0, 0, NOW);
+  assert.equal(r.sessionSafe, 30e6);
+});
+
+test("render --status pins usedPct to Anthropic's real % (the 2× bug fix)", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "maxx-test-"));
+  mkdirSync(path.join(home, ".tokenmaxx"), { recursive: true });
+  const stdin = JSON.stringify({
+    rate_limits: {
+      five_hour: { used_percentage: 6, resets_at: in6d },
+      seven_day: { used_percentage: 37, resets_at: in6d },
+    },
+    context_window: { used_percentage: 10 },
+    model: { display_name: "Opus" },
+  });
+  const out = execFileSync("node", [path.join(HERE, "render.mjs"), "--status"],
+    { input: stdin, env: { ...process.env, HOME: home }, encoding: "utf8" });
+  const s = JSON.parse(out);
+  assert.equal(s.weekly.usedPct, 37, "weekly bar must match /usage seven_day %");
+  assert.equal(s.session.rawUsedPct, 6, "raw 5h wall must match /usage five_hour %");
+});

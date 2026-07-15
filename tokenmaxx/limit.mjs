@@ -129,7 +129,7 @@ function historicalPeak(pts, win = WINDOW_MS) {
 // raw 5h wall. THIS is the number a governor gates on: cap an unattended/overnight agent to its sustainable
 // per-window share and the week never drains in one burst — yet it can still run all night, and if it banks
 // (underspends a window) the share climbs so it can burst later. Everything anchored to Anthropic's %s.
-function rollSession(cap5, cap7, used5, weekUsed, weekResetAt, now) {
+export function rollSession(cap5, cap7, used5, weekUsed, weekResetAt, now) {
   const weekLeftSec = weekResetAt ? Math.max(0, weekResetAt - now / 1000) : 0;
   const sessionsLeft = Math.max(1, weekLeftSec / (5 * 3600));         // 5h windows until the weekly resets
   const weekLeft = Math.max(0, (cap7 || 0) - weekUsed);
@@ -242,7 +242,7 @@ function nazi(wantJSON) {
   const L = [machine, "", `token nazi — hourly posture  ·  verdict: ${verdict.toUpperCase()}`, "",
     `  week          ${num(W.headroom)} left  ·  ${W.usedPct || 0}% used  ·  resets ${W.resetIn || "?"}`,
     sessOver ? `  session       ${num(S.over)} over your paced share  ·  ease off (tank refuels as usage ages out)  ·  ${S.resetIn || "?"}`
-             : `  session       ${num(S.toSpend)} fuel  ·  ~${num(S.spendPerMin)}/min even burn  ·  rolling 5h`,
+             : `  session       ${num(S.toSpend)} tokens  ·  ~${num(S.spendPerMin)}/min even burn  ·  rolling 5h`,
     `  burn          ${tk(burn1h)}/hr now  ·  ${tk(burn6h)} last 6h  ·  ${trend}`, ""];
   if (drains.length) { L.push("  biggest drains (highest leverage first):"); for (const d of drains) L.push(`    · ${d.sink.padEnd(9)} ${d.detail}  →  ${d.lever}`); }
   else L.push("  no standout drains — cache warm, context light, single session.");
@@ -300,4 +300,7 @@ async function main() {
   writeFileSync(OUT, JSON.stringify({ buckets, cap5, cap7, used5: used, weekUsed, weekPct: week, weekResetAt, ...roll, ts: now }));
   writeFileSync(CURSOR, JSON.stringify({ offsets, ts: now }));
 }
-main().catch(e => { process.stderr.write("limit: " + e.message + "\n"); process.exit(1); });
+// run only when invoked directly (CLI / statusline), not when imported by a test.
+if (process.argv[1] && process.argv[1].endsWith("limit.mjs")) {
+  main().catch(e => { process.stderr.write("limit: " + e.message + "\n"); process.exit(1); });
+}

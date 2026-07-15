@@ -15,7 +15,7 @@ Reads only token/usage metadata — never prompt or message content.
 
 ```
 /maxx            # print the usage card
-/maxx session    # how much is safe to spend THIS session (roll-session budget, plain language)
+/maxx session    # session tokens: how much to burn this rolling 5h window (plain language)
 /maxx json       # print the raw stats payload (JSON)
 /maxx nazi       # hourly posture check: ranked token drains + one lever (for agents)
 ```
@@ -31,15 +31,15 @@ Reads only token/usage metadata — never prompt or message content.
    - JSON:      `node ~/.claude/skills/maxx/tracker.mjs --json`
    - Nazi:      `node ~/.claude/skills/maxx/limit.mjs --nazi`   (when the user says `nazi`; add `--json` for the machine form)
 
-   **Pacing model — read before interpreting `session`.** "How much is safe to spend
-   this session" is the **roll-session** budget = weekly tokens-LEFT ÷ the 5h windows
-   left this week, capped at the raw 5h wall. NOT the raw 5h cap — maxing that every
-   window burns the week out days early. It banks: go light and it climbs, overspend
-   and it shrinks. `maxx session` delegates to `render.mjs --session` (the only place
-   with the weekly rate-limit data). Its fields: `toSpend` / `over` / `spendPerMin` =
-   the actionable pace; `capKind` = `weekly-paced` or `5h-cap`; `RAW_5H_*` = the actual
-   5h window, exposed separately so nobody mistakes it for the budget. Do NOT pace off
-   `RAW_5H_*` — that's the raw wall, not the sustainable budget.
+   **Token budget — read before interpreting `session`.** "Session tokens" = weekly
+   tokens-LEFT ÷ the 5h windows left this week, over a ROLLING 5h window, capped at the
+   raw 5h wall. NOT the raw 5h cap — maxing that every window burns the week out days
+   early. It's a tank: burning drains it, and it recovers as old usage ages out of the
+   rolling window (bank by chilling). `maxx session` delegates to `render.mjs --session`
+   (the only place with the weekly rate-limit data). Its fields: `toSpend` (= tokens good
+   to burn) / `over` / `spendPerMin` = the actionable numbers; `capKind` = `weekly-paced`
+   or `5h-cap`; `RAW_5H_*` = Anthropic's actual fixed 5h wall, exposed separately so
+   nobody mistakes it for the budget. Do NOT pace off `RAW_5H_*` — that's the hard wall.
 
    Pass `--dir PATH` to point at a non-default projects directory.
 
@@ -59,7 +59,7 @@ The statusline renderer writes a machine-readable snapshot every render tick to
 `~/.tokenmaxx/status.json`. Read that file (or `render.mjs --status`, no stdin
 needed) to check pace mid-task.
 
-**`session.cap` is the roll-session budget (weekly-paced), NOT the raw 5h wall.** Pace
+**`session.cap` is the session token budget (weekly-paced), NOT the raw 5h wall.** Pace
 off these: `session.toSpend` (safe to spend now, ≥0), `session.over` (past your
 share, ≥0), `session.spendPerMin` (even rate for the time left), `session.capKind`
 (`weekly-paced` | `5h-cap`), `sessionsLeftInWeek`. The ACTUAL 5h window is exposed

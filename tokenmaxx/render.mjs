@@ -141,10 +141,10 @@ function sessionBrief(st) {
   // machine line: session.cap is realMax (weekly-paced), NOT the 5h wall — RAW_* are the real 5h window.
   out.push(`SPEND_THIS_SESSION=${toSpend} SPEND_PER_MIN=${perMin} OVER=${over} SESSION_RESETS_IN=${s.resetIn || "?"} SESSION_RESETS_IN_MIN=${s.minLeft ?? "?"} CAP_KIND=${s.capKind || "?"} RAW_5H_CAP=${s.rawCap ?? "?"} RAW_5H_USED_PCT=${s.rawUsedPct ?? "?"} RAW_5H_LEFT=${s.rawHeadroom ?? "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
   out.push("");
-  out.push("maxx — session fuel (how much to burn this rolling 5h window)");
+  out.push("maxx — session tokens (how much to burn this rolling 5h window)");
   out.push("");
   if (over <= 0) {
-    out.push(`  fuel        ${tkfull(toSpend)} tokens   good to burn in this rolling 5h window`);
+    out.push(`  tokens      ${tkfull(toSpend)} tokens   good to burn in this rolling 5h window`);
     out.push(`  even burn   ~${perMin.toLocaleString("en-US")} tokens/min   to spread it across the time left`);
   } else {
     out.push(`  over        ${tkfull(over)} tokens past your paced share   — ease off (the tank refills as usage ages out)`);
@@ -153,7 +153,7 @@ function sessionBrief(st) {
   out.push(`  ~${sess ?? "?"} five-hour windows left in the week`);
   out.push(`  (raw 5h wall: ${s.rawUsedPct ?? "?"}% used, ${tkfull(s.rawHeadroom || 0)} left — Anthropic's hard cap, NOT the fuel above)`);
   out.push("");
-  out.push("  Fuel = your week's tokens-left ÷ the 5h windows left, over a rolling 5h window. Burn under");
+  out.push("  Tokens = your week's tokens-left ÷ the 5h windows left, over a rolling 5h window. Burn under");
   out.push("  it and the week lasts; max Anthropic's raw 5h wall instead and you're out in days. Idle and");
   out.push("  the tank refuels as old usage ages out — bank by chilling.");
   return out.join("\n");
@@ -587,7 +587,7 @@ function main() {
         // clamped ≥ 0). refuel = the recovery rate — fuel returning per minute as the 5h window ages out
         // (so you SEE the roll even when fuel reads 0). All session-horizon; no contradictory signs.
         const fuel = Math.max(0, Math.round(stat.cap - stat.used));
-        const d = fg(DIM, "  ") + fg(fuel > 0 ? INK : zoneCol(u, e), tkfull(fuel)) + fg(DIM, " fuel");
+        const d = fg(DIM, "  ") + fg(fuel > 0 ? INK : zoneCol(u, e), tkfull(fuel)) + fg(DIM, " tokens");
         if (fits(s, d)) s += d;
         // ONE net rate = refuel (old usage aging out) − current burn. ↑ green = tank filling (idle/banking),
         // ↓ = draining (burning faster than it recovers). No separate refuel/burn to reconcile in your head.

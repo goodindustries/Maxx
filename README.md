@@ -32,7 +32,7 @@ Restart Claude Code. The bar needs Node on your `PATH`.
 Type `/maxx` any time:
 
 - `/maxx` — total tokens, tokens/day, cache-hit rate, and streak
-- `/maxx session` — session fuel: how much to burn this rolling 5h window
+- `/maxx session` — session tokens: how much to burn this rolling 5h window
 
 ## How to read it
 
@@ -51,7 +51,7 @@ maxx has no analytics service and sends no data to maxx or another third party. 
 
 ## How it works
 
-Claude enforces two hard walls at once: a five-hour session cap and a seven-day weekly cap. Maxing the raw 5h cap every window drains the week days before it refreshes — then you're locked out. So maxx paces you to a **roll-session** budget = weekly tokens-left ÷ the 5h windows left this week, bounded by the 5h wall. It banks: go light and the number climbs (frugal now = more later); overspend and it shrinks. That's what `maxx session` reports as "to spend".
+Claude enforces two hard walls at once: a five-hour session cap and a seven-day weekly cap. Maxing the raw 5h cap every window drains the week days before it refreshes — then you're locked out. So maxx paces you to a **session token budget** = weekly tokens-left ÷ the 5h windows left this week, over a rolling 5h window, bounded by the 5h wall. It's a tank: burning drains it, and it recovers as old usage ages out (bank by chilling). Go light and it climbs (frugal now = more later); overspend and it shrinks. That's what `maxx session` reports.
 
 Everything is anchored to Anthropic's authoritative `five_hour` / `seven_day` percentages — the same numbers `/usage` shows. Those are the only ground truth Claude exposes; the token magnitudes are estimates derived from them, so steer by the percentage and the pace.
 
@@ -65,7 +65,7 @@ node ~/.claude/skills/maxx/render.mjs --status    # machine-readable status.json
 Data flow:
 
 - `render.mjs` receives live rate-limit percentages and reset times, writes `~/.tokenmaxx/rl.json` + `~/.tokenmaxx/status.json`, and draws the bar.
-- `limit.mjs` maintains rolling token buckets in `~/.tokenmaxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the roll-session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent can spend only its sustainable per-window share.
+- `limit.mjs` maintains rolling token buckets in `~/.tokenmaxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent can burn only its sustainable per-window share.
 - `nazi.mjs` is an hourly posture check an agent runs on itself — usage history, context/cache, CLAUDE.md tax → ranked token drains + one lever.
 
 ## Development

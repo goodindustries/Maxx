@@ -6,5 +6,7 @@
   "engines": {
     "node": ">=18"
   },
-  "scripts": {}
+  "scripts": {
+    "test": "node --test tokenmaxx/*.test.mjs"
+  }
 }
