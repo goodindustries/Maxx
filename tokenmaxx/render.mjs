@@ -13,6 +13,8 @@
  */
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 // ─── color: one HSL→hex + an rgb→hsl round-trip for shading ────────────────────
@@ -516,6 +518,23 @@ function main() {
   };
   try { writeFileSync(path.join(HOME, ".tokenmaxx", "status.json"), JSON.stringify(status)); } catch {}
   if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
+
+  // refresh window.json (the rolling-token cache limit.mjs owns; the bar + the governor read it). The
+  // statusline ticks every ~1s, so gate the rescan: incremental tail every 5s (cheap, keeps burn near-
+  // live even mid-turn), authoritative --full every 5 min to reconcile any drift. Detached + unref'd so
+  // it never blocks a render. This lived in brain.mjs (a Stop hook); moved here so the data stays fresh
+  // WHILE the agent works, not only at turn end — which is what an unattended overnight governor needs.
+  const dueFor = (mark, ms) => { try { return Date.now() - Number(readFileSync(mark, "utf8")) > ms; } catch { return true; } };
+  const markNow = (mark) => { try { writeFileSync(mark, String(Date.now())); } catch {} };
+  const scanMark = path.join(HOME, ".tokenmaxx", ".limit-scan"), fullMark = path.join(HOME, ".tokenmaxx", ".limit-full");
+  if (dueFor(scanMark, 5000)) {
+    markNow(scanMark);
+    const full = dueFor(fullMark, 5 * 60 * 1000); if (full) markNow(fullMark);
+    try {
+      spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs"), ...(full ? ["--full"] : [])],
+            { detached: true, stdio: "ignore" }).unref();
+    } catch {}
+  }
 
   // paceMove: when a wall's hot, the ONE thing the human can actually flip right now — ranked
   // by leverage against what the bar already sees. Opus burns the cap fastest (one keystroke

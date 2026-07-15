@@ -189,8 +189,70 @@ function bucketize(pts, now) {
   return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([t, k]) => [t, Math.round(k)]);
 }
 
+// ─── --nazi: an hourly posture check an AGENT runs on itself ──────────────────────────────────────
+// Reads what maxx already knows — status.json (ctx/cache/model/sessions), window.json (roll-session +
+// weekPct + burn history), CLAUDE.md sizes (the always-on context tax) — and returns ranked token
+// drains + the one highest-leverage lever for this hour. Machine `NAZI …` first line for grepping.
+function fileTok(p) { try { return Math.round(readFileSync(p, "utf8").length / 4); } catch { return 0; } }
+function nazi(wantJSON) {
+  const num = (x) => Math.round(x || 0).toLocaleString("en-US");
+  const tk = (x) => Math.round(Math.abs(x || 0) / 1000).toLocaleString("en-US") + "k";
+  const st = readJSON(path.join(HOME, ".tokenmaxx", "status.json"), null);
+  if (!st) {
+    const msg = "token nazi — no status yet. Open Claude Code so the statusline writes ~/.tokenmaxx/status.json, then retry.";
+    process.stdout.write((wantJSON ? JSON.stringify({ error: "no-status" }) : msg) + "\n"); return;
+  }
+  const S = st.session || {}, W = st.weekly || {};
+  const win = readJSON(OUT, null);
+  let burn1h = 0, burn6h = 0, burnPrev1h = 0;
+  if (win && Array.isArray(win.buckets)) {
+    const n0 = Date.now(), sum = (lo, hi) => win.buckets.reduce((s, b) => (b[0] > n0 - hi && b[0] <= n0 - lo ? s + b[1] : s), 0);
+    burn1h = sum(0, 3600e3); burnPrev1h = sum(3600e3, 7200e3); burn6h = sum(0, 6 * 3600e3);
+  }
+  const trend = burn1h > burnPrev1h * 1.25 ? "rising" : burn1h < burnPrev1h * 0.75 ? "cooling" : "steady";
+  const cwd = process.cwd();
+  const mdFiles = [
+    ["global CLAUDE.md", path.join(HOME, ".claude", "CLAUDE.md")],
+    ["global RTK.md", path.join(HOME, ".claude", "RTK.md")],
+    ["repo CLAUDE.md", path.join(cwd, "CLAUDE.md")],
+  ].map(([label, p]) => ({ label, tok: fileTok(p) })).filter((f) => f.tok > 0);
+  const claudeMdTok = mdFiles.reduce((s, f) => s + f.tok, 0);
+  const ctxPct = st.ctxPct || 0, cachePct = st.cachePct ?? 100, sessions = st.sessions || 1, model = st.model || "?";
+  const sessOver = (S.over || 0) > 0;
+  const weekHot = (W.usedPct || 0) > (W.elapsedPct || 0) + 5 && (W.usedPct || 0) >= 50;
+  const verdict = sessOver || (W.usedPct || 0) >= 90 ? "over" : weekHot || (S.usedPct || 0) >= 90 ? "hot" : "ok";
+  const drains = [];
+  if (model === "Opus") drains.push({ sink: "model", detail: "Opus burns the quota fastest", lever: "drop to Sonnet for routine work (one keystroke)", weight: sessOver || weekHot ? 90 : 55 });
+  if (sessions > 1) drains.push({ sink: "sessions", detail: `${sessions} sessions burning in parallel → ~${sessions}× the rate`, lever: `close the ${sessions - 1} you're not driving`, weight: 40 + sessions * 12 });
+  if (cachePct < 85) drains.push({ sink: "cache", detail: `cache ${cachePct}% — misses pay full freight`, lever: "stop rewriting early context; append instead of editing history", weight: cachePct < 60 ? 80 : 45 });
+  if (ctxPct >= 65) drains.push({ sink: "context", detail: `context ${ctxPct}% full — every turn re-sends it all`, lever: "commit at a clean stop, then /compact", weight: ctxPct >= 85 ? 85 : 50 });
+  if (claudeMdTok >= 4000) drains.push({ sink: "claude.md", detail: `~${tk(claudeMdTok)} tokens of CLAUDE.md loaded EVERY message`, lever: "trim/compress the global + repo instructions", weight: 30 + Math.min(30, claudeMdTok / 400) });
+  if (trend === "rising") drains.push({ sink: "trend", detail: `burn rising — ${tk(burn1h)}/hr vs ${tk(burnPrev1h)}/hr prior`, lever: "you're accelerating; ease off or you'll hit the wall early", weight: 60 });
+  drains.sort((a, b) => b.weight - a.weight);
+  const topMove = drains[0]?.lever || (verdict === "ok" ? "on track — keep shipping the smallest thing that works" : "wrap up cleanly before the wall");
+  const machine = `NAZI verdict=${verdict} weekly_left=${W.headroom || 0} weekly_pct=${W.usedPct || 0} session_tospend=${S.toSpend || 0} session_permin=${S.spendPerMin || 0} ctx_pct=${ctxPct} cache_pct=${cachePct} claudemd_tok=${claudeMdTok} sessions=${sessions} model=${model} burn_1h=${Math.round(burn1h)} burn_6h=${Math.round(burn6h)} trend=${trend} top_lever="${topMove}"`;
+  if (wantJSON) {
+    process.stdout.write(JSON.stringify({
+      verdict, weekly: { left: W.headroom || 0, usedPct: W.usedPct || 0, resetIn: W.resetIn || "?" },
+      session: { name: "roll-session", toSpend: S.toSpend || 0, perMin: S.spendPerMin || 0, over: S.over || 0, resetIn: S.resetIn || "?" },
+      burn: { last1h: Math.round(burn1h), last6h: Math.round(burn6h), trend },
+      context: { ctxPct, cachePct, claudeMdTok, claudeMdFiles: mdFiles }, sessions, model, drains, topMove,
+    }, null, 2) + "\n"); return;
+  }
+  const L = [machine, "", `token nazi — hourly posture  ·  verdict: ${verdict.toUpperCase()}`, "",
+    `  weekly        ${num(W.headroom)} left  ·  ${W.usedPct || 0}% used  ·  resets ${W.resetIn || "?"}`,
+    sessOver ? `  roll-session  ${num(S.over)} OVER your sustainable share  ·  ease off  ·  resets ${S.resetIn || "?"}`
+             : `  roll-session  ${num(S.toSpend)} to spend  ·  ~${num(S.spendPerMin)}/min  ·  resets ${S.resetIn || "?"}`,
+    `  burn          ${tk(burn1h)}/hr now  ·  ${tk(burn6h)} last 6h  ·  ${trend}`, ""];
+  if (drains.length) { L.push("  biggest drains (highest leverage first):"); for (const d of drains) L.push(`    · ${d.sink.padEnd(9)} ${d.detail}  →  ${d.lever}`); }
+  else L.push("  no standout drains — cache warm, context light, single session.");
+  L.push("", `  do this hour →  ${topMove}`);
+  process.stdout.write(L.join("\n") + "\n");
+}
+
 async function main() {
   const now = Date.now();
+  if (process.argv.includes("--nazi")) { nazi(process.argv.includes("--json")); return; }
   // anchor the token caps to Claude's authoritative %s (render drops them in rl.json): with
   // cap = burned / used%, the token gauge reads exactly the real % — weighting quirks cancel.
   let quota = 0, week = 0, weekResetAt = 0;

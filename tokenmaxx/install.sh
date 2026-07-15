@@ -23,22 +23,24 @@ place() {
 place "$SRC/SKILL.md"     "$SKILL/SKILL.md"
 place "$SRC/render.mjs"   "$SKILL/render.mjs"
 place "$SRC/tracker.mjs"  "$SKILL/tracker.mjs"
-place "$SRC/optimize.mjs" "$SKILL/optimize.mjs"
-place "$SRC/brain.mjs"    "$SKILL/brain.mjs"
 place "$SRC/limit.mjs"    "$SKILL/limit.mjs"
 
-# wire the statusLine (node render.mjs) + the coach Stop hook into settings.json.
+# wire the statusLine (node render.mjs) into settings.json. render.mjs also refreshes the rolling-token
+# window.json on a cadence, so no Stop hook is needed. (Older installs added a brain.mjs Stop hook — we
+# remove it here so upgraders aren't left with a dangling hook after brain.mjs was folded away.)
 [ -f "$CLAUDE/settings.json" ] && cp "$CLAUDE/settings.json" "$CLAUDE/settings.json.bak-maxx"
-RENDER="node $SKILL/render.mjs" BRAIN="node $SKILL/brain.mjs" \
+RENDER="node $SKILL/render.mjs" SKILLDIR="$SKILL" \
 node - "$CLAUDE/settings.json" <<'JS'
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 const p = process.argv[2];
 let d = {}; try { d = JSON.parse(readFileSync(p, "utf8")); } catch {}
 d.statusLine = { type: "command", command: process.env.RENDER, padding: 0, refreshInterval: 1 };
-const stop = ((d.hooks ??= {}).Stop ??= []);
-if (!stop.some((h) => JSON.stringify(h).includes(process.env.BRAIN)))
-  stop.push({ hooks: [{ type: "command", command: process.env.BRAIN }] });
+// drop any legacy maxx Stop hook (brain.mjs, now removed) so it doesn't fail every turn.
+if (d.hooks?.Stop) {
+  d.hooks.Stop = d.hooks.Stop.filter((h) => !JSON.stringify(h).includes(`${process.env.SKILLDIR}/brain.mjs`));
+  if (d.hooks.Stop.length === 0) delete d.hooks.Stop;
+}
 mkdirSync(dirname(p), { recursive: true });
 writeFileSync(p, JSON.stringify(d, null, 2));
 JS
