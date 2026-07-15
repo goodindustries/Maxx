@@ -114,13 +114,6 @@ function paceOf(rl, winSec, usedFrac) {
 function tkf(n) {
   return Math.round(Math.abs(n) / 1000).toLocaleString("en-US") + "k";
 }
-// compact token count for headroom / "tokens available": 1.2B, 118M, 1.5M, 640k, 12k
-function tkc(n) {
-  n = Math.abs(n);
-  if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
-  return Math.round(n / 1000) + "k";
-}
 
 // zone = a function of time left: project your burn to reset (used ÷ elapsed). Under the pace
 // line → safe, on it → elevated, headed past the wall → danger. Colors the meter + the number.
@@ -352,18 +345,28 @@ function main() {
   const mine = localSessions();          // your concurrent sessions (local — mtimes only)
 
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
-  // GROUND TRUTH for how full each window is = the real wall % from stdin (what /usage shows). We
-  // used to prefer tok/cap5 (the bucket sum ÷ the brain's cap), but cap5 can drift — seen at 449M
-  // when the wall said 4% of a real ~124M cap, compressing usage 3.6× and inventing an "80M behind".
-  // So anchor the % to the wall, and derive the token cap LIVE from it (tok5 ÷ quota) so token counts
-  // self-correct. tok/cap5 (or the raw bucket sum) is the fallback only when stdin isn't present.
-  const q5 = haveQuota ? quota : (tok5 != null && cap5 ? tok5 / cap5 : 0);
-  const w7 = haveWeek ? week : (tok7 != null && cap7 ? tok7 / cap7 : 0);
-  // effective cap in tokens — live-anchored to the wall (quota above a 2% floor so tok÷quota isn't
-  // amplifying whole-percent quantization noise), else the brain's cap5. Only for behind/room/need.
-  const cap5e = haveQuota && quota > 0.02 && tok5 ? Math.round(tok5 / quota) : (cap5 || 0);
-  const cap7e = haveWeek && week > 0.02 && tok7 ? Math.round(tok7 / week) : (cap7 || 0);
-  const used5 = Math.round(q5 * cap5e), used7 = Math.round(w7 * cap7e);
+  // STABLE token cap per window. We anchor the cap to the wall (tok ÷ wall%) — that's the honest
+  // magnitude — but re-anchor ONLY when the wall % actually ticks, holding it steady in between.
+  // If we recomputed tok÷quota every render, a flat quota with rising tok would inflate the cap as
+  // you burn, so "tokens left" would go UP while spending — backwards. Cached in caps.json so the
+  // held value survives across renders (and across a reset, since the cap itself doesn't change).
+  const capsPath = path.join(HOME, ".tokenmaxx", "caps.json");
+  const caps = readJSON(capsPath, {});
+  const anchorCap = (have, pct, tok, prevPct, prevCap, brainCap) => {
+    if (have && pct > 0.02 && tok != null) {
+      if (prevCap && prevPct != null && Math.abs(prevPct - pct) < 0.005) return prevCap; // wall % steady → hold
+      return Math.round(tok / pct);                                                       // first anchor / wall ticked
+    }
+    return prevCap || brainCap || 0; // below the 2% floor (or no stdin) → keep the last good cap
+  };
+  const cap5s = anchorCap(haveQuota, quota, tok5, caps.q5, caps.cap5, cap5);
+  const cap7s = anchorCap(haveWeek, week, tok7, caps.q7, caps.cap7, cap7);
+  try { writeFileSync(capsPath, JSON.stringify({ q5: haveQuota ? quota : caps.q5, cap5: cap5s, q7: haveWeek ? week : caps.q7, cap7: cap7s })); } catch {}
+  // used = the FINE bucket sum (moves by the token, so cushion/left tick live); fall back to wall%×cap.
+  const used5 = tok5 != null ? tok5 : Math.round((haveQuota ? quota : 0) * cap5s);
+  const used7 = tok7 != null ? tok7 : Math.round((haveWeek ? week : 0) * cap7s);
+  const q5 = cap5s ? Math.min(1, used5 / cap5s) : (haveQuota ? quota : 0);
+  const w7 = cap7s ? Math.min(1, used7 / cap7s) : (haveWeek ? week : 0);
   const qcol = col(q5), wcol = col(w7);
   // how far into each window you are (the pace line): elapsed = 1 - timeLeft/window.
   const nowS = Date.now() / 1000;
@@ -406,8 +409,8 @@ function main() {
     return { usedPct: Math.round(usedFrac * 1000) / 10, used, cap, headroom, resetAt: resetAt || 0,
              secLeft, minLeft: Math.round(minLeft), resetIn: resetIn(resetAt), needPerMin, pacePerMin };
   }
-  const sStat = windowStat(used5, cap5e, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
-  const wStat = windowStat(used7, cap7e, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
+  const sStat = windowStat(used5, cap5s, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
+  const wStat = windowStat(used7, cap7s, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
   // pace gap (points): elapsed − used. + = behind even-burn (under-using), − = ahead. Cap-independent.
   sStat.elapsedPct = Math.round(e5 * 100); sStat.behindPts = Math.round((e5 - q5) * 100);
   wStat.elapsedPct = Math.round(e7 * 100); wStat.behindPts = Math.round((e7 - w7) * 100);
@@ -457,12 +460,21 @@ function main() {
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
-  // a wall's row: label · meter · TOKENS AVAILABLE (headroom, the number you actually want) · time
-  // left · fresh badge. The rate to fully use the session (need/min) rides the meta line by 5m burn.
+  // a wall's row. SESSION: cushion/over — tokens under (or past) the even-burn pace line, in fine k
+  // so it ticks: UP as time advances, DOWN as you burn. WEEKLY: how much is left (headroom). time
+  // left + fresh badge trail. The rate to fully use the session (need/min) rides the meta line.
   const meterContent = (label, u, e, uv, isSession, stat) => {
     let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
-    if (stat && stat.cap) { const d = fg(DIM, "  ") + fg(INK, tkc(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d; }
-    else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; } // no cap → raw %
+    if (stat && stat.cap) {
+      if (isSession) {
+        const room = Math.round(e * stat.cap - stat.used); // + = cushion under pace, − = over it
+        const good = room >= 0;
+        const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
+        if (fits(s, d)) s += d;
+      } else {
+        const d = fg(DIM, "  ") + fg(INK, tkf(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
+      }
+    } else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; } // no cap → raw %
     if (stat && stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
     if (isSession && freshReset) { const b = fg(DIM, "  ") + fg(BRAND, "↺ just reset"); if (fits(s, b)) s += b; }
     return s;
