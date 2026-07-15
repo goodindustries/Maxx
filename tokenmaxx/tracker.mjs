@@ -296,7 +296,10 @@ function buildStats(acc) {
     lastDay: days[activeDays - 1] || null,
     streak: streaks.current,
     longestStreak: streaks.longest,
-    session: sessionWindow(),
+    // RAW 5h log-scan window — NOT the pacing budget. For "how much to spend this session" use
+    // `maxx session` / render.mjs --session (weekly-paced). Renamed from `.session` so consumers
+    // stop mistaking this raw window for the sustainable share.
+    session5hRaw: sessionWindow(),
     models,
     perDay,
   };
@@ -331,13 +334,12 @@ function pretty(s) {
   L.push(`  active days       ${s.activeDays}   (${s.firstDay} → ${s.lastDay})`);
   L.push(`  sessions          ${fmt(s.sessions)}`);
   L.push(`  messages          ${fmt(s.messages)}`);
-  if (s.session) {
-    const sw = s.session;
+  if (s.session5hRaw) {
+    const sw = s.session5hRaw;
     L.push("  ─────────────────────────────────────────");
-    L.push("  session (5h rolling window)");
+    L.push("  5h window (raw — for pacing use `maxx session`)");
     L.push(`    used            ${human(sw.used)}  (${(sw.pct * 100).toFixed(0)}%)`);
-    L.push(`    unused          ${human(sw.left)}  of ${human(sw.cap)}   use-it-or-lose-it`);
-    L.push(`    pace            ${human(sw.needPerMin)}/min needed · ${human(sw.nowPerMin)}/min now  (${sw.behind ? "behind" : "on pace"})`);
+    L.push(`    left            ${human(sw.left)}  of ${human(sw.cap)}`);
     L.push(`    resets in       ${fmtMins(sw.resetInMins)}`);
   }
   L.push("  ─────────────────────────────────────────");
@@ -421,22 +423,19 @@ if (isMainModule()) {
       const cfg = setUser(a.handle);
       w(`handle set: ${cfg.handle}  (install ${cfg.installId.slice(0, 8)}…)`);
     } else if (a.cmd === "session") {
-      // fast path: refresh the 5h window incrementally (~0.25s), then read the cache — no full
-      // history scan. `maxx session` for a human line, `maxx session raw` for JSON (agents).
-      refreshWindow();
-      const sw = sessionWindow();
-      if (!sw) {
-        w(a.raw ? "null" : "  session: no window data yet — run the statusline once to seed it.");
-      } else if (a.raw) {
-        w(JSON.stringify(sw));
-      } else {
-        w("");
-        w("  ⚡ maxx — session (5h rolling window)");
-        w(`  used        ${human(sw.used)}  (${(sw.pct * 100).toFixed(0)}%)`);
-        w(`  unused      ${human(sw.left)}  of ${human(sw.cap)}  ← use-it-or-lose-it`);
-        w(`  pace        ${human(sw.needPerMin)}/min needed · ${human(sw.nowPerMin)}/min now  (${sw.behind ? "behind — burn more" : "on pace"})`);
-        w(`  resets in   ${fmtMins(sw.resetInMins)}`);
-        w("");
+      // PACING is NOT computed here. The sustainable per-session budget is weekly ÷ sessions-left,
+      // and only render.mjs has the weekly rate-limit data (from the statusline's stdin, via
+      // status.json). tracker's own 5h log-scan is a RAW window, not the pacing budget — a consumer
+      // misread it as "plenty of headroom, run flat-out", the opposite of the truth. So delegate:
+      //   `maxx session`        → the weekly-paced brief (render.mjs --session)
+      //   `maxx session raw`    → the full status.json (render.mjs --status)
+      const renderPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "render.mjs");
+      try {
+        const outStr = execFileSync(process.execPath, [renderPath, a.raw ? "--status" : "--session"],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        w(outStr.replace(/\n+$/, ""));
+      } catch {
+        w(a.raw ? "{}" : "  session: no pacing data yet — open Claude Code so the statusline seeds ~/.tokenmaxx/status.json.");
       }
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));

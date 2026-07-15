@@ -124,23 +124,25 @@ function tkfull(n) {
 function sessionBrief(st) {
   if (!st || !st.session) return "maxx — no usage data yet. Open Claude Code so the statusline can write ~/.tokenmaxx/status.json, then retry.";
   const s = st.session, w = st.weekly || {};
-  const spend = Math.round((s.cap || 0) - (s.used || 0)); // realMax − used: safe to spend now
-  const minLeft = s.minLeft || 0;                          // minutes until THIS session resets
-  const perMin = spend > 0 && minLeft > 0 ? Math.round(spend / minLeft) : 0; // even pace for the rest
+  const toSpend = s.toSpend != null ? s.toSpend : Math.max(0, (s.cap || 0) - (s.used || 0));
+  const over = s.over != null ? s.over : Math.max(0, (s.used || 0) - (s.cap || 0));
+  const perMin = s.spendPerMin != null ? s.spendPerMin : (toSpend > 0 && s.minLeft > 0 ? Math.round(toSpend / s.minLeft) : 0);
   const sess = st.sessionsLeftInWeek;
   const out = [];
-  out.push(`SPEND_THIS_SESSION=${Math.max(0, spend)} SPEND_PER_MIN=${perMin} OVER=${spend < 0 ? -spend : 0} SESSION_RESETS_IN=${s.resetIn || "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
+  // machine line: session.cap is realMax (weekly-paced), NOT the 5h wall — RAW_* are the real 5h window.
+  out.push(`SPEND_THIS_SESSION=${toSpend} SPEND_PER_MIN=${perMin} OVER=${over} SESSION_RESETS_IN=${s.resetIn || "?"} SESSION_RESETS_IN_MIN=${s.minLeft ?? "?"} CAP_KIND=${s.capKind || "?"} RAW_5H_CAP=${s.rawCap ?? "?"} RAW_5H_USED_PCT=${s.rawUsedPct ?? "?"} RAW_5H_LEFT=${s.rawHeadroom ?? "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
   out.push("");
   out.push("maxx — how much to spend this session");
   out.push("");
-  if (spend >= 0) {
-    out.push(`  spend up to   ${tkfull(spend)} tokens   before this session resets in ${s.resetIn || "?"}`);
+  if (over <= 0) {
+    out.push(`  spend up to   ${tkfull(toSpend)} tokens   before this session resets in ${s.resetIn || "?"}`);
     out.push(`  even pace     ~${perMin.toLocaleString("en-US")} tokens/min   to spread it across the time left`);
   } else {
-    out.push(`  ease off  —   ${tkfull(-spend)} tokens OVER your sustainable share   (session resets in ${s.resetIn || "?"})`);
+    out.push(`  ease off  —   ${tkfull(over)} tokens OVER your sustainable share   (session resets in ${s.resetIn || "?"})`);
   }
   out.push(`  weekly left   ${tkfull(w.headroom || 0)} tokens   ·   resets in ${w.resetIn || "?"}`);
   out.push(`  ~${sess ?? "?"} five-hour sessions left in the week`);
+  out.push(`  (raw 5h window: ${s.rawUsedPct ?? "?"}% used, ${tkfull(s.rawHeadroom || 0)} left — NOT the pacing budget above)`);
   out.push("");
   out.push("  This is your weekly budget sliced evenly across the sessions left in the week.");
   out.push("  Maxing Anthropic's raw 5h cap instead would burn the week out days early — so pace");
@@ -466,6 +468,20 @@ function main() {
   // is the weekly the binding wall (realMax below the raw 5h cap)? = the session allowance is being
   // held down to protect the week. Kept for agents; no longer a separate tag on the bar.
   sStat.weeklyPaced = !!(haveWeek && cap5s && realMax < cap5s);
+  // ── hard-to-misread contract for consumers. A downstream "governor" read session.cap as the raw
+  //    5h wall and concluded "plenty of headroom, run flat-out" — the opposite of the truth. So make
+  //    the meaning explicit: session.cap IS realMax (the weekly-paced budget, NOT the 5h wall).
+  //    toSpend/over/spendPerMin are the actionable pace numbers. raw* are the ACTUAL 5h window, for a
+  //    consumer that genuinely wants "% of the 5h window" instead of misreading the paced one.
+  sStat.toSpend = Math.max(0, realMax - used5);                     // safe to spend this session (≥ 0)
+  sStat.over = Math.max(0, used5 - realMax);                        // past your sustainable share (≥ 0)
+  sStat.capKind = sStat.weeklyPaced ? "weekly-paced" : "5h-cap";   // what set session.cap / realMax
+  sStat.sessionResetsInMin = sStat.minLeft;                         // minutes until the 5h wall resets
+  sStat.spendPerMin = sStat.toSpend > 0 && sStat.minLeft > 0 ? Math.round(sStat.toSpend / sStat.minLeft) : 0;
+  sStat.rawCap = cap5s || 0;                                        // Anthropic's real 5h token cap
+  sStat.rawUsed = used5;
+  sStat.rawUsedPct = cap5s ? Math.round((used5 / cap5s) * 1000) / 10 : 0; // % of the ACTUAL 5h window
+  sStat.rawHeadroom = Math.max(0, (cap5s || 0) - used5);            // tokens left before the 5h wall
   const status = {
     ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
     costUsd: Math.round(usd * 100) / 100, sessions: mine,
