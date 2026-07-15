@@ -5,7 +5,9 @@
 # Idempotent. Backs up settings.json. Pure Node — no python, no compiled binary.
 set -euo pipefail
 
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ${BASH_SOURCE[0]:-$0} so `set -u` doesn't trip when piped via `curl … | bash` (no source file →
+# resolves to the cwd, which won't hold render.mjs → the self-clone path below kicks in).
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 CLAUDE="$HOME/.claude"
 SKILL="$CLAUDE/skills/maxx"
 MODE="${1:-copy}"
