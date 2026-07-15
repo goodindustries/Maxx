@@ -120,14 +120,6 @@ function tkf(n) {
 function tkfull(n) {
   return Math.round(Math.abs(n)).toLocaleString("en-US");
 }
-// compact magnitude for the bank readout: 2.1M, 850k, 85M — one glanceable figure, sign added by caller.
-function compact(n) {
-  const a = Math.abs(n);
-  if (a >= 1e6) return (a / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (a >= 1e3) return Math.round(a / 1e3) + "k";
-  return String(Math.round(a));
-}
-
 // `/maxx session` brief — reads the snapshot the statusline writes and answers the one question:
 // how much can I spend this session? First line is machine-ingestible (KEY=value); the rest is human.
 function sessionBrief(st) {
@@ -185,6 +177,23 @@ function fuelMeter(fuelFrac, e, w) {
     else s += fg(TRACK, "█");                                  // drained
   }
   return s + fg(WALL, "▌"); // empty end
+}
+
+// NET bar — one directional fill for your STANDING (signed fuel = realMax − rolling usage). NEGATIVE
+// (over your paced share) grows RED in from the RIGHT edge, right→left, longer the more over. As the
+// rolling window ages out (or you ease off) the deficit shrinks and the red RECEDES — live, per second.
+// Cross into POSITIVE (banked fuel) and GREEN grows from the LEFT, left→right. Scale = realMax (the
+// session budget), so a full tank's worth of over/under = a full bar; smaller = a proportional sliver.
+function netBar(standing, scale, w) {
+  const f = Math.max(-1, Math.min(1, standing / Math.max(scale, 1)));
+  const n = Math.round(Math.abs(f) * w);
+  let out = fg(START, "▐"); // same framing as the week fuel tank
+  for (let i = 0; i < w; i++) {
+    const red = standing < 0 && i >= w - n;  // red deficit anchored at the RIGHT
+    const green = standing > 0 && i < n;      // green banked fuel anchored at the LEFT
+    out += red ? fg(RED, "█") : green ? fg(GREEN, "█") : fg(TRACK, "█"); // solid track = same weight as the week tank
+  }
+  return out + fg(WALL, "▌");
 }
 
 // ─── sidecar state ─────────────────────────────────────────────────────────────
@@ -329,7 +338,7 @@ function main() {
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
   const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
-  let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null, refuelPerMin = 0;
+  let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null, burn60 = 0, refuelPerMin = 0;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
     const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
@@ -352,9 +361,8 @@ function main() {
     // chilling) instead of waiting for a cliff at resets_at. This is the roll-session's own clock; the
     // hard Anthropic 5h wall stays exposed via the raw* fields (quota).
     tok5roll = decaySum(FIVE);
-    // refuel rate: how fast the rolling tank refills while you idle. The whole in-window burn decays away
-    // over 5h (300 min), so fuel returns at ≈ (in-window burn) / 300 per minute. This is the "where's the
-    // rolling update" number — it shows fuel coming back even when the tank reads 0.
+    // refuel = how fast the rolling tank refills (in-window burn decays over 300 min) → the "progress"
+    // trend below is refuel − live burn: + = standing improving (recovering/banking), − = losing ground.
     refuelPerMin = Math.round(sum(FIVE) / 300);
     // weekly: sum from Anthropic's actual window start (resets_at − 7d), not a blind now − 7d, so a
     // pre-reset burst stops counting the instant the wall zeroed. max() = never loosen past the
@@ -365,6 +373,8 @@ function main() {
     // gross tokens burned in the last 5 min (always ≥ 0). This is the live "are you actually using
     // the session" signal — coloured against the maximize pace, and shown as "idle" when it's ~0.
     burn5 = sum(5 * 60 * 1000);
+    // live per-min burn, age-weighted (glides down each render as a spike ages out) — feeds the trend.
+    burn60 = Math.round(decaySum(60 * 1000) * 2);
   }
 
   const usd = (p.cost || {}).total_cost_usd || 0;
@@ -574,41 +584,63 @@ function main() {
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
+  // ODOMETER — every shown number counts toward its target by AT MOST ±1 (in display units, k) per
+  // render: the ones digit rolls before the tens, values NEVER jump. Slow to calibrate after a big move,
+  // by design. First sight snaps (no count-up from 0). State persists per-key in odo.json across renders.
+  const odoPath = path.join(HOME, ".tokenmaxx", "odo.json");
+  const odo = readJSON(odoPath, {});
+  const step1 = (key, targetK) => {
+    const k = (sid || "s") + ":" + key; // per-session → concurrent panes each step ±1 on their OWN repaints
+    const t = Math.round(targetK);
+    const p = Number.isFinite(odo[k]) ? odo[k] : t;
+    const nxt = p + Math.max(-1, Math.min(1, t - p));
+    odo[k] = nxt;
+    return nxt;
+  };
+  const kstr = (kv) => Math.round(Math.abs(kv)).toLocaleString("en-US") + "k"; // signed value already in k
+
   // a wall's row, plain-language. SESSION: "X to spend" — your sustainable allowance for THIS window
   // (realMax − used); counts down as you burn, climbs back after a break. Negative → "over — ease
   // off" (you're starting to eat future weeks). WEEKLY: "X left" — the reserve. + time left.
   const meterContent = (label, u, e, uv, isSession, stat) => {
-    // fuel gauge: bar shows what's LEFT (1 − usage fraction), draining as you spend, refilling (session)
-    // as the rolling window ages out. e = elapsed → the even-burn pace tick lives inside fuelMeter.
-    let s = fg(DIM, label) + fuelMeter(1 - u, e, mw);
+    // SESSION bar IS the directional standing fill (one bar: green-from-left when banked, red-from-right
+    // when over). WEEK keeps the fuel tank (bar = weekly reserve LEFT, draining as you spend).
+    const standing = isSession && stat && stat.cap ? Math.round(stat.cap - stat.used) : 0;
+    let s = fg(DIM, label) + (isSession && stat && stat.cap
+      ? netBar(standing, stat.cap, mw)
+      : fuelMeter(1 - u, e, mw));
     if (stat && stat.cap) {
       if (isSession) {
-        // SESSION = the rolling-5h fuel tank. FUEL = tokens good to burn now (realMax − rolling usage,
-        // clamped ≥ 0). refuel = the recovery rate — fuel returning per minute as the 5h window ages out
-        // (so you SEE the roll even when fuel reads 0). All session-horizon; no contradictory signs.
-        const fuel = Math.max(0, Math.round(stat.cap - stat.used));
-        const d = fg(DIM, "  ") + fg(fuel > 0 ? INK : zoneCol(u, e), tkfull(fuel)) + fg(DIM, " tokens");
+        // the number matches the bar sign: banked (positive) → "Xk tokens" (ink), over (negative) → "Xk
+        // over". Odometer-counted (±1k/frame) — bar snaps, number rolls to catch up.
+        const standK = step1("sess", standing / 1000);
+        const d = fg(DIM, "  ") + (standK > 0
+          ? fg(INK, kstr(standK)) + fg(DIM, " tokens")
+          : fg(zoneCol(u, e), kstr(standK)) + fg(DIM, " over"));
         if (fits(s, d)) s += d;
-        // ONE net rate = refuel (old usage aging out) − current burn. ↑ green = tank filling (idle/banking),
-        // ↓ = draining (burning faster than it recovers). No separate refuel/burn to reconcile in your head.
-        const burnPerMin = burn5 != null ? Math.round(burn5 / 5) : 0;
-        const net = refuelPerMin - burnPerMin;
-        if (Math.abs(net) >= 500) {
-          const r = net >= 0
-            ? fg(DIM, "  ·  ") + fg(GREEN, "↑ " + tkf(net) + "/min")
-            : fg(DIM, "  ·  ") + fg(zoneCol(u, e), "↓ " + tkf(-net) + "/min");
-          if (fits(s, r)) s += r;
+        // trailing PROGRESS trend: refuel − live burn = how fast standing is improving. ↑ green = making
+        // progress (over shrinking / banking), ↓ red = losing ground. Live (not odometer'd) so it's the
+        // responsive "are we winning right now" read the slow-counting number can't give you.
+        const prog = refuelPerMin - burn60;
+        if (Math.abs(prog) >= 500) {
+          const pr = prog >= 0
+            ? fg(DIM, "  ·  ") + fg(GREEN, "↑ " + tkf(prog) + "/min")
+            : fg(DIM, "  ·  ") + fg(RED, "↓ " + tkf(prog) + "/min");
+          if (fits(s, pr)) s += pr;
         }
-        const rl = fg(DIM, "  ·  ") + fg(DIM, "rolling 5h"); if (fits(s, rl)) s += rl;
       } else {
         // WEEK = the reserve. LEFT = tokens remaining. bank = standing vs even-burn (cap7 × elapsed −
         // used7): + banked (green, ahead of pace) / − over (red, burning too fast). burn = drain rate.
-        const d = fg(DIM, "  ") + fg(INK, tkfull(stat.headroom)) + fg(DIM, " left"); if (fits(s, d)) s += d;
+        // LEFT + OVER in k (thousands), comma-grouped — same odometer scale as the session line, and the
+        // low k-digits are exposed (vs compact "93.2M" which hid them). LEFT scrolls as you spend; OVER
+        // drifts ~0.6k/sec on its own as the week's elapsed-time creeps, so its k digit ticks live too.
+        const leftK = step1("wkleft", stat.headroom / 1000);
+        const d = fg(DIM, "  ") + fg(INK, kstr(leftK)) + fg(DIM, " left"); if (fits(s, d)) s += d;
         if (cap7s) {
-          const bank = Math.round(cap7s * e7 - used7);
-          const b = bank >= 0
-            ? fg(DIM, "  ·  ") + fg(GREEN, "+" + compact(bank) + " banked")
-            : fg(DIM, "  ·  ") + fg(RED, "−" + compact(-bank) + " over");
+          const bankK = step1("wkbank", (cap7s * e7 - used7) / 1000);
+          const b = bankK >= 0
+            ? fg(DIM, "  ·  ") + fg(GREEN, "+" + kstr(bankK) + " banked")
+            : fg(DIM, "  ·  ") + fg(RED, "−" + kstr(bankK) + " over");
           if (fits(s, b)) s += b;
         }
         if (stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
@@ -637,6 +669,7 @@ function main() {
     row(meterContent("week         ", w7, e7, wv, false, wStat)),
     row(metaFull),
   ];
+  try { writeFileSync(odoPath, JSON.stringify(odo)); } catch {} // persist the odometer counters for next render
   process.stdout.write(out.join("\n") + "\n");
 }
 main();
