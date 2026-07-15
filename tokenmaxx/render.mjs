@@ -401,6 +401,9 @@ function main() {
   }
   const sStat = windowStat(used5, cap5e, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
   const wStat = windowStat(used7, cap7e, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
+  // pace gap (points): elapsed − used. + = behind even-burn (under-using), − = ahead. Cap-independent.
+  sStat.elapsedPct = Math.round(e5 * 100); sStat.behindPts = Math.round((e5 - q5) * 100);
+  wStat.elapsedPct = Math.round(e7 * 100); wStat.behindPts = Math.round((e7 - w7) * 100);
   const status = {
     ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
     costUsd: Math.round(usd * 100) / 100, sessions: mine,
@@ -447,26 +450,19 @@ function main() {
   const row = (s) => padLine(blank(PAD) + s, cols); // one banded line, left-indented
   const fits = (s, add) => dispWidth(s) + dispWidth(add) <= W; // only append if the row can hold it
 
-  // a wall's row: label · meter · cushion/over pace (live, in thousands) · fresh badge
-  const meterContent = (label, u, e, tok, cap, uv, isSession, stat) => {
+  // a wall's row. SESSION (maximize): one pace number in POINTS — how far off even-burn you are
+  // (cap-independent = e−q, immune to any cap drift) — plus time left; the rate to fix it (need/min)
+  // rides the meta line next to 5m burn. WEEKLY (a ceiling, not a target): just used% + reset.
+  const meterContent = (label, u, e, uv, isSession, stat) => {
     let s = fg(DIM, label) + meter(u, e, mw, isSession ? 0 : 1, isSession);
-    if (tok != null && cap) {
-      const room = e * cap - tok; // + = below even-burn pace, − = above it
-      if (Math.abs(room) > 25000) {
-        if (isSession) {
-          // maximize: AHEAD of pace = good (using the window); BEHIND = under-using, the real risk.
-          const behind = room > 0;
-          const d = fg(DIM, "  ") + fg(behind ? AMBER : DIM, `${behind ? "−" : "+"}${tkf(room)} ${behind ? "behind" : "ahead"}`);
-          if (fits(s, d)) s += d;
-        } else {
-          // weekly: not trying to max it — under pace is a cushion, over it is the concern.
-          const good = room >= 0;
-          const d = fg(DIM, "  ") + fg(good ? DIM : zoneCol(u, e), `${good ? "+" : "−"}${tkf(room)} ${good ? "cushion" : "over"}`);
-          if (fits(s, d)) s += d;
-        }
+    if (isSession) {
+      const gap = Math.round((e - u) * 100); // + = behind even-burn (under-using), − = ahead of it
+      if (Math.abs(gap) >= 1) {
+        const behind = gap > 0;
+        const d = fg(DIM, "  ") + fg(behind ? AMBER : DIM, `${Math.abs(gap)}% ${behind ? "behind" : "ahead"}`);
+        if (fits(s, d)) s += d;
       }
-    } else if (uv) { const d = fg(DIM, "  ") + fg(zoneCol(u, e), uv); if (fits(s, d)) s += d; } // no window → raw %
-    // time left in the window (the session catch-up rate rides the meta line, next to 5m burn).
+    } else if (uv) { const d = fg(DIM, "  ") + fg(wcol, uv) + fg(DIM, " used"); if (fits(s, d)) s += d; }
     if (stat && stat.resetIn) { const d = fg(DIM, "  ") + fg(DIM, stat.resetIn + " left"); if (fits(s, d)) s += d; }
     if (isSession && freshReset) { const b = fg(DIM, "  ") + fg(BRAND, "↺ just reset"); if (fits(s, b)) s += b; }
     return s;
@@ -498,9 +494,9 @@ function main() {
     : metaRow;
 
   const out = [
-    row(meterContent("session  ", q5, e5, used5, cap5e, qv, true, sStat)),
+    row(meterContent("session  ", q5, e5, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("weekly   ", w7, e7, used7, cap7e, wv, false, wStat)),
+    row(meterContent("weekly   ", w7, e7, wv, false, wStat)),
     row(metaFull),
   ];
   process.stdout.write(out.join("\n") + "\n");
