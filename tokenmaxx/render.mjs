@@ -129,15 +129,14 @@ const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; //
 // so the cushion / overshoot is a band whose length you read at a glance. Your leading edge is
 // drawn to 1/8-cell precision so it still creeps as tokens change.
 // maximize=true (the session bar): the goal is to USE the whole window, so being ahead of even-burn
-// is good — all spent cells stay green (never the red "overshoot"), and the shortfall BELOW the pace
-// line paints amber (that's the budget you're on track to waste). maximize=false (weekly): the old
-// pace model — green up to pace, red past it, sage cushion below — since you're not trying to max it.
+// is good — all spent cells stay green (never the red "overshoot"). The below-pace band stays the
+// calm light-green cushion (the "behind" nudge lives in the text + meta line, not an alarm colour).
+// maximize=false (weekly): the old pace model — green up to pace, red past it, cushion below.
 function meter(u, e, w, seed = 0, maximize = false) {
   u = Math.max(0, Math.min(1, u)); e = Math.max(0, Math.min(1, e));
   const you = u * w, youN = Math.floor(you), part = you - youN; // your position
   const paceN = Math.min(w, Math.max(0, Math.round(e * w)));    // the pace line (cell boundary)
   const hot = zoneCol(u, e);
-  const SHORT = hsl(38, 0.30, 0.66); // maximize: dusty amber = the shortfall to even-burn (budget at risk of waste)
   const CUSH = hsl(150, 0.22, 0.62); // dusty-sage buffer: clearly lighter than the spent green so the
   // pace line (spent→cushion boundary) reads at a glance, but low saturation + mid lightness so it
   // doesn't glow or vibrate against the purple panel the way a bright mint did.
@@ -161,7 +160,7 @@ function meter(u, e, w, seed = 0, maximize = false) {
   const t01 = (((now / SWEEP_MS) + seed * 0.41) % 1 + 1) % 1;   // 0..1 phase, offset per bar
   const center = -HEAD + t01 * (span + 2 * HEAD);               // glides from before 0 to past the edge
   const glowAt = (c, i) => { const g = 0.85 * Math.max(0, 1 - Math.abs(i - center) / HEAD); return g > 0.001 ? mix(c, Math.min(0.85, g), TIP) : c; };
-  const below = maximize ? SHORT : CUSH;             // color of the band below the pace line
+  const below = CUSH;                                 // light-green cushion below the pace line (both bars)
   const spentC = (i) => maximize ? GREEN : (i < paceN ? GREEN : hot); // maximize: spent is always green
   let s = fg(START, "▐"); // start post (0)
   for (let i = 0; i < w; i++) {
@@ -346,11 +345,18 @@ function main() {
   const mine = localSessions();          // your concurrent sessions (local — mtimes only)
 
   const col = (v) => (v >= 0.9 ? RED : v >= 0.75 ? AMBER : GREEN);
-  // the % shown comes from the SAME source as the token gauge (burned/cap) when we have it,
-  // so the number and the gauge always agree and recover together; stdin % is the fallback
-  // (and stays the anchor / pace input under the hood).
-  const q5 = tok5 != null && cap5 ? tok5 / cap5 : quota;
-  const w7 = tok7 != null && cap7 ? tok7 / cap7 : week;
+  // GROUND TRUTH for how full each window is = the real wall % from stdin (what /usage shows). We
+  // used to prefer tok/cap5 (the bucket sum ÷ the brain's cap), but cap5 can drift — seen at 449M
+  // when the wall said 4% of a real ~124M cap, compressing usage 3.6× and inventing an "80M behind".
+  // So anchor the % to the wall, and derive the token cap LIVE from it (tok5 ÷ quota) so token counts
+  // self-correct. tok/cap5 (or the raw bucket sum) is the fallback only when stdin isn't present.
+  const q5 = haveQuota ? quota : (tok5 != null && cap5 ? tok5 / cap5 : 0);
+  const w7 = haveWeek ? week : (tok7 != null && cap7 ? tok7 / cap7 : 0);
+  // effective cap in tokens — live-anchored to the wall (quota above a 2% floor so tok÷quota isn't
+  // amplifying whole-percent quantization noise), else the brain's cap5. Only for behind/room/need.
+  const cap5e = haveQuota && quota > 0.02 && tok5 ? Math.round(tok5 / quota) : (cap5 || 0);
+  const cap7e = haveWeek && week > 0.02 && tok7 ? Math.round(tok7 / week) : (cap7 || 0);
+  const used5 = Math.round(q5 * cap5e), used7 = Math.round(w7 * cap7e);
   const qcol = col(q5), wcol = col(w7);
   // how far into each window you are (the pace line): elapsed = 1 - timeLeft/window.
   const nowS = Date.now() / 1000;
@@ -393,8 +399,8 @@ function main() {
     return { usedPct: Math.round(usedFrac * 1000) / 10, used, cap, headroom, resetAt: resetAt || 0,
              secLeft, minLeft: Math.round(minLeft), resetIn: resetIn(resetAt), needPerMin, pacePerMin };
   }
-  const sStat = windowStat(tok5, cap5, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
-  const wStat = windowStat(tok7, cap7, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
+  const sStat = windowStat(used5, cap5e, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
+  const wStat = windowStat(used7, cap7e, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
   const status = {
     ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
     costUsd: Math.round(usd * 100) / 100, sessions: mine,
@@ -492,9 +498,9 @@ function main() {
     : metaRow;
 
   const out = [
-    row(meterContent("session  ", q5, e5, tok5, cap5, qv, true, sStat)),
+    row(meterContent("session  ", q5, e5, used5, cap5e, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("weekly   ", w7, e7, tok7, cap7, wv, false, wStat)),
+    row(meterContent("weekly   ", w7, e7, used7, cap7e, wv, false, wStat)),
     row(metaFull),
   ];
   process.stdout.write(out.join("\n") + "\n");
