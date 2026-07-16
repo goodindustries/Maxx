@@ -3,11 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>maxx — never get blindsided by a rate limit</title>
-<meta name="description" content="A Claude Code status bar that shows your session and weekly token limits before you hit them. Zero egress — everything stays on your machine.">
-<meta property="og:title" content="maxx — the Claude Code fuel gauge">
-<meta property="og:description" content="See your rate limits before you hit them. One line to install. Nothing leaves your box.">
+<title>maxx — never run out of tokens again</title>
+<meta name="description" content="A Claude Code status bar that paces you to a sustainable token budget — so the 5-hour window doesn't drain your week and lock you out. Zero egress; everything stays on your machine.">
+<meta property="og:title" content="maxx — never run out of tokens again">
+<meta property="og:description" content="Claude's 5-hour window looks spendable, but maxing it drains your week. maxx paces you to what actually lasts. One line to install.">
 <meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:hsl(265 60% 96%);
@@ -25,6 +28,7 @@
     --radius:16px;
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --display:"Space Grotesk",var(--sans);
   }
   @media (prefers-color-scheme:dark){
     :root{
@@ -40,6 +44,10 @@
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  }
   body{
     margin:0;font-family:var(--sans);color:var(--ink);
     background:
@@ -64,7 +72,7 @@
   /* hero */
   header{text-align:center;padding:56px 0 20px}
   .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);margin-bottom:18px}
-  h1{font-size:clamp(34px,6vw,58px);line-height:1.05;margin:0 0 18px;letter-spacing:-.02em;font-weight:800}
+  h1{font-family:var(--display);font-size:clamp(34px,6vw,58px);line-height:1.04;margin:0 0 18px;letter-spacing:-.02em;font-weight:700}
   .sub{font-size:clamp(17px,2.4vw,21px);color:var(--dim);max-width:620px;margin:0 auto 30px}
 
   /* install */
@@ -92,7 +100,7 @@
 
   /* sections */
   section{padding:52px 0}
-  h2{font-size:clamp(24px,3.6vw,32px);margin:0 0 8px;letter-spacing:-.01em}
+  h2{font-family:var(--display);font-size:clamp(24px,3.6vw,32px);margin:0 0 8px;letter-spacing:-.015em;font-weight:600}
   .lead{color:var(--dim);font-size:17px;margin:0 0 30px;max-width:640px}
 
   .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
@@ -220,15 +228,15 @@
       <p>The session rail fills <b style="color:var(--green)">green from the left</b> when you're banking a cushion, <b style="color:var(--red)">red from the right</b> when you're over your sustainable pace. Longer red = deeper hole.</p>
     </div>
     <div class="card">
-      <h3><span>🔢</span> Numbers that roll</h3>
+      <h3>Numbers that roll</h3>
       <p>Every figure counts one digit at a time like an odometer — never a jarring jump — with a trailing <b>↑ / ↓ k/min</b> that tells you if you're catching up or falling behind right now.</p>
     </div>
     <div class="card">
-      <h3><span>⛽</span> Weekly fuel tank</h3>
+      <h3>Weekly fuel tank</h3>
       <p>A second rail for the seven-day wall, with an even-burn pace tick. Maxing your 5-hour cap every window drains the week early — maxx paces you so it lasts.</p>
     </div>
     <div class="card">
-      <h3><span>🔒</span> Nothing leaves your box</h3>
+      <h3>Nothing leaves your box</h3>
       <p>No analytics, no third party, no phone-home. All parsing of your Claude Code usage happens entirely on your own machine.</p>
     </div>
   </div>
@@ -366,6 +374,7 @@
       {g:0, r:.32,num:'1,240k over',  nc:'k-red',   rate:'−90k/min',  rc:'k-red', note:'Over your pace — borrowing from later windows. Ease off and it recovers.'},
       {g:0, r:.92,num:'4,980k over',  nc:'k-red',   rate:'−150k/min', rc:'k-red', note:'Near the wall — full red means a lockout is close. Stop, or switch to Sonnet.'},
     ];
+    const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
     let i=0;
     function apply(){
       const s=S[i];
@@ -378,7 +387,8 @@
       },260);
       i=(i+1)%S.length;
     }
-    apply(); setInterval(apply,2800);
+    // reduced-motion: show one representative (over) state, no cycling.
+    if(RM){ i=2; apply(); } else { apply(); setInterval(apply,2800); }
   })();
 
   // animate the situation cards — the name sits on top; when a card scrolls in, its bars fill and the
@@ -402,6 +412,14 @@
           if(p<1) requestAnimationFrame(tick);
         })(performance.now());
       });
+    }
+    // reduced-motion: paint every card at its final state once, no counting, no loop.
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches){
+      cards.forEach(function(card){
+        card.querySelectorAll('.fill').forEach(function(f){ f.style.transition='none'; f.style.width=f.dataset.w+'%'; });
+        card.querySelectorAll('.cnt').forEach(function(c){ c.textContent=(c.dataset.sign||'')+(+c.dataset.to).toLocaleString(); });
+      });
+      return;
     }
     const seen=new WeakSet();
     const io=new IntersectionObserver(function(es){
