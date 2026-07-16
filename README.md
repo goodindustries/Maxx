@@ -6,7 +6,11 @@
 
 maxx is the fuel gauge that keeps Claude Code users from getting blindsided. It shows the limits the agent actually reports, when they reset, how much local context you are carrying, and where your tokens went.
 
-maxx has an animated two-rail status line:
+maxx has an animated two-rail status line — signed standing (`+banked` / `−over`), gradient fills, live rolling numbers:
+
+![maxx statusline, both rails banking green](assets/maxx-banked.gif)
+
+*The older clips below show earlier iterations of the same rails:*
 
 ![maxx statusline, session in cushion](assets/maxx-live.gif)
 
