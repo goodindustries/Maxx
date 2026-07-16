@@ -111,9 +111,37 @@
   .b-red{background:var(--red)}
   .b-amber{background:var(--amber)}
   .k-red{color:var(--red)} .k-green{color:var(--green)} .k-dim{color:var(--dim)} .k-ink{color:var(--ink)}
+  .dtrack{position:relative;display:inline-block;width:min(56vw,360px);height:16px;background:var(--track);border-radius:4px;vertical-align:middle;overflow:hidden}
+  .dfill{position:absolute;top:0;bottom:0;width:0;transition:width .9s cubic-bezier(.4,0,.2,1)}
+  .dfill.green{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
+  .dfill.red{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
+  .demo-note{margin:4px 0 16px;font-size:14px;color:var(--dim);min-height:1.2em;transition:opacity .3s}
+  .situations{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:26px}
+  @media(max-width:680px){.situations{grid-template-columns:1fr}}
+  .sit{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .sit .r{font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:10px;margin:6px 0;white-space:nowrap;overflow:hidden}
+  .sit .r .lb{color:var(--dim);width:48px;flex:none}
+  .sit .track{position:relative;height:13px;background:var(--track);border-radius:3px;overflow:hidden;width:150px;flex:none}
+  .sit .fill{position:absolute;top:0;bottom:0}
+  .sit .fg{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
+  .sit .fr{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
+  .sit .fa{left:0;background:linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))}
+  .sit .fl{left:0;background:linear-gradient(90deg,hsl(354 58% 72%),hsl(354 55% 50%))}
+  .sit .num{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis}
+  .sit .cap{margin-top:12px;font-size:14px;color:var(--dim);line-height:1.45}
+  .sit .cap b{color:var(--ink)}
   .readlist{list-style:none;padding:0;margin:18px 0 0}
   .readlist li{padding:10px 0;border-top:1px solid var(--line);color:var(--dim);font-size:15px}
   .readlist li b{color:var(--ink)}
+  .hello{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:32px;text-align:center}
+  .hello form{display:grid;gap:12px;max-width:520px;margin:20px auto 0;text-align:left}
+  .hello .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:560px){.hello .row2{grid-template-columns:1fr}}
+  .hello input,.hello textarea{font-family:var(--sans);font-size:15px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);width:100%}
+  .hello textarea{min-height:104px;resize:vertical}
+  .hello button{justify-self:center;padding:12px 30px;border:0;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+  .hello button:hover{background:var(--brand-deep)}
+  .hidden{position:absolute;left:-9999px}
 
   /* privacy */
   .privacy{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:30px;text-align:center}
@@ -189,8 +217,9 @@
   <p class="lead">Two rails, always on.</p>
 
   <div class="rail">
-    <span class="lbl">session</span>&nbsp;&nbsp;▐<span class="bar b-track" style="width:40px"></span><span class="bar b-red" style="width:120px"></span>▌&nbsp;&nbsp;<span class="k-red">2,773k over</span> <span class="k-dim">·</span> <span class="k-green">↑ 80k/min</span>
+    <span class="lbl">session</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill green" id="df-green"></span><span class="dfill red" id="df-red"></span></span>&nbsp;&nbsp;<span id="df-num"></span> <span class="k-dim">·</span> <span id="df-rate"></span>
   </div>
+  <p class="demo-note" id="df-note">&nbsp;</p>
   <div class="rail">
     <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;▐<span class="bar b-amber" style="width:70px"></span><span class="bar b-track" style="width:90px"></span>▌&nbsp;&nbsp;<span class="k-ink">234,978k left</span> <span class="k-dim">·</span> <span class="k-red">−102,274k over</span> <span class="k-dim">·</span> 5d
   </div>
@@ -200,6 +229,50 @@
     <li><b>week</b> — your weekly reserve as a fuel tank: fill is budget remaining, the tick marks even-burn pace, then tokens left and days to reset.</li>
     <li><b>context</b> — a meta line shows how full the model context is (separate from the account limit), plus model, branch, spend and cache-hit rate.</li>
   </ul>
+</section>
+
+<section class="wrap" id="situations">
+  <h2>Every situation, at a glance</h2>
+  <p class="lead">What the two rails look like as your day unfolds.</p>
+  <div class="situations">
+
+    <div class="sit">
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:55%"></span></span><span class="num k-green">+591k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:62%"></span></span><span class="num">312M left</span></div>
+      <div class="cap"><b>Banking a cushion</b> — you went light, so there's headroom. Prime time for a big task.</div>
+    </div>
+
+    <div class="sit">
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:14%"></span></span><span class="num k-green">+96k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:48%"></span></span><span class="num">228M left</span></div>
+      <div class="cap"><b>On pace</b> — steady, right where you should be. Nothing to think about.</div>
+    </div>
+
+    <div class="sit">
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" style="width:30%"></span></span><span class="num k-red">−1,240k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:46%"></span></span><span class="num">210M left</span></div>
+      <div class="cap"><b>Borrowing from later</b> — over your 5h pace, but not dangerous. Ease off and it recovers as usage ages out.</div>
+    </div>
+
+    <div class="sit">
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" style="width:92%"></span></span><span class="num k-red">−4,980k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:38%"></span></span><span class="num">170M left</span></div>
+      <div class="cap"><b>Near the 5h wall</b> — full red means lockout is close. Stop, or drop to Sonnet to keep going.</div>
+    </div>
+
+    <div class="sit">
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:28%"></span></span><span class="num k-green">+220k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fl" style="width:28%"></span></span><span class="num k-red">148M left · 6d</span></div>
+      <div class="cap"><b>Half your week, gone on day one</b> — the weekly rail is draining fast. At this pace you lock out midweek — slow down.</div>
+    </div>
+
+    <div class="sit">
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:96%"></span></span><span class="num k-green">+7,900k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:58%"></span></span><span class="num">268M left</span></div>
+      <div class="cap"><b>Fresh 5-hour window</b> — full tank, week healthy. Burn freely.</div>
+    </div>
+
+  </div>
 </section>
 
 <section class="wrap" id="install">
@@ -220,10 +293,27 @@
   </div>
 </section>
 
+<section class="wrap" id="hello">
+  <div class="hello">
+    <h2>Say hello</h2>
+    <p class="lead" style="margin:6px auto 0">Questions, ideas, or just want to talk shop? Drop us a line.</p>
+    <form name="contact" method="POST" data-netlify="true" netlify-honeypot="bot-field" action="/?thanks=1">
+      <input type="hidden" name="form-name" value="contact">
+      <p class="hidden"><label>Leave this empty: <input name="bot-field"></label></p>
+      <div class="row2">
+        <input type="text" name="name" placeholder="Your name" required>
+        <input type="email" name="email" placeholder="you@email.com" required>
+      </div>
+      <textarea name="message" placeholder="Say hello…" required></textarea>
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</section>
+
 <footer>
   <div class="wrap">
-    <p><span class="logo" style="font-size:16px"><b>maxx</b></span> · a fuel gauge for Claude Code</p>
-    <p><a href="https://github.com/goodindustries/Maxx">GitHub</a> · <a href="https://github.com/goodindustries/Maxx/blob/main/LICENSE">MIT License</a></p>
+    <p>Made for you by the folks over at <a href="https://goodindustries.co"><b>Good Industries</b></a>.</p>
+    <p><span class="logo" style="font-size:16px"><b>maxx</b></span> · a fuel gauge for Claude Code · <a href="https://github.com/goodindustries/Maxx">GitHub</a> · <a href="https://github.com/goodindustries/Maxx/blob/main/LICENSE">MIT</a></p>
   </div>
 </footer>
 
@@ -236,6 +326,39 @@
       });
     });
   });
+
+  // animated "how to read" session rail — cycle through the states so people see what each looks like
+  (function(){
+    const g=document.getElementById('df-green'), r=document.getElementById('df-red'),
+          num=document.getElementById('df-num'), rate=document.getElementById('df-rate'), note=document.getElementById('df-note');
+    if(!g) return;
+    const S=[
+      {g:.58,r:0, num:'591k tokens',  nc:'k-green', rate:'+61k/min',  rc:'k-green', note:'Banking — you’ve got a cushion to spend this session.'},
+      {g:.14,r:0, num:'96k tokens',   nc:'k-green', rate:'+9k/min',   rc:'k-green', note:'On pace — steady, right where you should be.'},
+      {g:0, r:.32,num:'1,240k over',  nc:'k-red',   rate:'−90k/min',  rc:'k-red', note:'Over your pace — borrowing from later windows. Ease off and it recovers.'},
+      {g:0, r:.92,num:'4,980k over',  nc:'k-red',   rate:'−150k/min', rc:'k-red', note:'Near the wall — full red means a lockout is close. Stop, or switch to Sonnet.'},
+    ];
+    let i=0;
+    function apply(){
+      const s=S[i];
+      g.style.width=(s.g*100)+'%'; r.style.width=(s.r*100)+'%';
+      note.style.opacity=0;
+      setTimeout(function(){
+        num.textContent=s.num; num.className=s.nc;
+        rate.textContent=s.rate; rate.className=s.rc;
+        note.textContent=s.note; note.style.opacity=1;
+      },260);
+      i=(i+1)%S.length;
+    }
+    apply(); setInterval(apply,2800);
+  })();
+
+  // show a thank-you after the contact form posts (Netlify redirects to /?thanks=1)
+  if(/[?&]thanks=1/.test(location.search)){
+    var h=document.querySelector('.hello');
+    if(h){ h.innerHTML='<h2>Thanks — talk soon 👋</h2><p class="lead" style="margin:8px auto 0">We got your note and will get back to you.</p>';
+      document.getElementById('hello').scrollIntoView(); }
+  }
 </script>
 </body>
 </html>
