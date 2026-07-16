@@ -78,6 +78,8 @@ Two rails, always on. Both anchored to the exact `five_hour` / `seven_day` perce
 
 What the two rails look like as your day unfolds ([see them animated at meetmaxx.co](https://meetmaxx.co#situations)):
 
+![maxx situations — banking, on pace, over, near the wall, week draining, fresh window](assets/maxx-situations.gif)
+
 | Situation | `session` | `week` | What it means |
 |---|---|---|---|
 | **Banking a cushion** | `+591k` 🟢 | `312M left` | You went light — headroom to spend. Prime time for a big task. |
