@@ -122,7 +122,7 @@
   .sit .r{font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:10px;margin:6px 0;white-space:nowrap;overflow:hidden}
   .sit .r .lb{color:var(--dim);width:48px;flex:none}
   .sit .track{position:relative;height:13px;background:var(--track);border-radius:3px;overflow:hidden;width:150px;flex:none}
-  .sit .fill{position:absolute;top:0;bottom:0}
+  .sit .fill{position:absolute;top:0;bottom:0;width:0;transition:width 2.1s cubic-bezier(.33,.02,.22,1)}
   .sit .fg{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
   .sit .fr{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
   .sit .fa{left:0;background:linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))}
@@ -142,6 +142,13 @@
   .hello button{justify-self:center;padding:12px 30px;border:0;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
   .hello button:hover{background:var(--brand-deep)}
   .hidden{position:absolute;left:-9999px}
+  .lie{background:linear-gradient(135deg,hsl(266 45% 19%),hsl(268 52% 29%));color:hsl(265 60% 94%);border-radius:var(--radius);padding:42px 36px}
+  .lie h2{color:#fff;margin:0 0 18px}
+  .lie p{font-size:18px;line-height:1.5;margin:0 0 14px;color:hsl(265 38% 86%)}
+  .lie .big{font-size:clamp(22px,3vw,28px);font-weight:800;color:#fff;letter-spacing:-.01em}
+  .lie .fix{margin-top:22px;padding-top:20px;border-top:1px solid hsl(266 40% 50% / .35);font-size:17px}
+  .lie b{color:hsl(264 76% 84%)}
+  .sit .title{font-weight:700;color:var(--ink);font-size:15px;margin-bottom:10px}
 
   /* privacy */
   .privacy{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:30px;text-align:center}
@@ -165,19 +172,19 @@
 </nav>
 
 <header class="wrap">
-  <div class="eyebrow">Claude Code status bar</div>
-  <h1>Never get blindsided<br>by a rate limit again.</h1>
-  <p class="sub">You're deep in an agent session. Flowing. Building. Then&nbsp;— <em>bam</em> — “you've hit your limit.” Everything stops. <b>maxx</b> is the fuel gauge that shows the walls coming, so you can pace instead of crash.</p>
+  <div class="eyebrow">token<b style="color:var(--brand)">maxx</b> · Claude Code</div>
+  <h1>Never run out of<br>tokens again.</h1>
+  <p class="sub">Claude hands you a 5-hour window and lets you burn it flat out — then you're locked out for days. <b>maxx</b> paces you to what actually lasts.</p>
 
   <div class="install" id="install-top">
     <code><span class="p">$</span> curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash</code>
     <button data-copy="curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash">Copy</button>
   </div>
-  <div class="hint">One line. Installs the bar and the <code>/maxx</code> skill, backs up your settings. Needs Node + git.</div>
+  <div class="hint">One line. Bar + <code>/maxx</code> skill. Needs Node&nbsp;+&nbsp;git.</div>
 
   <div class="cta">
-    <a class="btn primary" href="#install">Install maxx</a>
-    <a class="btn ghost" href="https://github.com/goodindustries/Maxx">View source</a>
+    <a class="btn primary" href="#install">Install</a>
+    <a class="btn ghost" href="https://github.com/goodindustries/Maxx">GitHub</a>
   </div>
 </header>
 
@@ -186,17 +193,27 @@
     <div class="dots"><i></i><i></i><i></i></div>
     <img src="maxx-session-bar.gif" alt="maxx statusline: session over its pace, red rail" loading="lazy">
   </div>
-  <p class="caption">Over your pace — the session rail runs red, and the numbers roll live.</p>
+  <p class="caption">Over your pace → red.</p>
   <div class="term" style="margin-top:22px">
     <div class="dots"><i></i><i></i><i></i></div>
     <img src="maxx-banking.gif" alt="maxx statusline: banking a cushion, green rail" loading="lazy">
   </div>
-  <p class="caption">Banking a cushion — the rail fills green from the left, recovering as usage ages out.</p>
+  <p class="caption">Banking a cushion → green.</p>
 </div>
+
+<section class="wrap" id="lie">
+  <div class="lie">
+    <h2>Why Claude lies to you</h2>
+    <p>Claude shows you a <b>5-hour window</b> — and makes it look like all those tokens are yours to spend.</p>
+    <p class="big">They're not. Not if you want them to last.</p>
+    <p>Max that 5-hour wall every window and your <b>weekly</b> limit is gone in a couple days. Then you're locked out — mid-build, no warning.</p>
+    <p class="fix"><b>maxx</b> paces you to the real number: weekly tokens ÷ windows left. Spend to it and the week lasts. Go over and it turns red <em>before</em> the wall does.</p>
+  </div>
+</section>
 
 <section class="wrap" id="features">
   <h2>What it shows you</h2>
-  <p class="lead">Anchored to the exact <code>five_hour</code> / <code>seven_day</code> percentages Claude reports — the same numbers <code>/usage</code> shows.</p>
+  <p class="lead">Anchored to the real <code>five_hour</code> / <code>seven_day</code> numbers — the same ones <code>/usage</code> shows.</p>
   <div class="grid">
     <div class="card">
       <h3><span class="swatch b-green"></span><span class="swatch b-red"></span> Directional standing</h3>
@@ -241,40 +258,46 @@
   <p class="lead">What the two rails look like as your day unfolds.</p>
   <div class="situations">
 
-    <div class="sit">
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:55%"></span></span><span class="num k-green">+591k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:62%"></span></span><span class="num">312M left</span></div>
-      <div class="cap"><b>Banking a cushion</b> — you went light, so there's headroom. Prime time for a big task.</div>
+    <div class="sit" data-sit>
+      <div class="title">Banking a cushion</div>
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="55"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="591">+0</span>k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="62"></span></span><span class="num"><span class="cnt" data-to="312">0</span>M left</span></div>
+      <div class="cap">Went light — room to spend. Good window for a big task.</div>
     </div>
 
-    <div class="sit">
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:14%"></span></span><span class="num k-green">+96k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:48%"></span></span><span class="num">228M left</span></div>
-      <div class="cap"><b>On pace</b> — steady, right where you should be. Nothing to think about.</div>
+    <div class="sit" data-sit>
+      <div class="title">On pace</div>
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="14"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="96">+0</span>k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="48"></span></span><span class="num"><span class="cnt" data-to="228">0</span>M left</span></div>
+      <div class="cap">Steady. Nothing to think about.</div>
     </div>
 
-    <div class="sit">
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" style="width:30%"></span></span><span class="num k-red">−1,240k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:46%"></span></span><span class="num">210M left</span></div>
-      <div class="cap"><b>Borrowing from later</b> — over your 5h pace, but not dangerous. Ease off and it recovers as usage ages out.</div>
+    <div class="sit" data-sit>
+      <div class="title">Borrowing from later</div>
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" data-w="30"></span></span><span class="num k-red"><span class="cnt" data-sign="−" data-to="1240">−0</span>k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="46"></span></span><span class="num"><span class="cnt" data-to="210">0</span>M left</span></div>
+      <div class="cap">Over your 5h pace, not dangerous. Ease off, it recovers.</div>
     </div>
 
-    <div class="sit">
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" style="width:92%"></span></span><span class="num k-red">−4,980k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:38%"></span></span><span class="num">170M left</span></div>
-      <div class="cap"><b>Near the 5h wall</b> — full red means lockout is close. Stop, or drop to Sonnet to keep going.</div>
+    <div class="sit" data-sit>
+      <div class="title">Near the 5h wall</div>
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" data-w="92"></span></span><span class="num k-red"><span class="cnt" data-sign="−" data-to="4980">−0</span>k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="38"></span></span><span class="num"><span class="cnt" data-to="170">0</span>M left</span></div>
+      <div class="cap">Full red = lockout close. Stop, or drop to Sonnet.</div>
     </div>
 
-    <div class="sit">
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:28%"></span></span><span class="num k-green">+220k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fl" style="width:28%"></span></span><span class="num k-red">148M left · 6d</span></div>
-      <div class="cap"><b>Half your week, gone on day one</b> — the weekly rail is draining fast. At this pace you lock out midweek — slow down.</div>
+    <div class="sit" data-sit>
+      <div class="title">Half your week, day one</div>
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="28"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="220">+0</span>k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fl" data-w="28"></span></span><span class="num k-red"><span class="cnt" data-to="148">0</span>M left · 6d</span></div>
+      <div class="cap">Week draining fast — you'll lock out midweek. Slow down.</div>
     </div>
 
-    <div class="sit">
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" style="width:96%"></span></span><span class="num k-green">+7,900k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" style="width:58%"></span></span><span class="num">268M left</span></div>
-      <div class="cap"><b>Fresh 5-hour window</b> — full tank, week healthy. Burn freely.</div>
+    <div class="sit" data-sit>
+      <div class="title">Fresh 5-hour window</div>
+      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="96"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="7900">+0</span>k</span></div>
+      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="58"></span></span><span class="num"><span class="cnt" data-to="268">0</span>M left</span></div>
+      <div class="cap">Full tank, week healthy. Burn freely.</div>
     </div>
 
   </div>
@@ -356,6 +379,41 @@
       i=(i+1)%S.length;
     }
     apply(); setInterval(apply,2800);
+  })();
+
+  // animate the situation cards — the name sits on top; when a card scrolls in, its bars fill and the
+  // numbers count up (slow, small steps, so you can watch it move), then it loops.
+  (function(){
+    const cards=document.querySelectorAll('[data-sit]');
+    if(!cards.length) return;
+    function play(card){
+      const fills=card.querySelectorAll('.fill'), cnts=card.querySelectorAll('.cnt');
+      // instant reset
+      fills.forEach(function(f){ f.style.transition='none'; f.style.width='0%'; });
+      cnts.forEach(function(c){ c.textContent=(c.dataset.sign||'')+'0'; });
+      void card.offsetWidth; // force a reflow so 0% commits before we animate up
+      // animate up
+      fills.forEach(function(f){ f.style.transition='width 2s cubic-bezier(.33,.02,.22,1)'; f.style.width=f.dataset.w+'%'; });
+      cnts.forEach(function(c){
+        const to=+c.dataset.to, sign=c.dataset.sign||'', dur=2000, t0=performance.now();
+        (function tick(now){
+          const p=Math.min(1,(now-t0)/dur), v=Math.round(to*p);
+          c.textContent=sign+v.toLocaleString();
+          if(p<1) requestAnimationFrame(tick);
+        })(performance.now());
+      });
+    }
+    const seen=new WeakSet();
+    const io=new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(e.isIntersecting && !seen.has(e.target)){
+          seen.add(e.target);
+          const idx=[].indexOf.call(cards,e.target);
+          setTimeout(function(){ play(e.target); setInterval(function(){ play(e.target); },5000); },(idx%2)*320);
+        }
+      });
+    },{threshold:.4});
+    cards.forEach(function(c){ io.observe(c); });
   })();
 
   // show a thank-you after the contact form posts (Netlify redirects to /?thanks=1)
