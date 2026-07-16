@@ -103,11 +103,12 @@
   h2{font-family:var(--display);font-size:clamp(24px,3.6vw,32px);margin:0 0 8px;letter-spacing:-.015em;font-weight:600}
   .lead{color:var(--dim);font-size:17px;margin:0 0 30px;max-width:640px}
 
-  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-  @media(max-width:640px){.grid{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
-  .card h3{margin:0 0 6px;font-size:17px;display:flex;align-items:center;gap:9px}
-  .card p{margin:0;color:var(--dim);font-size:15px}
+  .feats{margin-top:28px;border-top:1px solid var(--line)}
+  .feat{display:grid;grid-template-columns:auto 1fr;gap:24px;padding:24px 2px;border-bottom:1px solid var(--line);align-items:baseline}
+  @media(max-width:560px){.feat{grid-template-columns:1fr;gap:6px}}
+  .feat-n{font-family:var(--mono);font-size:14px;color:var(--brand);font-weight:600;letter-spacing:.06em}
+  .feat h3{font-family:var(--display);font-size:20px;font-weight:600;margin:0 0 7px;color:var(--ink);letter-spacing:-.01em}
+  .feat p{margin:0;color:var(--dim);font-size:15.5px;line-height:1.55;max-width:660px}
   .swatch{width:14px;height:14px;border-radius:4px;flex:none}
 
   /* reading the bar */
@@ -222,22 +223,34 @@
 <section class="wrap" id="features">
   <h2>What it shows you</h2>
   <p class="lead">Anchored to the real <code>five_hour</code> / <code>seven_day</code> numbers — the same ones <code>/usage</code> shows.</p>
-  <div class="grid">
-    <div class="card">
-      <h3><span class="swatch b-green"></span><span class="swatch b-red"></span> Directional standing</h3>
-      <p>The session rail fills <b style="color:var(--green)">green from the left</b> when you're banking a cushion, <b style="color:var(--red)">red from the right</b> when you're over your sustainable pace. Longer red = deeper hole.</p>
+  <div class="feats">
+    <div class="feat">
+      <div class="feat-n">01</div>
+      <div>
+        <h3>Directional standing</h3>
+        <p>The session rail fills <b style="color:var(--green)">green from the left</b> when you're banking a cushion, <b style="color:var(--red)">red from the right</b> when you're over. Longer red = deeper hole.</p>
+      </div>
     </div>
-    <div class="card">
-      <h3>Numbers that roll</h3>
-      <p>Every figure counts one digit at a time like an odometer — never a jarring jump — with a trailing <b>↑ / ↓ k/min</b> that tells you if you're catching up or falling behind right now.</p>
+    <div class="feat">
+      <div class="feat-n">02</div>
+      <div>
+        <h3>Numbers that roll</h3>
+        <p>Every figure counts one digit at a time — never a jarring jump — with a trailing signed rate that tells you if you're catching up or falling behind right now.</p>
+      </div>
     </div>
-    <div class="card">
-      <h3>Weekly fuel tank</h3>
-      <p>A second rail for the seven-day wall, with an even-burn pace tick. Maxing your 5-hour cap every window drains the week early — maxx paces you so it lasts.</p>
+    <div class="feat">
+      <div class="feat-n">03</div>
+      <div>
+        <h3>Weekly fuel tank</h3>
+        <p>A second rail for the seven-day wall, with an even-burn pace tick. Maxing your 5-hour cap every window drains the week early — maxx paces you so it lasts.</p>
+      </div>
     </div>
-    <div class="card">
-      <h3>Nothing leaves your box</h3>
-      <p>No analytics, no third party, no phone-home. All parsing of your Claude Code usage happens entirely on your own machine.</p>
+    <div class="feat">
+      <div class="feat-n">04</div>
+      <div>
+        <h3>Nothing leaves your box</h3>
+        <p>No analytics, no third party, no phone-home. Parsing of your Claude Code usage happens entirely on your machine.</p>
+      </div>
     </div>
   </div>
 </section>
