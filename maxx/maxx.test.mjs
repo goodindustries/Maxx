@@ -44,7 +44,7 @@ test("rollSession: no weekly data → falls back to the raw 5h cap", () => {
 
 test("render --status pins usedPct to Anthropic's real % (the 2× bug fix)", () => {
   const home = mkdtempSync(path.join(tmpdir(), "maxx-test-"));
-  mkdirSync(path.join(home, ".tokenmaxx"), { recursive: true });
+  mkdirSync(path.join(home, ".maxx"), { recursive: true });
   const stdin = JSON.stringify({
     rate_limits: {
       five_hour: { used_percentage: 6, resets_at: in6d },

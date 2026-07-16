@@ -7,7 +7,7 @@
  * from YOUR OWN history (the biggest 5h window you've ever sustained ≈ your real
  * ceiling — where you got throttled). No opaque published number, no guess.
  *
- *   node limit.mjs            # write ~/.tokenmaxx/window.json (the cache the bar reads)
+ *   node limit.mjs            # write ~/.maxx/window.json (the cache the bar reads)
  *   node limit.mjs --json     # print the report
  *
  * Usage/timing metadata only.
@@ -20,10 +20,10 @@ import path from "node:path";
 
 const HOME = homedir();
 const PROJECTS = path.join(HOME, ".claude", "projects");
-const OUT = path.join(HOME, ".tokenmaxx", "window.json");
-const CONFIG = path.join(HOME, ".tokenmaxx", "config.json");
-const RL = path.join(HOME, ".tokenmaxx", "rl.json");   // render drops the live %s here to anchor caps
-const CURSOR = path.join(HOME, ".tokenmaxx", "scan.json"); // per-file byte offsets for the incremental tail
+const OUT = path.join(HOME, ".maxx", "window.json");
+const CONFIG = path.join(HOME, ".maxx", "config.json");
+const RL = path.join(HOME, ".maxx", "rl.json");   // render drops the live %s here to anchor caps
+const CURSOR = path.join(HOME, ".maxx", "scan.json"); // per-file byte offsets for the incremental tail
 const WINDOW_MS = 5 * 60 * 60 * 1000;     // Claude's ~5-hour limit window
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;  // the 7-day wall
 const BUCKET_MS = 30 * 1000;              // 30-sec buckets: fine enough that the momentum + recovery step every ~30s, still cheap to re-sum every render tick
@@ -197,9 +197,9 @@ function fileTok(p) { try { return Math.round(readFileSync(p, "utf8").length / 4
 function nazi(wantJSON) {
   const num = (x) => Math.round(x || 0).toLocaleString("en-US");
   const tk = (x) => Math.round(Math.abs(x || 0) / 1000).toLocaleString("en-US") + "k";
-  const st = readJSON(path.join(HOME, ".tokenmaxx", "status.json"), null);
+  const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
   if (!st) {
-    const msg = "token nazi — no status yet. Open Claude Code so the statusline writes ~/.tokenmaxx/status.json, then retry.";
+    const msg = "token nazi — no status yet. Open Claude Code so the statusline writes ~/.maxx/status.json, then retry.";
     process.stdout.write((wantJSON ? JSON.stringify({ error: "no-status" }) : msg) + "\n"); return;
   }
   const S = st.session || {}, W = st.weekly || {};

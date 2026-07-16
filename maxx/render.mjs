@@ -3,7 +3,7 @@
  * maxx statusline renderer — the LOOK, in Node (no binary, no build step).
  *
  * Reads Claude Code's stdin JSON (rate_limits.five_hour/seven_day = the real
- * session/weekly walls, same numbers as /usage) + ~/.tokenmaxx/state.json the brain
+ * session/weekly walls, same numbers as /usage) + ~/.maxx/state.json the brain
  * writes (advice / intent / presence), then paints a clean two-pane cockpit:
  * quota + model on the left, a coach thought on the right, presence at the edges.
  *
@@ -129,7 +129,7 @@ function tkfull(n) {
 // `/maxx session` brief — reads the snapshot the statusline writes and answers the one question:
 // how much can I spend this session? First line is machine-ingestible (KEY=value); the rest is human.
 function sessionBrief(st) {
-  if (!st || !st.session) return "maxx — no usage data yet. Open Claude Code so the statusline can write ~/.tokenmaxx/status.json, then retry.";
+  if (!st || !st.session) return "maxx — no usage data yet. Open Claude Code so the statusline can write ~/.maxx/status.json, then retry.";
   const s = st.session, w = st.weekly || {};
   const toSpend = s.toSpend != null ? s.toSpend : Math.max(0, (s.cap || 0) - (s.used || 0));
   const over = s.over != null ? s.over : Math.max(0, (s.used || 0) - (s.cap || 0));
@@ -218,9 +218,9 @@ function netBar(standing, greenScale, redScale, w) {
 // ─── sidecar state ─────────────────────────────────────────────────────────────
 const HOME = homedir();
 const readJSON = (p, d = {}) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
-const statePath = path.join(HOME, ".tokenmaxx", "state.json");
-const sprintPath = path.join(HOME, ".tokenmaxx", "sprint.json");
-const sessionsCache = path.join(HOME, ".tokenmaxx", ".sessions");
+const statePath = path.join(HOME, ".maxx", "state.json");
+const sprintPath = path.join(HOME, ".maxx", "sprint.json");
+const sessionsCache = path.join(HOME, ".maxx", ".sessions");
 
 // sprint timing lives in its OWN file so this 1s renderer and the per-turn brain
 // never write the same JSON (state.json is brain-owned; we only read it).
@@ -315,7 +315,7 @@ function main() {
   // `--status`/`--session` with no stdin (a user or agent calling us directly) → read the last
   // snapshot the live statusline wrote. Nothing fresh to compute without Claude Code's JSON.
   if ((wantStatus || wantSession) && !rawIn.trim()) {
-    const st = readJSON(path.join(HOME, ".tokenmaxx", "status.json"), null);
+    const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
     if (wantSession) { process.stdout.write(sessionBrief(st) + "\n"); return; }
     process.stdout.write((st ? JSON.stringify(st, null, 2) : "{}") + "\n");
     return;
@@ -341,10 +341,10 @@ function main() {
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
   // sum at the real window start instead of a blind rolling 7d — see weekLo below.
-  try { if (haveQuota) writeFileSync(path.join(HOME, ".tokenmaxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
+  try { if (haveQuota) writeFileSync(path.join(HOME, ".maxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
-  const marksPath = path.join(HOME, ".tokenmaxx", "marks.json");
+  const marksPath = path.join(HOME, ".maxx", "marks.json");
   const marks = readJSON(marksPath, {});
   let freshReset = false;
   if (haveQuota) {
@@ -356,7 +356,7 @@ function main() {
   }
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
-  const win = readJSON(path.join(HOME, ".tokenmaxx", "window.json"), null);
+  const win = readJSON(path.join(HOME, ".maxx", "window.json"), null);
   let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null, burn60 = 0, refuelPerMin = 0;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
@@ -412,7 +412,7 @@ function main() {
   // If we recomputed tok÷quota every render, a flat quota with rising tok would inflate the cap as
   // you burn, so "tokens left" would go UP while spending — backwards. Cached in caps.json so the
   // held value survives across renders (and across a reset, since the cap itself doesn't change).
-  const capsPath = path.join(HOME, ".tokenmaxx", "caps.json");
+  const capsPath = path.join(HOME, ".maxx", "caps.json");
   const caps = readJSON(capsPath, {});
   const anchorCap = (have, pct, tok, prevPct, prevCap, brainCap) => {
     if (have && pct > 0.02 && tok != null) {
@@ -494,7 +494,7 @@ function main() {
   const p7 = haveWeek ? paceOf(rl.seven_day, 7 * 24 * 3600, week) : { ok: false, hot: false };
 
   // ── derived, machine-readable: every number the bars compute — time left, tokens burned, and
-  //    needPerMin — as plain fields, so an agent can read ~/.tokenmaxx/status.json (or
+  //    needPerMin — as plain fields, so an agent can read ~/.maxx/status.json (or
   //    `node render.mjs --status`) instead of scraping ANSI.
   //    needPerMin = the rate that MAXIMIZES throughput: burn all the way to the session cap right as
   //    it resets, since unused session budget just evaporates (the week is maximized by never
@@ -546,7 +546,7 @@ function main() {
     sessionsLeftInWeek: Math.round(sessionsLeft * 10) / 10, // 5h windows remaining until the weekly resets
     burn5m: burn5 != null ? Math.round(burn5) : null,       // gross tokens spent in the last 5 min (≥ 0)
   };
-  try { writeFileSync(path.join(HOME, ".tokenmaxx", "status.json"), JSON.stringify(status)); } catch {}
+  try { writeFileSync(path.join(HOME, ".maxx", "status.json"), JSON.stringify(status)); } catch {}
   if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
 
   // refresh window.json (the rolling-token cache limit.mjs owns; the bar + the governor read it). The
@@ -556,7 +556,7 @@ function main() {
   // WHILE the agent works, not only at turn end — which is what an unattended overnight governor needs.
   const dueFor = (mark, ms) => { try { return Date.now() - Number(readFileSync(mark, "utf8")) > ms; } catch { return true; } };
   const markNow = (mark) => { try { writeFileSync(mark, String(Date.now())); } catch {} };
-  const scanMark = path.join(HOME, ".tokenmaxx", ".limit-scan"), fullMark = path.join(HOME, ".tokenmaxx", ".limit-full");
+  const scanMark = path.join(HOME, ".maxx", ".limit-scan"), fullMark = path.join(HOME, ".maxx", ".limit-full");
   if (dueFor(scanMark, 5000)) {
     markNow(scanMark);
     const full = dueFor(fullMark, 5 * 60 * 1000); if (full) markNow(fullMark);
@@ -606,7 +606,7 @@ function main() {
   // ODOMETER — every shown number counts toward its target by AT MOST ±1 (in display units, k) per
   // render: the ones digit rolls before the tens, values NEVER jump. Slow to calibrate after a big move,
   // by design. First sight snaps (no count-up from 0). State persists per-key in odo.json across renders.
-  const odoPath = path.join(HOME, ".tokenmaxx", "odo.json");
+  const odoPath = path.join(HOME, ".maxx", "odo.json");
   const odo = readJSON(odoPath, {});
   const step1 = (key, targetK) => {
     const k = (sid || "s") + ":" + key; // per-session → concurrent panes each step on their OWN repaints

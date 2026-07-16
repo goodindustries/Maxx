@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "maxx",
-      "source": "./tokenmaxx",
+      "source": "./maxx",
       "description": "A build-companion statusline + token stats for Claude Code."
     }
   ]

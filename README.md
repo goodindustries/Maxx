@@ -40,7 +40,7 @@ Restart Claude Code — done. (Needs Node and git on your `PATH`.)
 <summary>Rather clone than pipe curl into bash?</summary>
 
 ```bash
-git clone https://github.com/goodindustries/Maxx.git && Maxx/tokenmaxx/install.sh
+git clone https://github.com/goodindustries/Maxx.git && Maxx/maxx/install.sh
 ```
 </details>
 
@@ -108,8 +108,8 @@ node ~/.claude/skills/maxx/render.mjs --status    # machine-readable status.json
 
 Data flow:
 
-- `render.mjs` receives live rate-limit percentages and reset times, writes `~/.tokenmaxx/rl.json` + `~/.tokenmaxx/status.json`, and draws the bar.
-- `limit.mjs` maintains rolling token buckets in `~/.tokenmaxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent can burn only its sustainable per-window share.
+- `render.mjs` receives live rate-limit percentages and reset times, writes `~/.maxx/rl.json` + `~/.maxx/status.json`, and draws the bar.
+- `limit.mjs` maintains rolling token buckets in `~/.maxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent can burn only its sustainable per-window share.
 - `nazi.mjs` is an hourly posture check an agent runs on itself — usage history, context/cache, CLAUDE.md tax → ranked token drains + one lever.
 
 ## Development

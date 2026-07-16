@@ -7,6 +7,6 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test tokenmaxx/*.test.mjs"
+    "test": "node --test maxx/*.test.mjs"
   }
 }

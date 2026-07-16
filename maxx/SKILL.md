@@ -56,7 +56,7 @@ parse. If the script errors, report the error; don't guess the numbers.
 ## Live status (agent-readable)
 
 The statusline renderer writes a machine-readable snapshot every render tick to
-`~/.tokenmaxx/status.json`. Read that file (or `render.mjs --status`, no stdin
+`~/.maxx/status.json`. Read that file (or `render.mjs --status`, no stdin
 needed) to check pace mid-task.
 
 **`session.cap` is the session token budget (weekly-paced), NOT the raw 5h wall.** Pace

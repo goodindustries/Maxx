@@ -21,7 +21,7 @@ import path from "node:path";
 
 const HOME = homedir();
 const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
-const CONFIG_DIR = path.join(HOME, ".tokenmaxx"); // local state dir (window.json / rl.json) — read-only here
+const CONFIG_DIR = path.join(HOME, ".maxx"); // local state dir (window.json / rl.json) — read-only here
 
 // ─── args ───────────────────────────────────────────────────────────────────
 // forms:
@@ -349,7 +349,7 @@ if (isMainModule()) {
           { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
         w(outStr.replace(/\n+$/, ""));
       } catch {
-        w(a.raw ? "{}" : "  session: no pacing data yet — open Claude Code so the statusline seeds ~/.tokenmaxx/status.json.");
+        w(a.raw ? "{}" : "  session: no pacing data yet — open Claude Code so the statusline seeds ~/.maxx/status.json.");
       }
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));
