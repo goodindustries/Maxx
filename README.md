@@ -1,5 +1,7 @@
 # maxx
 
+### 🌐 [meetmaxx.co](https://meetmaxx.co) — see it in action · [Install](#setup) · [How to read it](#how-to-read-it)
+
 **You're deep in an agent session. Flowing. Building. Then — *bam* — "you've hit your limit." Everything stops. You never saw it coming.**
 
 maxx is the fuel gauge that keeps Claude Code users from getting blindsided. It shows the limits the agent actually reports, when they reset, how much local context you are carrying, and where your tokens went.
@@ -12,9 +14,13 @@ maxx has an animated two-rail status line:
 
 ![maxx statusline, both tracks over](assets/maxx-demo.gif)
 
-*The session rail shows your live standing — red grows in from the right when you're over your sustainable pace, green from the left when you're banking — the numbers roll one digit at a time, and a trailing ↑/↓ rate tells you if you're catching up or falling behind:*
+*Over your pace — the session rail runs red from the right, the numbers roll one digit at a time, and a trailing signed rate tells you if you're catching up or falling behind:*
 
-![maxx session and week rails, live](assets/maxx-session-bar.gif)
+![maxx session and week rails, over](assets/maxx-session-bar.gif)
+
+*…and banking a cushion — green grows from the left as usage ages out and the tank refills:*
+
+![maxx session rail, banking](assets/maxx-banking.gif)
 
 ## Setup
 
@@ -58,11 +64,24 @@ Two rails, always on. Both anchored to the exact `five_hour` / `seven_day` perce
 
 - **green from the left** — banked: under your sustainable pace, building a cushion.
 - **red from the right** — over: burning faster than sustainable; longer red = deeper hole.
-- The number beside it (`Xk over` / `Xk tokens`) rolls one digit at a time, and a trailing **↑ / ↓ k/min** tells you whether you're recovering or falling behind *right now*.
+- The signed number beside it (`+Xk` banked / `−Xk` over) rolls one digit at a time, and a trailing signed **±k/min** tells you whether you're recovering or falling behind *right now*. Red only fills toward the **hard 5h wall** — a light sliver means "borrowing from later", full red means lockout is close.
 
 **`week` — your weekly reserve.** A fuel tank: the fill is budget **remaining**, draining as you spend (green → amber → red as it runs low). The `┊` tick marks even-burn pace — past it you're ahead, short of it you're hot. Then `Xk left`, your pace standing (`banked` / `over`), and days to reset.
 
 **Context** — the meta line shows how full the model context is (separate from the account rate limit), plus model, branch, spend, and cache-hit rate.
+
+## Every situation, at a glance
+
+What the two rails look like as your day unfolds ([see them animated at meetmaxx.co](https://meetmaxx.co#situations)):
+
+| Situation | `session` | `week` | What it means |
+|---|---|---|---|
+| **Banking a cushion** | `+591k` 🟢 | `312M left` | You went light — headroom to spend. Prime time for a big task. |
+| **On pace** | `+96k` 🟢 | `228M left` | Steady, right where you should be. Nothing to think about. |
+| **Borrowing from later** | `−1,240k` 🔴 | `210M left` | Over your 5h pace, not dangerous. Ease off and it recovers as usage ages out. |
+| **Near the 5h wall** | `−4,980k` 🔴 | `170M left` | Full red = lockout is close. Stop, or drop to Sonnet to keep going. |
+| **Half your week, day one** | `+220k` 🟢 | `148M left · 6d` 🔴 | Weekly rail draining fast — at this pace you lock out midweek. Slow down. |
+| **Fresh 5-hour window** | `+7,900k` 🟢 | `268M left` | Full tank, week healthy. Burn freely. |
 
 ## Your stuff stays yours
 
