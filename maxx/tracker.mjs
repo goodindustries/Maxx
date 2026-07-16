@@ -3,10 +3,10 @@
  * maxx tracker — parse ~/.claude/projects/*.jsonl into a local stats card.
  *
  * Usage:
- *   node tokenmaxx/tracker.mjs            — pretty summary
- *   node tokenmaxx/tracker.mjs session    — delegate to render.mjs (how much to spend)
- *   node tokenmaxx/tracker.mjs --json     — machine-readable stats payload
- *   node tokenmaxx/tracker.mjs --dir PATH — override projects dir
+ *   node maxx/tracker.mjs            — pretty summary
+ *   node maxx/tracker.mjs session    — delegate to render.mjs (how much to spend)
+ *   node maxx/tracker.mjs --json     — machine-readable stats payload
+ *   node maxx/tracker.mjs --dir PATH — override projects dir
  *
  * Fully on-box: reads only usage/token metadata, sends nothing anywhere, never
  * emits prompt or message content.
