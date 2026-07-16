@@ -56,6 +56,12 @@ function mix(hex, t, target = "#ffffff") {
   const a = rgb(hex), b = rgb(target);
   return "#" + [0, 1, 2].map((i) => Math.round(a[i] + (b[i] - a[i]) * t).toString(16).padStart(2, "0")).join("");
 }
+// intensity shade along a fill: frac 0 = lightest (near white), 0.5 = the base color, 1 = darkest (near
+// black). Lets a bar deepen from its base toward its leading edge, so more fill reads as more intense.
+function shade(hex, frac) {
+  frac = Math.max(0, Math.min(1, frac));
+  return frac < 0.5 ? mix(hex, (0.5 - frac) * 0.7, "#ffffff") : mix(hex, (frac - 0.5) * 0.7, "#000000");
+}
 function esc(fgHex, bgHex, s) {
   const [fr, fgg, fb] = rgb(fgHex), [br, bgg, bb] = rgb(bgHex);
   return `\x1b[38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
@@ -169,10 +175,9 @@ function fuelMeter(fuelFrac, e, w) {
   const paceN = Math.min(w, Math.round(paceFuel * w));
   const ratio = paceFuel > 0.02 ? fuelFrac / paceFuel : 1;    // >1 = more fuel than pace (banked)
   const col = (fuelFrac < 0.1 || ratio < 0.5) ? RED : ratio < 0.85 ? AMBER : GREEN;
-  const tubeAt = (i) => 0.10 * Math.max(0, 1 - Math.abs((fuelN > 1 ? i / (fuelN - 1) : 0) - 0.45) * 2);
   let s = fg(START, "▐"); // full-tank end
   for (let i = 0; i < w; i++) {
-    if (i < fuelN) s += fg(mix(col, tubeAt(i)), "█");          // fuel in the tank
+    if (i < fuelN) s += fg(shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5), "█"); // fuel, deepening toward the level edge
     else if (i === paceN && paceN >= fuelN) s += fg(BORDER, "╎"); // even-burn marker, sitting in the drained zone
     else s += fg(TRACK, "█");                                  // drained
   }
@@ -184,14 +189,24 @@ function fuelMeter(fuelFrac, e, w) {
 // rolling window ages out (or you ease off) the deficit shrinks and the red RECEDES — live, per second.
 // Cross into POSITIVE (banked fuel) and GREEN grows from the LEFT, left→right. Scale = realMax (the
 // session budget), so a full tank's worth of over/under = a full bar; smaller = a proportional sliver.
-function netBar(standing, scale, w) {
-  const f = Math.max(-1, Math.min(1, standing / Math.max(scale, 1)));
-  const n = Math.round(Math.abs(f) * w);
+function netBar(standing, greenScale, redScale, w) {
+  // green (banking) scales to your PACED share; red (over) scales to the HARD 5h wall — so full red means
+  // lockout is imminent, not merely "past your soft pace". Just over pace → a light-red sliver creeping in.
+  const frac = standing >= 0
+    ? Math.min(1, standing / Math.max(greenScale, 1))
+    : Math.min(1, -standing / Math.max(redScale, 1));
+  const n = Math.round(frac * w);
   let out = fg(START, "▐"); // same framing as the week fuel tank
+  // gradient gauged to the FULL width (not the fill length), so the light→dark spread runs across the
+  // whole span: a short fill stays light, only a fill reaching the far edge hits full dark. Both fills
+  // are lightest at their anchor edge and deepen toward the leading edge (green→right, red→left/wall).
+  const W1 = Math.max(1, w - 1);
   for (let i = 0; i < w; i++) {
     const red = standing < 0 && i >= w - n;  // red deficit anchored at the RIGHT
     const green = standing > 0 && i < n;      // green banked fuel anchored at the LEFT
-    out += red ? fg(RED, "█") : green ? fg(GREEN, "█") : fg(TRACK, "█"); // solid track = same weight as the week tank
+    out += red ? fg(shade(RED, (w - 1 - i) / W1), "█")
+      : green ? fg(shade(GREEN, i / W1), "█")
+      : fg(TRACK, "█"); // solid track = same weight as the week tank
   }
   return out + fg(WALL, "▌");
 }
@@ -590,10 +605,14 @@ function main() {
   const odoPath = path.join(HOME, ".tokenmaxx", "odo.json");
   const odo = readJSON(odoPath, {});
   const step1 = (key, targetK) => {
-    const k = (sid || "s") + ":" + key; // per-session → concurrent panes each step ±1 on their OWN repaints
+    const k = (sid || "s") + ":" + key; // per-session → concurrent panes each step on their OWN repaints
     const t = Math.round(targetK);
     const p = Number.isFinite(odo[k]) ? odo[k] : t;
-    const nxt = p + Math.max(-1, Math.min(1, t - p));
+    const gap = t - p;
+    // ±1 per frame for the odometer roll on normal moves; FAST catch-up on a big swing so a huge jump
+    // doesn't take minutes (which made the number lie vs the instant bar). >40k gap → close ~1/3 per frame.
+    const d = Math.abs(gap) <= 1 ? gap : Math.abs(gap) > 40 ? Math.round(gap * 0.34) : Math.sign(gap);
+    const nxt = p + d;
     odo[k] = nxt;
     return nxt;
   };
@@ -606,26 +625,27 @@ function main() {
     // SESSION bar IS the directional standing fill (one bar: green-from-left when banked, red-from-right
     // when over). WEEK keeps the fuel tank (bar = weekly reserve LEFT, draining as you spend).
     const standing = isSession && stat && stat.cap ? Math.round(stat.cap - stat.used) : 0;
+    // red scales to the hard 5h wall: over-room = rawCap − realMax (paced share → lockout). Falls back to
+    // the paced share when there's no soft buffer (realMax already == the raw wall).
+    const overRoom = isSession && stat ? Math.max(1, (stat.rawCap || stat.cap || 0) - (stat.cap || 0)) : 1;
     let s = fg(DIM, label) + (isSession && stat && stat.cap
-      ? netBar(standing, stat.cap, mw)
+      ? netBar(standing, stat.cap, overRoom, mw)
       : fuelMeter(1 - u, e, mw));
     if (stat && stat.cap) {
       if (isSession) {
-        // the number matches the bar sign: banked (positive) → "Xk tokens" (ink), over (negative) → "Xk
-        // over". Odometer-counted (±1k/frame) — bar snaps, number rolls to catch up.
+        // signed standing: banked → "+Xk" (ink), over → "−Xk" (red). The sign IS the meaning — no "over"
+        // word. Odometer-counted (fast-jump on big swings, else ±1k) — bar snaps, number rolls to catch up.
         const standK = step1("sess", standing / 1000);
-        const d = fg(DIM, "  ") + (standK > 0
-          ? fg(INK, kstr(standK)) + fg(DIM, " tokens")
-          : fg(zoneCol(u, e), kstr(standK)) + fg(DIM, " over"));
+        const over_ = standK < 0;
+        const d = fg(DIM, "  ") + fg(over_ ? zoneCol(u, e) : INK, (over_ ? "−" : "+") + kstr(standK));
         if (fits(s, d)) s += d;
-        // trailing PROGRESS trend: refuel − live burn = how fast standing is improving. ↑ green = making
-        // progress (over shrinking / banking), ↓ red = losing ground. Live (not odometer'd) so it's the
-        // responsive "are we winning right now" read the slow-counting number can't give you.
+        // trailing rate: the SIGN and COLOR follow your STANDING, not the raw rate — a positive cushion
+        // must never read as "minus". Banked → green "+Xk/min"; over → red "−Xk/min". (refuel goes to ~0
+        // when you're deep in the black, so a rate-signed arrow would flip to ↓ on any activity — wrong.)
         const prog = refuelPerMin - burn60;
         if (Math.abs(prog) >= 500) {
-          const pr = prog >= 0
-            ? fg(DIM, "  ·  ") + fg(GREEN, "↑ " + tkf(prog) + "/min")
-            : fg(DIM, "  ·  ") + fg(RED, "↓ " + tkf(prog) + "/min");
+          const pos = standK > 0; // match the DISPLAYED sign (odometer standK), so number + rate never disagree
+          const pr = fg(DIM, "  ·  ") + fg(pos ? GREEN : RED, (pos ? "+" : "−") + tkf(prog) + "/min");
           if (fits(s, pr)) s += pr;
         }
       } else {
@@ -664,9 +684,9 @@ function main() {
   const out = [
     // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
     // when you go light). "week" — the weekly reserve. Labels padded to equal width so the bars align.
-    row(meterContent("session      ", q5, e5, qv, true, sStat)),
+    row(meterContent("session  ", q5, e5, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("week         ", w7, e7, wv, false, wStat)),
+    row(meterContent("week     ", w7, e7, wv, false, wStat)),
     row(metaFull),
   ];
   try { writeFileSync(odoPath, JSON.stringify(odo)); } catch {} // persist the odometer counters for next render
