@@ -31,7 +31,7 @@ maxx has an animated two-rail status line — signed standing (`+banked` / `−o
 One line in your terminal. Installs the bar **and** the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash
+curl -fsSL https://meetmaxx.co/install | bash
 ```
 
 Restart Claude Code — done. (Needs Node and git on your `PATH`.)

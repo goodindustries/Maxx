@@ -1,0 +1,2 @@
+# short installer: curl -fsSL https://meetmaxx.co/install | bash  → repo install.sh (proxied)
+/install  https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh  200!

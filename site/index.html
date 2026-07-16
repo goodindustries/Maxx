@@ -186,8 +186,8 @@
   <p class="sub">Claude hands you a 5-hour window and lets you burn it flat out — then you're locked out for days. <b>maxx</b> paces you to what actually lasts.</p>
 
   <div class="install" id="install-top">
-    <code><span class="p">$</span> curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash</code>
-    <button data-copy="curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash">Copy</button>
+    <code><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
+    <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
   </div>
   <div class="hint">One line. Bar + <code>/maxx</code> skill. Needs Node&nbsp;+&nbsp;git.</div>
 
@@ -328,8 +328,8 @@
   <h2>Install</h2>
   <p class="lead">One pasteable line in your terminal. Restart Claude Code — done.</p>
   <div class="install" style="display:flex;width:100%">
-    <code style="flex:1"><span class="p">$</span> curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash</code>
-    <button data-copy="curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/tokenmaxx/install.sh | bash">Copy</button>
+    <code style="flex:1"><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
+    <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
   </div>
   <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
   <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak — or <code>/maxx session</code> for how much to burn this window.</p>
@@ -404,23 +404,22 @@
     if(RM){ i=2; apply(); } else { apply(); setInterval(apply,2800); }
   })();
 
-  // animate the situation cards — the name sits on top; when a card scrolls in, its bars fill and the
-  // numbers count up (slow, small steps, so you can watch it move), then it loops.
+  // animate the situation cards — the name sits on top; the bars fill and numbers count up SLOWLY so you
+  // can follow. Cards fire one after another in reading order (a cascade), then the whole thing loops.
   (function(){
     const cards=document.querySelectorAll('[data-sit]');
     if(!cards.length) return;
+    const ANIM=3000, STEP=1600, PAUSE=2400; // fill/count duration, gap between cards, pause before repeat
     function play(card){
       const fills=card.querySelectorAll('.fill'), cnts=card.querySelectorAll('.cnt');
-      // instant reset
       fills.forEach(function(f){ f.style.transition='none'; f.style.width='0%'; });
       cnts.forEach(function(c){ c.textContent=(c.dataset.sign||'')+'0'; });
       void card.offsetWidth; // force a reflow so 0% commits before we animate up
-      // animate up
-      fills.forEach(function(f){ f.style.transition='width 2s cubic-bezier(.33,.02,.22,1)'; f.style.width=f.dataset.w+'%'; });
+      fills.forEach(function(f){ f.style.transition='width '+ANIM+'ms cubic-bezier(.33,.02,.22,1)'; f.style.width=f.dataset.w+'%'; });
       cnts.forEach(function(c){
-        const to=+c.dataset.to, sign=c.dataset.sign||'', dur=2000, t0=performance.now();
+        const to=+c.dataset.to, sign=c.dataset.sign||'', t0=performance.now();
         (function tick(now){
-          const p=Math.min(1,(now-t0)/dur), v=Math.round(to*p);
+          const p=Math.min(1,(now-t0)/ANIM), v=Math.round(to*p);
           c.textContent=sign+v.toLocaleString();
           if(p<1) requestAnimationFrame(tick);
         })(performance.now());
@@ -434,17 +433,16 @@
       });
       return;
     }
-    const seen=new WeakSet();
+    // one cascade: each card starts STEP after the previous, in DOM (reading) order.
+    function cascade(){ cards.forEach(function(card,i){ setTimeout(function(){ play(card); }, i*STEP); }); }
+    let started=false;
+    const cycle=(cards.length-1)*STEP + ANIM + PAUSE;
     const io=new IntersectionObserver(function(es){
       es.forEach(function(e){
-        if(e.isIntersecting && !seen.has(e.target)){
-          seen.add(e.target);
-          const idx=[].indexOf.call(cards,e.target);
-          setTimeout(function(){ play(e.target); setInterval(function(){ play(e.target); },5000); },(idx%2)*320);
-        }
+        if(e.isIntersecting && !started){ started=true; cascade(); setInterval(cascade, cycle); }
       });
-    },{threshold:.4});
-    cards.forEach(function(c){ io.observe(c); });
+    },{threshold:.25});
+    io.observe(cards[0]);
   })();
 
   // show a thank-you after the contact form posts (Netlify redirects to /?thanks=1)
