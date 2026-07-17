@@ -45,23 +45,6 @@ models  haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3
 
 Footnote: Fable > Opus > Sonnet > Haiku, so your token usage should be pinned to market prices.
 
-SECTION: WHAT IT SHOWS YOU
---------------------------
-H2: What it shows you
-Lead: Anchored to the same five_hour and seven_day numbers /usage shows.
-
-01 Directional standing
-The session rail fills green from the left when you're banking a cushion, red from the right when you're over. Longer red = deeper hole.
-
-02 Numbers that roll
-Every figure counts one digit at a time. A trailing signed rate tells you if you're catching up or falling behind right now.
-
-03 Weekly fuel tank
-A second rail for the seven-day wall, with an even-burn pace tick. maxx paces you so the week lasts.
-
-04 Nothing leaves your box
-No analytics, no third party, no phone-home. Your usage is parsed on your machine. The only network call is a daily read-only fetch of Anthropic's price sheet.
-
 SECTION: HOW TO READ THE BAR
 ----------------------------
 H2: How to read the token fuel gauge

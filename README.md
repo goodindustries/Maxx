@@ -1,44 +1,30 @@
 # maxx
 
-### 🌐 [meetmaxx.co](https://meetmaxx.co) — see it in action · [Install](#setup) · [How to read it](#how-to-read-it)
+### 🌐 [meetmaxx.co](https://meetmaxx.co) · [Install](#install) · [How to read it](#how-to-read-the-token-fuel-gauge)
 
-**You're deep in an agent session. Flowing. Building. Then — *bam* — "you've hit your limit." Everything stops. You never saw it coming.**
+**How many times have you hit your weekly limit before your project was done?**
 
-maxx is the fuel gauge that keeps Claude Code users from getting blindsided. It shows the limits the agent actually reports, when they reset, how much local context you are carrying, and where your tokens went.
+`/usage` is built by the guys trying to sell you tokens. You get about 2.8 days of full 5hr sessions in a 7 day window. Keep maxing them and you're out of tokens by Wednesday.
 
-It lives right in your Claude Code status line — the two rails sit at the bottom of the session, updating as you work:
+maxx is the token fuel gauge for Claude Code. Tokenmaxx is spelled with maxx.
+
+It lives in your status line. Two rails, updating as you work:
 
 ![maxx status line at the bottom of a live Claude Code session](assets/maxx-in-session.gif)
 
-Up close, it's an animated two-rail bar — signed standing (`+banked` / `−over`), gradient fills, live rolling numbers:
+Up close: signed standing (`+banked` / `−over`), gradient fills, numbers that roll one digit at a time:
 
 ![maxx statusline, both rails banking green](assets/maxx-banked.gif)
 
-*The older clips below show earlier iterations of the same rails:*
+## Install
 
-![maxx statusline, session in cushion](assets/maxx-live.gif)
-
-*…and when you're burning too fast, it goes red before you run out:*
-
-![maxx statusline, both tracks over](assets/maxx-demo.gif)
-
-*Over your pace — the session rail runs red from the right, the numbers roll one digit at a time, and a trailing signed rate tells you if you're catching up or falling behind:*
-
-![maxx session and week rails, over](assets/maxx-session-bar.gif)
-
-*…and banking a cushion — green grows from the left as usage ages out and the tank refills:*
-
-![maxx session rail, banking](assets/maxx-banking.gif)
-
-## Setup
-
-One line in your terminal. Installs the bar **and** the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
+One line in your terminal. Installs the bar and the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
 
 ```bash
 curl -fsSL https://meetmaxx.co/install | bash
 ```
 
-Restart Claude Code — done. (Needs Node and git on your `PATH`.)
+Restart Claude Code. Done. (Needs Node and git on your `PATH`.)
 
 <details>
 <summary>Rather clone than pipe curl into bash?</summary>
@@ -59,49 +45,69 @@ In Claude Code:
 ```
 </details>
 
-Type `/maxx` any time:
+Then type `/maxx` any time:
 
-- `/maxx` — total tokens, tokens/day, cache-hit rate, and streak
-- `/maxx session` — session tokens: how much to burn this rolling 5h window
+- `/maxx`: total tokens, tokens/day, cache-hit rate, and streak
+- `/maxx session`: how much to burn this rolling 5h window
 
-## How to read it
+## You've been flying blind. Here's the math.
 
-Two rails, always on. Both anchored to the exact `five_hour` / `seven_day` percentages `/usage` reports.
+Every number on the bar comes from four lines. Check them against `/usage` any time.
 
-**`session` — your rolling 5-hour standing.** One directional fill:
+```text
+pace    to_spend = week_left ÷ 5h_windows_left     The sustainable spend for this next 5hr period.
+anchor  cap = burned ÷ used%                       Pinned to Claude's own /usage numbers every refresh.
+burn    (input + 5·output + 1.25·cache_write
+         + 0.1·cache_read) × model_price           Different models cost different.
+models  haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3  Price-weighted. Refreshed daily from Anthropic's price sheet.
+```
 
-- **green from the left** — banked: under your sustainable pace, building a cushion.
-- **red from the right** — over: burning faster than sustainable; longer red = deeper hole.
-- The signed number beside it (`+Xk` banked / `−Xk` over) rolls one digit at a time, and a trailing signed **±k/min** tells you whether you're recovering or falling behind *right now*. Red only fills toward the **hard 5h wall** — a light sliver means "borrowing from later", full red means lockout is close.
+Fable > Opus > Sonnet > Haiku, so your token usage is pinned to market prices. Unweighted, a Haiku subagent token counts the same as a Fable token. Weighted, the pacing is honest.
 
-**`week` — your weekly reserve.** A fuel tank: the fill is budget **remaining**, draining as you spend (green → amber → red as it runs low). The `┊` tick marks even-burn pace — past it you're ahead, short of it you're hot. Then `Xk left`, your pace standing (`banked` / `over`), and days to reset.
+## How to read the token fuel gauge
 
-**Context** — the meta line shows how full the model context is (separate from the account rate limit), plus model, branch, spend, and cache-hit rate.
+Session rail and weekly rail. Both anchored to the exact `five_hour` / `seven_day` percentages `/usage` reports.
 
-## Every situation, at a glance
+**`session`**: use less before, have more now, rolling the last 5 hours.
 
-What the two rails look like as your day unfolds ([see them animated at meetmaxx.co](https://meetmaxx.co#situations)):
+- **Green from the left**: banked. Under your sustainable pace, building a cushion.
+- **Red from the right**: over. Burning faster than sustainable; longer red = deeper hole.
+- The signed number (`+Xk` banked / `−Xk` over) rolls one digit at a time, with a trailing **±k/min** telling you whether you're recovering or falling behind right now. Full red means the 5h wall is close.
 
-![maxx situations — banking, on pace, over, near the wall, week draining, fresh window](assets/maxx-situations.gif)
+**`week`**: total remaining tokens estimated available. A fuel tank: the fill is budget remaining, draining as you spend (green to amber to red). The `┊` tick marks even-burn pace. Then `Xk left`, your pace standing, and days to reset.
+
+**Context**: a meta line with context fill, model, branch, spend, and cache-hit rate.
+
+## Examples
+
+What the two rails look like as your day unfolds ([animated at meetmaxx.co](https://meetmaxx.co#situations)):
+
+![maxx situations, banking, on pace, over, near the wall, week draining, fresh window](assets/maxx-situations.gif)
 
 | Situation | `session` | `week` | What it means |
 |---|---|---|---|
-| **Banking a cushion** | `+591k` 🟢 | `312M left` | You went light — headroom to spend. Prime time for a big task. |
-| **On pace** | `+96k` 🟢 | `228M left` | Steady, right where you should be. Nothing to think about. |
-| **Borrowing from later** | `−1,240k` 🔴 | `210M left` | Over your 5h pace, not dangerous. Ease off and it recovers as usage ages out. |
-| **Near the 5h wall** | `−4,980k` 🔴 | `170M left` | Full red = lockout is close. Stop, or drop to Sonnet to keep going. |
-| **Half your week, day one** | `+220k` 🟢 | `148M left · 6d` 🔴 | Weekly rail draining fast — at this pace you lock out midweek. Slow down. |
-| **Fresh 5-hour window** | `+7,900k` 🟢 | `268M left` | Full tank, week healthy. Burn freely. |
+| **Tokens available** | `+591k` 🟢 | `312M left` | Good pacing, but it's time to get back to working. |
+| **On pace** | `+96k` 🟢 | `228M left` | Steady. Nothing to worry about, except everything else. |
+| **Borrowing from later** | `−1,240k` 🔴 | `210M left` | Running a bit hot, that feature better be worth it. |
+| **Near the 5h wall** | `−4,980k` 🔴 | `170M left` | Drop it like it's hot, or Claude will drop you. |
+| **Half your week, day one** | `+220k` 🟢 | `148M left · 6d` 🔴 | Week draining fast. Plan better, or go for a walk or something. |
+| **Fresh 5-hour window** | `+7,900k` 🟢 | `268M left` | Full tank, week healthy. Free to fly! |
+
+## Works in every terminal. (Except for that one we don't have support for).
+
+maxx renders through the Claude Code statusline. Plain ANSI. And a pain in the ANSI to build.
+
+Verified on macOS: Terminal.app (auto 256-color mode), iTerm2, Ghostty. Truecolor everywhere else: Warp, Alacritty, kitty, the VS Code and Cursor terminals, tmux, ssh, Linux.
 
 ## Your stuff stays yours
 
-maxx has no analytics service and sends no data to maxx or another third party. Claude Code parsing stays entirely on your computer.
+No analytics, no phone-home. Your usage is parsed on your machine. The only network call is a daily read-only fetch of Anthropic's public price sheet ([prices.mjs](maxx/prices.mjs)). It sends nothing. No data leaves the box.
 
 ## How it works
 
-Claude enforces two hard walls at once: a five-hour session cap and a seven-day weekly cap. Maxing the raw 5h cap every window drains the week days before it refreshes — then you're locked out. So maxx paces you to a **session token budget** = weekly tokens-left ÷ the 5h windows left this week, over a rolling 5h window, bounded by the 5h wall. It's a tank: burning drains it, and it recovers as old usage ages out (bank by chilling). Go light and it climbs (frugal now = more later); overspend and it shrinks. That's what `maxx session` reports.
+Claude enforces two hard walls at once: a five-hour session cap and a seven-day weekly cap. Maxing the raw 5h cap every window drains the week days before it refreshes. Then you're locked out. So maxx paces you to a **session token budget** = weekly tokens left ÷ the 5h windows left this week, over a rolling 5h window, bounded by the 5h wall. It's a tank: burning drains it, and it recovers as old usage ages out. Go light and it climbs. Overspend and it shrinks. That's what `/maxx session` reports.
 
-Everything is anchored to Anthropic's authoritative `five_hour` / `seven_day` percentages — the same numbers `/usage` shows. Those are the only ground truth Claude exposes; the token magnitudes are estimates derived from them, so steer by the percentage and the pace.
+Everything is anchored to Anthropic's authoritative `five_hour` / `seven_day` percentages, the same numbers `/usage` shows. Those are the only ground truth Claude exposes; token magnitudes are estimates derived from them, so steer by the percentage and the pace.
 
 Fast live query:
 
@@ -113,13 +119,13 @@ node ~/.claude/skills/maxx/render.mjs --status    # machine-readable status.json
 Data flow:
 
 - `render.mjs` receives live rate-limit percentages and reset times, writes `~/.maxx/rl.json` + `~/.maxx/status.json`, and draws the bar.
-- `limit.mjs` maintains rolling token buckets in `~/.maxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent can burn only its sustainable per-window share.
-- `nazi.mjs` is an hourly posture check an agent runs on itself — usage history, context/cache, CLAUDE.md tax → ranked token drains + one lever.
+- `limit.mjs` maintains rolling price-weighted token buckets in `~/.maxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent burns only its sustainable per-window share. `limit.mjs --nazi` is an hourly posture check: ranked token drains plus one lever.
+- `prices.mjs` refreshes per-model quota weights daily from Anthropic's public price sheet into `~/.maxx/prices.json`; `limit.mjs` falls back to built-in weights without it.
 
 ## Development
 
-Requires Node 18 or newer. There is currently no automated test suite for the Claude Code plugin.
+Requires Node 18 or newer. Tests: `node --test maxx/maxx.test.mjs`.
 
 ## License
 
-MIT — free to use. See [LICENSE](LICENSE).
+MIT. Free to use. See [LICENSE](LICENSE).
