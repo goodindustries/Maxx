@@ -65,3 +65,5 @@ __pycache__/
 
 # stray compiled renderer binary — maxx is pure Node (see README)
 maxx-render
+.DS_Store
+.netlify/
