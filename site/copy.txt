@@ -95,8 +95,7 @@ SECTION: SAY HELLO
 ------------------
 H2: Say hello
 Lead: Questions, ideas, or just want to talk shop? Drop us a line.
-(form: name, email, message, Send)
-Thanks state: Thanks. Talk soon 👋
+Button: Email Reif (mailto reif@thegoodproject.net)
 
 FOOTER
 ------
