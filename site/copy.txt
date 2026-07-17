@@ -106,7 +106,7 @@ macOS: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.
 SECTION: PRIVACY
 ----------------
 H2: Your stuff stays yours
-We might launch some sharing of metadata (opt-in) for using in better algorithm-ing, but for now nothing leaves the box. MIT.
+We might launch some sharing of metadata (opt-in) for using in better algorithm-ing, but for now no data leaves the box. MIT.
 
 SECTION: SAY HELLO
 ------------------
