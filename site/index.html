@@ -433,7 +433,6 @@
       days.textContent='4d'; return;
     }
     let t0=performance.now();
-    const t0=performance.now();
     (function frame(now){
       let p=((now-t0)%LOOP)/LOOP;
       const fuel=fuelAt(p), pace=1-p;
