@@ -32,7 +32,7 @@ Fix: Keep it up, and you'll be out of tokens by Wednesday at 6pm central.
 SECTION: NO SLOP. HERE'S THE MATH.
 ----------------------------------
 H2: You've been flying blind.
-Lead: Unlocking the black box token usage
+Lead: Unlocking the black box of token usage
 
 pace    to_spend = week_left ÷ 5h_windows_left
         The sustainable token usage for this next 5hr period.
