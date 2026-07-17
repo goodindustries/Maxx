@@ -350,6 +350,16 @@ function main() {
   const cache = total > 0 ? (cu.cache_read_input_tokens || 0) / total : 0;
 
   const rl = p.rate_limits || {};
+  // stdin sometimes arrives without rate_limits (or with five_hour only). Zeroing out then is
+  // catastrophic for the week row: elapsed→0 pins the pace tick to the far right and the fill
+  // unpins from /usage — a self-contradicting gauge. Fall back to the recently cached %s and
+  // reset times instead; only a LIVE rate_limits payload may refresh that cache (no laundering
+  // stale values with a fresh timestamp).
+  const liveRL = !!(rl.five_hour || rl.seven_day);
+  const rlCache = readJSON(path.join(HOME, ".maxx", "rl.json"), null);
+  const cacheFresh = rlCache && rlCache.ts && Date.now() - rlCache.ts < 30 * 60 * 1000;
+  if (!rl.five_hour && cacheFresh && rlCache.fiveResetAt) rl.five_hour = { used_percentage: (rlCache.quota || 0) * 100, resets_at: rlCache.fiveResetAt };
+  if (!rl.seven_day && cacheFresh && rlCache.weekResetAt) rl.seven_day = { used_percentage: (rlCache.week || 0) * 100, resets_at: rlCache.weekResetAt };
   const haveQuota = !!rl.five_hour, haveWeek = !!rl.seven_day;
   const quota = haveQuota ? (rl.five_hour.used_percentage || 0) / 100 : 0;
   const week = haveWeek ? (rl.seven_day.used_percentage || 0) / 100 : 0;
@@ -357,7 +367,7 @@ function main() {
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
   // sum at the real window start instead of a blind rolling 7d — see weekLo below.
-  try { if (haveQuota) writeFileSync(path.join(HOME, ".maxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
+  try { if (liveRL && haveQuota) writeFileSync(path.join(HOME, ".maxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
   const marksPath = path.join(HOME, ".maxx", "marks.json");
@@ -484,7 +494,9 @@ function main() {
     : cap5s;
   // session bar is now the REAL session: used against realMax, not the raw 5h wall.
   const q5 = realMax ? Math.min(1, used5 / realMax) : (haveQuota ? quota : 0);
-  const w7 = cap7s ? Math.min(1, used7 / cap7s) : (haveWeek ? week : 0);
+  // week FILL pins straight to Anthropic's % — cap estimates scale the token numbers only, so
+  // anchor noise (unit changes, stale caps) can never bend the bar away from /usage.
+  const w7 = haveWeek ? week : (cap7s ? Math.min(1, used7 / cap7s) : 0);
   const qcol = col(q5), wcol = col(w7);
   // how far into each window you are (the pace line): elapsed = 1 - timeLeft/window.
   const nowS = Date.now() / 1000;
