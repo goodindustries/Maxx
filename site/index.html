@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>maxx — never run out of tokens again</title>
-<meta name="description" content="A Claude Code status bar that paces you to a sustainable token budget — so the 5-hour window doesn't drain your week and lock you out. Zero egress; everything stays on your machine.">
-<meta property="og:title" content="maxx — never run out of tokens again">
-<meta property="og:description" content="Claude's 5-hour window looks spendable, but maxing it drains your week. maxx paces you to what actually lasts. One line to install.">
+<title>maxx — never run out of tokens</title>
+<meta name="description" content="claude lies to you. the 5-hour window looks spendable — spend it and your week is gone. maxx (tokenmaxx, spelled with maxx) is a Claude Code status bar that paces you to what actually lasts. no slop — the math is on the page.">
+<meta property="og:title" content="maxx — never run out of tokens">
+<meta property="og:description" content="claude lies to you. maxx paces you to what actually lasts. tokenmaxx is spelled with maxx. one line to install.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -174,16 +174,17 @@
 <nav>
   <div class="logo"><b>maxx</b></div>
   <div class="links">
-    <a href="#read">How to read it</a>
-    <a href="#install">Install</a>
+    <a href="#math">the math</a>
+    <a href="#read">how to read it</a>
+    <a href="#install">install</a>
     <a href="https://github.com/goodindustries/Maxx">GitHub ↗</a>
   </div>
 </nav>
 
 <header class="wrap">
-  <div class="eyebrow"><b style="color:var(--brand)">maxx</b> · Claude Code status bar</div>
-  <h1>Never run out of<br>tokens again.</h1>
-  <p class="sub">Claude hands you a 5-hour window and lets you burn it flat out — then you're locked out for days. <b>maxx</b> paces you to what actually lasts.</p>
+  <div class="eyebrow"><b style="color:var(--brand)">tokenmaxx</b> · spelled with maxx</div>
+  <h1>never run out<br>of tokens.</h1>
+  <p class="sub">claude lies to you. the 5-hour window looks spendable — spend it and your week is gone, mid-build, no warning. <b>maxx</b> paces you to what actually lasts.</p>
 
   <div class="install" id="install-top">
     <code><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
@@ -212,16 +213,28 @@
 
 <section class="wrap" id="lie">
   <div class="lie">
-    <h2>Why Claude lies to you</h2>
-    <p>Claude shows you a <b>5-hour window</b> — and makes it look like all those tokens are yours to spend.</p>
-    <p class="big">They're not. Not if you want them to last.</p>
-    <p>Max that 5-hour wall every window and your <b>weekly</b> limit is gone in a couple days. Then you're locked out — mid-build, no warning.</p>
-    <p class="fix"><b>maxx</b> paces you to the real number: weekly tokens ÷ windows left. Spend to it and the week lasts. Go over and it turns red <em>before</em> the wall does.</p>
+    <h2>claude lies to you.</h2>
+    <p>claude shows you a <b>5-hour window</b> — and makes it look like all those tokens are yours to spend.</p>
+    <p class="big">they're not. not if you want them to last.</p>
+    <p>max that 5-hour wall every window and your <b>weekly</b> limit is gone in a couple days. then you're locked out — mid-build, no warning.</p>
+    <p class="fix"><b>maxx</b> paces you to the real number: weekly tokens ÷ windows left. spend to it and the week lasts. go over and it turns red <em>before</em> the wall does.</p>
   </div>
 </section>
 
+<section class="wrap" id="math">
+  <h2>no slop. here's the math.</h2>
+  <p class="lead">every number on the bar traces to four lines. check them against <code>/usage</code> any time.</p>
+
+  <div class="rail"><span class="lbl">pace&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">to_spend = week_left ÷ 5h_windows_left</span>&nbsp;&nbsp;<span class="k-dim">— spend to this and the week lasts. not the raw 5h cap — that's the trap.</span></div>
+  <div class="rail"><span class="lbl">anchor&nbsp;</span> <span class="k-ink">cap = burned ÷ used%</span>&nbsp;&nbsp;<span class="k-dim">— re-anchored to Claude's own <code>/usage</code> percentages every refresh, so the gauge can't drift.</span></div>
+  <div class="rail"><span class="lbl">burn&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × model_price</span>&nbsp;&nbsp;<span class="k-dim">— output and cache weighted like your bill, because that's how the quota drains.</span></div>
+  <div class="rail"><span class="lbl">models&nbsp;</span> <span class="k-ink">haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3</span>&nbsp;&nbsp;<span class="k-dim">— price-weighted. refreshed daily from Anthropic's public price sheet, so a price change can't stale the bar.</span></div>
+
+  <p class="hint" style="margin-top:14px">why it matters: unweighted, a Haiku subagent token counts the same as a Fable token. audited over a real week that overstated Haiku burn <b>3.7×</b> and understated Fable <b>2.7×</b>. weighted, the pacing is honest.</p>
+</section>
+
 <section class="wrap" id="features">
-  <h2>What it shows you</h2>
+  <h2>what it shows you</h2>
   <p class="lead">Anchored to the real <code>five_hour</code> / <code>seven_day</code> numbers — the same ones <code>/usage</code> shows.</p>
   <div class="feats">
     <div class="feat">
@@ -248,15 +261,15 @@
     <div class="feat">
       <div class="feat-n">04</div>
       <div>
-        <h3>Nothing leaves your box</h3>
-        <p>No analytics, no third party, no phone-home. Parsing of your Claude Code usage happens entirely on your machine.</p>
+        <h3>nothing leaves your box</h3>
+        <p>no analytics, no third party, no phone-home. parsing of your Claude Code usage happens entirely on your machine — the only network call is a daily read-only fetch of Anthropic’s public price sheet.</p>
       </div>
     </div>
   </div>
 </section>
 
 <section class="wrap" id="read">
-  <h2>How to read the bar</h2>
+  <h2>how to read the bar</h2>
   <p class="lead">Two rails, always on.</p>
 
   <div class="rail">
@@ -275,7 +288,7 @@
 </section>
 
 <section class="wrap" id="situations">
-  <h2>Every situation, at a glance</h2>
+  <h2>every situation, at a glance</h2>
   <p class="lead">What the two rails look like as your day unfolds.</p>
   <div class="situations">
 
@@ -325,7 +338,7 @@
 </section>
 
 <section class="wrap" id="install">
-  <h2>Install</h2>
+  <h2>install</h2>
   <p class="lead">One pasteable line in your terminal. Restart Claude Code — done.</p>
   <div class="install" style="display:flex;width:100%">
     <code style="flex:1"><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
@@ -335,16 +348,26 @@
   <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak — or <code>/maxx session</code> for how much to burn this window.</p>
 </section>
 
+<section class="wrap" id="terminals">
+  <h2>works in your terminal. all of them.</h2>
+  <p class="lead">maxx renders through the Claude Code statusline — plain ANSI, no plugins, no terminal hooks. if Claude Code runs there, the bar runs there.</p>
+  <ul class="readlist">
+    <li><b>macOS</b> — Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</li>
+    <li><b>editors</b> — the VS Code and Cursor integrated terminals.</li>
+    <li><b>everywhere else</b> — tmux, over ssh, Linux. it's just text.</li>
+  </ul>
+</section>
+
 <section class="wrap">
   <div class="privacy">
-    <h2>Your stuff stays yours</h2>
-    <p class="lead" style="margin:0 auto">maxx has no analytics service and sends no data anywhere. Fully on-box, zero egress. Open source under MIT.</p>
+    <h2>your stuff stays yours</h2>
+    <p class="lead" style="margin:0 auto">no analytics, no phone-home. your usage data never leaves your machine. the one network call maxx makes is a read-only daily fetch of Anthropic's public price sheet — it sends nothing, and it's <a href="https://github.com/goodindustries/Maxx/blob/main/maxx/prices.mjs">right here in the source</a>. MIT.</p>
   </div>
 </section>
 
 <section class="wrap" id="hello">
   <div class="hello">
-    <h2>Say hello</h2>
+    <h2>say hello</h2>
     <p class="lead" style="margin:6px auto 0">Questions, ideas, or just want to talk shop? Drop us a line.</p>
     <form name="contact" method="POST" data-netlify="true" netlify-honeypot="bot-field" action="/?thanks=1">
       <input type="hidden" name="form-name" value="contact">
@@ -362,6 +385,7 @@
 <footer>
   <div class="wrap">
     <p>Made for you by the folks over at <a href="https://goodindustries.co"><b>Good Industries</b></a>.</p>
+    <p>tokenmaxx is spelled with <b>maxx</b>.</p>
     <p><span class="logo" style="font-size:16px"><b>maxx</b></span> · a fuel gauge for Claude Code · <a href="https://github.com/goodindustries/Maxx">GitHub</a> · <a href="https://github.com/goodindustries/Maxx/blob/main/LICENSE">MIT</a></p>
   </div>
 </footer>
