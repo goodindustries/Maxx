@@ -25,7 +25,7 @@ Runs in your cli, heads up token availability.
 
 SECTION: CLAUDE LIES TO YOU
 ---------------------------
-H2: /usage is built by the guys trying to sell you tokens.
+H2: /usage was built by the guys trying to sell you tokens.
 Big: You get ~2.8 days of full 5hr sessions in a 7 day window.
 Fix: Keep it up, and you'll be out of tokens by Wednesday at 6pm central.
 
