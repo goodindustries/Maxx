@@ -197,7 +197,7 @@ function fuelMeter(fuelFrac, e, w) {
   let s = fg(START, "▐"); // full-tank end
   for (let i = 0; i < w; i++) {
     const cell = i < fuelN ? shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5) : null;
-    if (i === paceN) s += cell ? esc(INK, cell, "╎")                 // in the fill: thin ink line on the fuel color
+    if (i === paceN) s += cell ? esc("#ffffff", cell, "╎")           // in the fill: thin white line on the fuel color
                               : fg(BORDER, "╎");                     // in the drained zone: the thin marker
     else s += cell ? fg(cell, "█") : fg(TRACK, "█");
   }
