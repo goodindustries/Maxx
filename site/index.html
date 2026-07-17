@@ -401,20 +401,26 @@
         const f=row.querySelector('.fill'), c=row.querySelector('.cnt');
         if(!f) return;
         const w=+f.dataset.w, to=c?+c.dataset.to:0, sign=c?(c.dataset.sign||''):'';
+        const lb=row.querySelector('.lb'), isWeek=lb&&/week/.test(lb.textContent);
         f.style.transition='none'; f.style.width=w+'%';
         if(c) c.textContent=sign+to.toLocaleString();
-        items.push({f,c,w,to,sign,phase:Math.random()*Math.PI*2,speed:.00045+Math.random()*.0003});
+        items.push({f,c,w,to,sign,isWeek,phase:Math.random()*Math.PI*2,speed:.00045+Math.random()*.0003});
       });
     });
     if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const t0=performance.now();
     (function frame(now){
       items.forEach(function(it){
-        const drift=Math.sin(now*it.speed+it.phase);       // −1..1, slow
-        it.f.style.width=(it.w+drift*2.2)+'%';             // ±2.2% of the rail
-        if(it.c){
-          const v=Math.round(it.to*(1+drift*.02));         // ±2% of the number
-          it.c.textContent=it.sign+v.toLocaleString();
+        let frac;
+        if(it.isWeek){
+          // weeks only drain: bleed up to 2.5% over ~50s, then hold — never grows
+          frac=-Math.min(2.5, (now-t0)*.00005)/it.w;
+        } else {
+          // sessions breathe: the rolling window legitimately recovers as usage ages out
+          frac=Math.sin(now*it.speed+it.phase)*.022;
         }
+        it.f.style.width=(it.w*(1+frac))+'%';
+        if(it.c) it.c.textContent=it.sign+Math.round(it.to*(1+frac)).toLocaleString();
       });
       requestAnimationFrame(frame);
     })(performance.now());
@@ -436,6 +442,7 @@
       days.textContent='4d'; return;
     }
     let t0=performance.now();
+    const t0=performance.now();
     (function frame(now){
       let p=((now-t0)%LOOP)/LOOP;
       const fuel=fuelAt(p), pace=1-p;
