@@ -60,7 +60,7 @@ function mix(hex, t, target = "#ffffff") {
 // black). Lets a bar deepen from its base toward its leading edge, so more fill reads as more intense.
 function shade(hex, frac) {
   frac = Math.max(0, Math.min(1, frac));
-  return frac < 0.5 ? mix(hex, (0.5 - frac) * 0.7, "#ffffff") : mix(hex, (frac - 0.5) * 0.7, "#000000");
+  return frac < 0.5 ? mix(hex, (0.5 - frac) * 0.7, "#ffffff") : mix(hex, (frac - 0.5) * 0.38, "#000000");
 }
 // Apple's Terminal.app has no 24-bit color (verified on Sequoia: 38;2 renders as black/garbage,
 // even though shells there often export COLORTERM=truecolor). Downconvert to the xterm-256 cube
