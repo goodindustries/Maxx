@@ -123,7 +123,9 @@
   .b-amber{background:var(--amber)}
   .k-red{color:var(--red)} .k-green{color:var(--green)} .k-dim{color:var(--dim)} .k-ink{color:var(--ink)}
   .dtrack{position:relative;display:inline-block;width:min(56vw,360px);height:16px;background:var(--track);border-radius:4px;vertical-align:middle;overflow:hidden}
-  .dfill{position:absolute;top:0;bottom:0;width:0;transition:width .9s cubic-bezier(.4,0,.2,1)}
+  .dfill{position:absolute;top:0;bottom:0;width:0;transition:width 1.8s cubic-bezier(.4,0,.2,1)}
+  .dfill.amber{left:0;background:linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))}
+  .wk-tick{position:absolute;top:-2px;bottom:-2px;width:2px;background:hsl(266 28% 50%);border-radius:1px}
   .dfill.green{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
   .dfill.red{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
   .demo-note{margin:4px 0 16px;font-size:14px;color:var(--dim);min-height:1.2em;transition:opacity .3s}
@@ -237,8 +239,9 @@
   </div>
   <p class="demo-note" id="df-note">&nbsp;</p>
   <div class="rail">
-    <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;▐<span class="bar b-amber" style="width:70px"></span><span class="bar b-track" style="width:90px"></span>▌&nbsp;&nbsp;<span class="k-ink">234,978k left</span> <span class="k-dim">·</span> <span class="k-red">−102,274k over</span> <span class="k-dim">·</span> 5d
+    <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill amber" id="wk-fill" style="transition:none"></span><span class="wk-tick" id="wk-tick"></span></span>&nbsp;&nbsp;<span class="k-ink" id="wk-left">318,402k left</span> <span class="k-dim">·</span> <span id="wk-standing" class="k-green">+24,013k banked</span> <span class="k-dim">·</span> <span id="wk-days">6d</span>
   </div>
+  <p class="demo-note">The tank drains as the week burns. The ╎ tick marks even-burn pace: fill past it and you're banked, short of it and you're hot.</p>
 
   <ul class="readlist">
     <li><b>session</b>: Use less before, have more now, rolling the last 5 hours.</li>
@@ -383,7 +386,7 @@
       i=(i+1)%S.length;
     }
     // reduced-motion: show one representative (over) state, no cycling.
-    if(RM){ i=2; apply(); } else { apply(); setInterval(apply,2800); }
+    if(RM){ i=2; apply(); } else { apply(); setInterval(apply,7000); }
   })();
 
   // animate the situation cards — the name sits on top; the bars fill and numbers count up SLOWLY so you
@@ -425,6 +428,36 @@
       });
     },{threshold:.25});
     io.observe(cards[0]);
+  })();
+
+
+  // week rail — the tank drains slowly over a simulated week, pace tick marching with it
+  (function(){
+    const fill=document.getElementById('wk-fill'), tick=document.getElementById('wk-tick'),
+          left=document.getElementById('wk-left'), standing=document.getElementById('wk-standing'),
+          days=document.getElementById('wk-days');
+    if(!fill) return;
+    const CAP=480000, LOOP=48000; // full simulated week in 48s
+    // fuel curve: start nearly full and banked, burn hot mid-week, ease off late — crosses the pace line
+    function fuelAt(p){ return Math.max(.06, 1 - .55*p - .45*Math.sin(Math.PI*p)*p); }
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches){
+      fill.style.width='49%'; tick.style.left='57%';
+      left.textContent='234,978k left'; standing.textContent='−38,400k over'; standing.className='k-red';
+      days.textContent='4d'; return;
+    }
+    let t0=performance.now();
+    (function frame(now){
+      let p=((now-t0)%LOOP)/LOOP;
+      const fuel=fuelAt(p), pace=1-p;
+      fill.style.width=(fuel*100)+'%';
+      tick.style.left=Math.min(99.3,pace*100)+'%';
+      left.textContent=Math.round(CAP*fuel).toLocaleString()+'k left';
+      const net=Math.round(CAP*(fuel-pace));
+      if(net>=0){ standing.textContent='+'+net.toLocaleString()+'k banked'; standing.className='k-green'; }
+      else { standing.textContent='\u2212'+Math.abs(net).toLocaleString()+'k over'; standing.className='k-red'; }
+      days.textContent=Math.max(1,Math.ceil(7*(1-p)))+'d';
+      requestAnimationFrame(frame);
+    })(t0);
   })();
 
   // show a thank-you after the contact form posts (Netlify redirects to /?thanks=1)
