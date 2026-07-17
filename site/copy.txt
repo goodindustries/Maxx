@@ -94,7 +94,7 @@ We might launch some sharing of metadata (opt-in) for using in better algorithm-
 SECTION: SAY HELLO
 ------------------
 H2: Say hello
-Lead: Questions, ideas, or just want to talk shop? Drop us a line.
+Lead: Questions, ideas, or a better formula? Drop us a line.
 Button: Email Reif (mailto reif@thegoodproject.net)
 
 FOOTER
