@@ -358,11 +358,26 @@ function main() {
   const liveRL = !!(rl.five_hour || rl.seven_day);
   const rlCache = readJSON(path.join(HOME, ".maxx", "rl.json"), null);
   const cacheFresh = rlCache && rlCache.ts && Date.now() - rlCache.ts < 30 * 60 * 1000;
-  if (!rl.five_hour && cacheFresh && rlCache.fiveResetAt) rl.five_hour = { used_percentage: (rlCache.quota || 0) * 100, resets_at: rlCache.fiveResetAt };
-  if (!rl.seven_day && cacheFresh && rlCache.weekResetAt) rl.seven_day = { used_percentage: (rlCache.week || 0) * 100, resets_at: rlCache.weekResetAt };
+  // Concurrent sessions on one account see different rate-limit snapshots: one lags a whole
+  // window behind (its 5h block rolled), or lags within the window (used% behind). Alternating
+  // writes to the shared cache made every gauge flap and every cap anchor balloon. Merge rule:
+  // the LATER resets_at wins (newest window); within the same window used% is monotonic, so
+  // take the MAX. A session with no stdin payload rides the fresh cache entirely.
+  const mergeWall = (live, cPct, cReset) => {
+    const havePrev = cacheFresh && cReset > 0;
+    if (!live) return havePrev ? { pct: cPct || 0, reset: cReset } : null;
+    const lPct = (live.used_percentage || 0) / 100, lReset = live.resets_at || 0;
+    if (havePrev && cReset > lReset) return { pct: cPct || 0, reset: cReset };
+    if (havePrev && cReset === lReset) return { pct: Math.max(lPct, cPct || 0), reset: lReset };
+    return { pct: lPct, reset: lReset };
+  };
+  const wall5 = mergeWall(rl.five_hour, rlCache && rlCache.quota, rlCache && rlCache.fiveResetAt);
+  const wall7 = mergeWall(rl.seven_day, rlCache && rlCache.week, rlCache && rlCache.weekResetAt);
+  if (wall5) rl.five_hour = { used_percentage: wall5.pct * 100, resets_at: wall5.reset };
+  if (wall7) rl.seven_day = { used_percentage: wall7.pct * 100, resets_at: wall7.reset };
   const haveQuota = !!rl.five_hour, haveWeek = !!rl.seven_day;
-  const quota = haveQuota ? (rl.five_hour.used_percentage || 0) / 100 : 0;
-  const week = haveWeek ? (rl.seven_day.used_percentage || 0) / 100 : 0;
+  const quota = wall5 ? wall5.pct : 0;
+  const week = wall7 ? wall7.pct : 0;
 
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
