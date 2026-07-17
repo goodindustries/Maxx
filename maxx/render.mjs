@@ -197,7 +197,7 @@ function fuelMeter(fuelFrac, e, w) {
   let s = fg(START, "▐"); // full-tank end
   for (let i = 0; i < w; i++) {
     const cell = i < fuelN ? shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5) : null;
-    if (i === paceN) s += cell ? fg(mix(cell, 0.35, "#000000"), "█") // in the fill: a subtly darker notch, no hole
+    if (i === paceN) s += cell ? fg(mix(cell, 0.16, "#000000"), "█") // in the fill: a subtly darker notch, no hole
                               : fg(BORDER, "╎");                     // in the drained zone: the thin marker
     else s += cell ? fg(cell, "█") : fg(TRACK, "█");
   }
