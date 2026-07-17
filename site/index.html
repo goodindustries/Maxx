@@ -439,7 +439,7 @@
     if(!fill) return;
     const CAP=480000, LOOP=48000; // full simulated week in 48s
     // fuel curve: start nearly full and banked, burn hot mid-week, ease off late — crosses the pace line
-    function fuelAt(p){ return Math.max(.06, 1 - .55*p - .45*Math.sin(Math.PI*p)*p); }
+    function fuelAt(p){ return Math.max(.06, 1 - p*(0.55 + 0.6*p)); } // monotonic; crosses pace at ~0.75
     if(matchMedia('(prefers-reduced-motion: reduce)').matches){
       fill.style.width='49%'; tick.style.left='57%';
       left.textContent='234,978k left'; standing.textContent='−38,400k over'; standing.className='k-red';
@@ -450,6 +450,12 @@
       let p=((now-t0)%LOOP)/LOOP;
       const fuel=fuelAt(p), pace=1-p;
       fill.style.width=(fuel*100)+'%';
+      const ratio=pace>.02?fuel/pace:1;
+      fill.style.background=(fuel<.1||ratio<.5)
+        ? 'linear-gradient(90deg,hsl(354 58% 72%),hsl(354 55% 48%))'
+        : ratio<.85
+          ? 'linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))'
+          : 'linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))';
       tick.style.left=Math.min(99.3,pace*100)+'%';
       left.textContent=Math.round(CAP*fuel).toLocaleString()+'k left';
       const net=Math.round(CAP*(fuel-pace));

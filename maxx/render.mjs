@@ -196,9 +196,10 @@ function fuelMeter(fuelFrac, e, w) {
   const col = (fuelFrac < 0.1 || ratio < 0.5) ? RED : ratio < 0.85 ? AMBER : GREEN;
   let s = fg(START, "▐"); // full-tank end
   for (let i = 0; i < w; i++) {
-    if (i === paceN) s += fg(BORDER, "╎");                     // even-burn marker — always visible, banked or hot
-    else if (i < fuelN) s += fg(shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5), "█"); // fuel, deepening toward the level edge
-    else s += fg(TRACK, "█");                                  // drained
+    const cell = i < fuelN ? shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5) : null;
+    if (i === paceN) s += cell ? fg(mix(cell, 0.35, "#000000"), "█") // in the fill: a subtly darker notch, no hole
+                              : fg(BORDER, "╎");                     // in the drained zone: the thin marker
+    else s += cell ? fg(cell, "█") : fg(TRACK, "█");
   }
   return s + fg(WALL, "▌"); // empty end
 }
