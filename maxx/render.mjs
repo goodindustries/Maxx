@@ -191,13 +191,13 @@ function fuelMeter(fuelFrac, e, w) {
   fuelFrac = Math.max(0, Math.min(1, fuelFrac));
   const fuelN = Math.round(fuelFrac * w);
   const paceFuel = Math.max(0, Math.min(1, 1 - e));            // fuel remaining if spending at even burn
-  const paceN = Math.min(w, Math.round(paceFuel * w));
+  const paceN = Math.min(w - 1, Math.round(paceFuel * w));
   const ratio = paceFuel > 0.02 ? fuelFrac / paceFuel : 1;    // >1 = more fuel than pace (banked)
   const col = (fuelFrac < 0.1 || ratio < 0.5) ? RED : ratio < 0.85 ? AMBER : GREEN;
   let s = fg(START, "▐"); // full-tank end
   for (let i = 0; i < w; i++) {
-    if (i < fuelN) s += fg(shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5), "█"); // fuel, deepening toward the level edge
-    else if (i === paceN && paceN >= fuelN) s += fg(BORDER, "╎"); // even-burn marker, sitting in the drained zone
+    if (i === paceN) s += fg(BORDER, "╎");                     // even-burn marker — always visible, banked or hot
+    else if (i < fuelN) s += fg(shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5), "█"); // fuel, deepening toward the level edge
     else s += fg(TRACK, "█");                                  // drained
   }
   return s + fg(WALL, "▌"); // empty end
