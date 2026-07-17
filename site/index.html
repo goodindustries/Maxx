@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>maxx — never run out of tokens again</title>
-<meta name="description" content="A Claude Code status bar that paces you to a sustainable token budget — so the 5-hour window doesn't drain your week and lock you out. Zero egress; everything stays on your machine.">
-<meta property="og:title" content="maxx — never run out of tokens again">
-<meta property="og:description" content="Claude's 5-hour window looks spendable, but maxing it drains your week. maxx paces you to what actually lasts. One line to install.">
+<title>maxx. Never run out of tokens.</title>
+<meta name="description" content="Claude lies to you. The 5-hour window looks spendable. Spend it and your week is gone. maxx is a Claude Code status bar that paces you to what lasts. The math is on the page.">
+<meta property="og:title" content="maxx. Never run out of tokens.">
+<meta property="og:description" content="Claude lies to you. maxx paces you to what lasts. Tokenmaxx is spelled with maxx. One line to install.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -174,6 +174,7 @@
 <nav>
   <div class="logo"><b>maxx</b></div>
   <div class="links">
+    <a href="#math">The math</a>
     <a href="#read">How to read it</a>
     <a href="#install">Install</a>
     <a href="https://github.com/goodindustries/Maxx">GitHub ↗</a>
@@ -181,15 +182,15 @@
 </nav>
 
 <header class="wrap">
-  <div class="eyebrow"><b style="color:var(--brand)">maxx</b> · Claude Code status bar</div>
-  <h1>Never run out of<br>tokens again.</h1>
-  <p class="sub">Claude hands you a 5-hour window and lets you burn it flat out — then you're locked out for days. <b>maxx</b> paces you to what actually lasts.</p>
+  <div class="eyebrow">Tokenmaxxing is easier with <b style="color:var(--brand)">maxx</b>.</div>
+  <h1>Never run out<br>of tokens.</h1>
+  <p class="sub">How many times have you hit your weekly limit before your project was done?</p>
 
   <div class="install" id="install-top">
     <code><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
     <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
   </div>
-  <div class="hint">One line. Bar + <code>/maxx</code> skill. Needs Node&nbsp;+&nbsp;git.</div>
+  <div class="hint">Install <code>/maxx</code></div>
 
   <div class="cta">
     <a class="btn primary" href="#install">Install</a>
@@ -200,29 +201,34 @@
 <div class="wrap demo">
   <div class="term">
     <div class="dots"><i></i><i></i><i></i></div>
-    <img src="maxx-session-bar.gif" alt="maxx statusline: session over its pace, red rail" loading="lazy">
+    <img src="maxx-live-session.gif" alt="maxx statusline live under a real Claude Code session: numbers rolling, both rails banking green" loading="lazy">
   </div>
-  <p class="caption">Over your pace → red.</p>
-  <div class="term" style="margin-top:22px">
-    <div class="dots"><i></i><i></i><i></i></div>
-    <img src="maxx-banked.gif" alt="maxx statusline: both rails banking, green with signed numbers" loading="lazy">
-  </div>
-  <p class="caption">Banking a cushion → green, signed <code>+</code>.</p>
+  <p class="caption">Runs in your cli, heads up token availability.</p>
 </div>
 
 <section class="wrap" id="lie">
   <div class="lie">
-    <h2>Why Claude lies to you</h2>
-    <p>Claude shows you a <b>5-hour window</b> — and makes it look like all those tokens are yours to spend.</p>
-    <p class="big">They're not. Not if you want them to last.</p>
-    <p>Max that 5-hour wall every window and your <b>weekly</b> limit is gone in a couple days. Then you're locked out — mid-build, no warning.</p>
-    <p class="fix"><b>maxx</b> paces you to the real number: weekly tokens ÷ windows left. Spend to it and the week lasts. Go over and it turns red <em>before</em> the wall does.</p>
+    <h2><code style="font-family:var(--mono)">/usage</code> is built by the guys trying to sell you tokens.</h2>
+    <p class="big">You get ~2.8 days of full 5hr sessions in a 7 day window.</p>
+    <p class="fix">Keep it up, and you’ll be out of tokens by Wednesday at 6pm central.</p>
   </div>
+</section>
+
+<section class="wrap" id="math">
+  <h2>You’ve been flying blind.</h2>
+  <p class="lead">Unlocking the black box token usage</p>
+
+  <div class="rail"><span class="lbl">pace&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">to_spend = week_left ÷ 5h_windows_left</span>&nbsp;&nbsp;<span class="k-dim">The sustainable token usage for this next 5hr period.</span></div>
+  <div class="rail"><span class="lbl">anchor&nbsp;</span> <span class="k-ink">cap = burned ÷ used%</span>&nbsp;&nbsp;<span class="k-dim">Pinned to Claude's own <code>/usage</code> numbers every refresh.</span></div>
+  <div class="rail"><span class="lbl">burn&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × model_price</span>&nbsp;&nbsp;<span class="k-dim">Different models cost different</span></div>
+  <div class="rail"><span class="lbl">models&nbsp;</span> <span class="k-ink">haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3</span>&nbsp;&nbsp;<span class="k-dim">Price-weighted. Refreshed daily from Anthropic's price sheet.</span></div>
+
+  <p class="hint" style="margin-top:14px">Fable &gt; Opus &gt; Sonnet &gt; Haiku, so your token usage should be pinned to market prices.</p>
 </section>
 
 <section class="wrap" id="features">
   <h2>What it shows you</h2>
-  <p class="lead">Anchored to the real <code>five_hour</code> / <code>seven_day</code> numbers — the same ones <code>/usage</code> shows.</p>
+  <p class="lead">Anchored to the same <code>five_hour</code> and <code>seven_day</code> numbers <code>/usage</code> shows.</p>
   <div class="feats">
     <div class="feat">
       <div class="feat-n">01</div>
@@ -235,29 +241,29 @@
       <div class="feat-n">02</div>
       <div>
         <h3>Numbers that roll</h3>
-        <p>Every figure counts one digit at a time — never a jarring jump — with a trailing signed rate that tells you if you're catching up or falling behind right now.</p>
+        <p>Every figure counts one digit at a time. A trailing signed rate tells you if you're catching up or falling behind right now.</p>
       </div>
     </div>
     <div class="feat">
       <div class="feat-n">03</div>
       <div>
         <h3>Weekly fuel tank</h3>
-        <p>A second rail for the seven-day wall, with an even-burn pace tick. Maxing your 5-hour cap every window drains the week early — maxx paces you so it lasts.</p>
+        <p>A second rail for the seven-day wall, with an even-burn pace tick. maxx paces you so the week lasts.</p>
       </div>
     </div>
     <div class="feat">
       <div class="feat-n">04</div>
       <div>
         <h3>Nothing leaves your box</h3>
-        <p>No analytics, no third party, no phone-home. Parsing of your Claude Code usage happens entirely on your machine.</p>
+        <p>No analytics, no third party, no phone-home. Your usage is parsed on your machine. The only network call is a daily read-only fetch of Anthropic's price sheet.</p>
       </div>
     </div>
   </div>
 </section>
 
 <section class="wrap" id="read">
-  <h2>How to read the bar</h2>
-  <p class="lead">Two rails, always on.</p>
+  <h2>How to read the token fuel gauge</h2>
+  <p class="lead">Session rail &amp; Weekly rail</p>
 
   <div class="rail">
     <span class="lbl">session</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill green" id="df-green"></span><span class="dfill red" id="df-red"></span></span>&nbsp;&nbsp;<span id="df-num"></span> <span class="k-dim">·</span> <span id="df-rate"></span>
@@ -268,57 +274,57 @@
   </div>
 
   <ul class="readlist">
-    <li><b>session</b> — your rolling 5-hour standing. Green = banked, red = over. The number is your signed cushion; the arrow is your live recovery/loss rate.</li>
-    <li><b>week</b> — your weekly reserve as a fuel tank: fill is budget remaining, the tick marks even-burn pace, then tokens left and days to reset.</li>
-    <li><b>context</b> — a meta line shows how full the model context is (separate from the account limit), plus model, branch, spend and cache-hit rate.</li>
+    <li><b>session</b>: Use less before, have more now, rolling the last 5 hours.</li>
+    <li><b>week</b>: Total remaining tokens estimated available (updated once per second)</li>
+    <li><b>context</b>: a meta line with context fill, model, branch, spend and cache-hit rate.</li>
   </ul>
 </section>
 
 <section class="wrap" id="situations">
-  <h2>Every situation, at a glance</h2>
+  <h2>Examples</h2>
   <p class="lead">What the two rails look like as your day unfolds.</p>
   <div class="situations">
 
     <div class="sit" data-sit>
-      <div class="title">Banking a cushion</div>
+      <div class="title">Tokens available</div>
       <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="55"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="591">+0</span>k</span></div>
       <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="62"></span></span><span class="num"><span class="cnt" data-to="312">0</span>M left</span></div>
-      <div class="cap">Went light — room to spend. Good window for a big task.</div>
+      <div class="cap">Good pacing, but it’s time to get back to working.</div>
     </div>
 
     <div class="sit" data-sit>
       <div class="title">On pace</div>
       <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="14"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="96">+0</span>k</span></div>
       <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="48"></span></span><span class="num"><span class="cnt" data-to="228">0</span>M left</span></div>
-      <div class="cap">Steady. Nothing to think about.</div>
+      <div class="cap">Steady. Nothing to worry about, except everything else.</div>
     </div>
 
     <div class="sit" data-sit>
       <div class="title">Borrowing from later</div>
       <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" data-w="30"></span></span><span class="num k-red"><span class="cnt" data-sign="−" data-to="1240">−0</span>k</span></div>
       <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="46"></span></span><span class="num"><span class="cnt" data-to="210">0</span>M left</span></div>
-      <div class="cap">Over your 5h pace, not dangerous. Ease off, it recovers.</div>
+      <div class="cap">Running a bit hot, that feature better be worth it.</div>
     </div>
 
     <div class="sit" data-sit>
       <div class="title">Near the 5h wall</div>
       <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" data-w="92"></span></span><span class="num k-red"><span class="cnt" data-sign="−" data-to="4980">−0</span>k</span></div>
       <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="38"></span></span><span class="num"><span class="cnt" data-to="170">0</span>M left</span></div>
-      <div class="cap">Full red = lockout close. Stop, or drop to Sonnet.</div>
+      <div class="cap">Drop it like it’s hot, or Claude will drop you.</div>
     </div>
 
     <div class="sit" data-sit>
       <div class="title">Half your week, day one</div>
       <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="28"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="220">+0</span>k</span></div>
       <div class="r"><span class="lb">week</span><span class="track"><span class="fill fl" data-w="28"></span></span><span class="num k-red"><span class="cnt" data-to="148">0</span>M left · 6d</span></div>
-      <div class="cap">Week draining fast — you'll lock out midweek. Slow down.</div>
+      <div class="cap">Week draining fast. Plan better, or go for a walk or something.</div>
     </div>
 
     <div class="sit" data-sit>
       <div class="title">Fresh 5-hour window</div>
       <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="96"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="7900">+0</span>k</span></div>
       <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="58"></span></span><span class="num"><span class="cnt" data-to="268">0</span>M left</span></div>
-      <div class="cap">Full tank, week healthy. Burn freely.</div>
+      <div class="cap">Full tank, week healthy. Free to fly!</div>
     </div>
 
   </div>
@@ -326,19 +332,27 @@
 
 <section class="wrap" id="install">
   <h2>Install</h2>
-  <p class="lead">One pasteable line in your terminal. Restart Claude Code — done.</p>
+  <p class="lead">One line in your terminal. Restart Claude Code. Done.</p>
   <div class="install" style="display:flex;width:100%">
     <code style="flex:1"><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
     <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
   </div>
   <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
-  <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak — or <code>/maxx session</code> for how much to burn this window.</p>
+  <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak. Or <code>/maxx session</code> for how much to burn this window.</p>
+</section>
+
+<section class="wrap" id="terminals">
+  <h2>Works in every terminal. (Except for that one we don’t have support for).</h2>
+  <p class="lead">maxx renders through the Claude Code statusline. Plain ANSI. And a pain in the ANSI to build.</p>
+  <ul class="readlist">
+    <li><b>macOS</b>: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</li>
+  </ul>
 </section>
 
 <section class="wrap">
   <div class="privacy">
     <h2>Your stuff stays yours</h2>
-    <p class="lead" style="margin:0 auto">maxx has no analytics service and sends no data anywhere. Fully on-box, zero egress. Open source under MIT.</p>
+    <p class="lead" style="margin:0 auto">We might launch some sharing of metadata (opt-in) for using in better algorithm-ing, but for now no data leaves the box. MIT.</p>
   </div>
 </section>
 
@@ -362,6 +376,7 @@
 <footer>
   <div class="wrap">
     <p>Made for you by the folks over at <a href="https://goodindustries.co"><b>Good Industries</b></a>.</p>
+    <p>Tokenmaxx is spelled with <b>maxx</b>.</p>
     <p><span class="logo" style="font-size:16px"><b>maxx</b></span> · a fuel gauge for Claude Code · <a href="https://github.com/goodindustries/Maxx">GitHub</a> · <a href="https://github.com/goodindustries/Maxx/blob/main/LICENSE">MIT</a></p>
   </div>
 </footer>
@@ -382,10 +397,10 @@
           num=document.getElementById('df-num'), rate=document.getElementById('df-rate'), note=document.getElementById('df-note');
     if(!g) return;
     const S=[
-      {g:.58,r:0, num:'591k tokens',  nc:'k-green', rate:'+61k/min',  rc:'k-green', note:'Banking — you’ve got a cushion to spend this session.'},
-      {g:.14,r:0, num:'96k tokens',   nc:'k-green', rate:'+9k/min',   rc:'k-green', note:'On pace — steady, right where you should be.'},
-      {g:0, r:.32,num:'1,240k over',  nc:'k-red',   rate:'−90k/min',  rc:'k-red', note:'Over your pace — borrowing from later windows. Ease off and it recovers.'},
-      {g:0, r:.92,num:'4,980k over',  nc:'k-red',   rate:'−150k/min', rc:'k-red', note:'Near the wall — full red means a lockout is close. Stop, or switch to Sonnet.'},
+      {g:.58,r:0, num:'591k tokens',  nc:'k-green', rate:'+61k/min',  rc:'k-green', note:'Your miserly-ness is paying off, banking tokens.'},
+      {g:.14,r:0, num:'96k tokens',   nc:'k-green', rate:'+9k/min',   rc:'k-green', note:'Stable as Old Faithful, using tokens correctly.'},
+      {g:0, r:.32,num:'1,240k over',  nc:'k-red',   rate:'−90k/min',  rc:'k-red', note:'YOLO mode? Slow down a bit.'},
+      {g:0, r:.92,num:'4,980k over',  nc:'k-red',   rate:'−150k/min', rc:'k-red', note:'Roger red leader, you are about to hit a wall. (5h session limit hard cap)'},
     ];
     const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
     let i=0;
@@ -448,7 +463,7 @@
   // show a thank-you after the contact form posts (Netlify redirects to /?thanks=1)
   if(/[?&]thanks=1/.test(location.search)){
     var h=document.querySelector('.hello');
-    if(h){ h.innerHTML='<h2>Thanks — talk soon 👋</h2><p class="lead" style="margin:8px auto 0">We got your note and will get back to you.</p>';
+    if(h){ h.innerHTML='<h2>Thanks. Talk soon 👋</h2><p class="lead" style="margin:8px auto 0">We got your note and will get back to you.</p>';
       document.getElementById('hello').scrollIntoView(); }
   }
 </script>

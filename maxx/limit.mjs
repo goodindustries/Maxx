@@ -42,15 +42,30 @@ async function files(dir) {
   return out;
 }
 
-// one transcript line → [ts, weightedTokens] or null. weight by quota pressure: cache-reads
-// are cheap (~0.1x) and barely count toward the limit, so a high-cache session shouldn't look
-// like it's burning fast. Shared by the full scan and the incremental tail.
+// one transcript line → [ts, weightedTokens] or null. weight by quota pressure, using price
+// as the proxy (per-token: cache-reads ~0.1x, cache-writes 1.25x, output 5x input; per-model:
+// Sonnet=1, Haiku 1/3, Opus 5/3, Fable 10/3). A Haiku subagent token drains ~1/10 the quota of
+// a Fable token — unweighted they'd look the same. The cap anchor (cap = burned / used%) still
+// absorbs any residual price→quota mapping error. Shared by full scan and incremental tail.
+// live weights from ~/.maxx/prices.json (refreshed daily by prices.mjs); built-ins as fallback
+const PRICE_W = (() => {
+  const fallback = { fable: 10 / 3, mythos: 10 / 3, opus: 5 / 3, sonnet: 1, haiku: 1 / 3 };
+  try {
+    const p = JSON.parse(readFileSync(path.join(homedir(), ".maxx", "prices.json"), "utf8"));
+    return { ...fallback, ...p.weights };
+  } catch { return fallback; }
+})();
+const modelWeight = m => {
+  for (const fam in PRICE_W) if (m.includes(fam)) return PRICE_W[fam];
+  return PRICE_W.sonnet;   // unknown/synthetic → baseline
+};
 function parseLine(line, seen) {
   if (!line || line[0] !== "{") return null;
   let r; try { r = JSON.parse(line); } catch { return null; }
   const u = r?.message?.usage; if (!u) return null;
-  const tok = (u.input_tokens || 0) + (u.output_tokens || 0)
-            + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) * 0.1;
+  const tok = ((u.input_tokens || 0) + (u.output_tokens || 0) * 5
+            + (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1)
+            * modelWeight(r?.message?.model || "");
   if (!tok) return null;
   const id = r.requestId || r.uuid; if (id && seen) { if (seen.has(id)) return null; seen.add(id); }
   const ts = r.timestamp ? Date.parse(r.timestamp) : NaN;

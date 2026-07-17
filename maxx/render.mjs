@@ -62,15 +62,30 @@ function shade(hex, frac) {
   frac = Math.max(0, Math.min(1, frac));
   return frac < 0.5 ? mix(hex, (0.5 - frac) * 0.7, "#ffffff") : mix(hex, (frac - 0.5) * 0.7, "#000000");
 }
+// Apple's Terminal.app has no 24-bit color (verified on Sequoia: 38;2 renders as black/garbage,
+// even though shells there often export COLORTERM=truecolor). Downconvert to the xterm-256 cube
+// for it; every other mainstream terminal (iTerm2/Ghostty/Warp/Alacritty/kitty/VS Code) gets 24-bit.
+const USE_256 = process.env.TERM_PROGRAM === "Apple_Terminal";
+function to256([r, g, b]) {
+  // grayscale ramp (232-255) when the channels are close — keeps the lilac track from banding weirdly
+  if (Math.max(r, g, b) - Math.min(r, g, b) < 12) {
+    const v = Math.round((r + g + b) / 3);
+    if (v < 8) return 16;
+    if (v > 238) return 231;
+    return 232 + Math.round((v - 8) / 10);
+  }
+  const q = (v) => (v < 48 ? 0 : v < 115 ? 1 : Math.min(5, Math.round((v - 35) / 40)));
+  return 16 + 36 * q(r) + 6 * q(g) + q(b);
+}
+const sgrFg = (c) => (USE_256 ? `38;5;${to256(c)}` : `38;2;${c[0]};${c[1]};${c[2]}`);
+const sgrBg = (c) => (USE_256 ? `48;5;${to256(c)}` : `48;2;${c[0]};${c[1]};${c[2]}`);
 function esc(fgHex, bgHex, s) {
-  const [fr, fgg, fb] = rgb(fgHex), [br, bgg, bb] = rgb(bgHex);
-  return `\x1b[38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
+  return `\x1b[${sgrFg(rgb(fgHex))};${sgrBg(rgb(bgHex))}m${s}\x1b[0m`;
 }
 const fg = (c, s) => esc(c, BG, s);
 // italic variant (adds SGR 3) — for the calm coach line; degrades gracefully if unsupported
 function ital(fgHex, s) {
-  const [fr, fgg, fb] = rgb(fgHex), [br, bgg, bb] = rgb(BG);
-  return `\x1b[3;38;2;${fr};${fgg};${fb};48;2;${br};${bgg};${bb}m${s}\x1b[0m`;
+  return `\x1b[3;${sgrFg(rgb(fgHex))};${sgrBg(rgb(BG))}m${s}\x1b[0m`;
 }
 
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
