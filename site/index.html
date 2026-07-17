@@ -390,45 +390,34 @@
     if(RM){ i=2; apply(); } else { apply(); setInterval(apply,7000); }
   })();
 
-  // animate the situation cards — the name sits on top; the bars fill and numbers count up SLOWLY so you
-  // can follow. Cards fire one after another in reading order (a cascade), then the whole thing loops.
+  // situation cards — start IN the final state, then breathe: fills drift a few percent and the
+  // numbers wobble with them, so the bars read as live gauges instead of loading animations.
   (function(){
     const cards=document.querySelectorAll('[data-sit]');
     if(!cards.length) return;
-    const ANIM=3000, STEP=1600, PAUSE=2400; // fill/count duration, gap between cards, pause before repeat
-    function play(card){
-      const fills=card.querySelectorAll('.fill'), cnts=card.querySelectorAll('.cnt');
-      fills.forEach(function(f){ f.style.transition='none'; f.style.width='0%'; });
-      cnts.forEach(function(c){ c.textContent=(c.dataset.sign||'')+'0'; });
-      void card.offsetWidth; // force a reflow so 0% commits before we animate up
-      fills.forEach(function(f){ f.style.transition='width '+ANIM+'ms cubic-bezier(.33,.02,.22,1)'; f.style.width=f.dataset.w+'%'; });
-      cnts.forEach(function(c){
-        const to=+c.dataset.to, sign=c.dataset.sign||'', t0=performance.now();
-        (function tick(now){
-          const p=Math.min(1,(now-t0)/ANIM), v=Math.round(to*p);
-          c.textContent=sign+v.toLocaleString();
-          if(p<1) requestAnimationFrame(tick);
-        })(performance.now());
+    const items=[];
+    cards.forEach(function(card){
+      card.querySelectorAll('.r').forEach(function(row){
+        const f=row.querySelector('.fill'), c=row.querySelector('.cnt');
+        if(!f) return;
+        const w=+f.dataset.w, to=c?+c.dataset.to:0, sign=c?(c.dataset.sign||''):'';
+        f.style.transition='none'; f.style.width=w+'%';
+        if(c) c.textContent=sign+to.toLocaleString();
+        items.push({f,c,w,to,sign,phase:Math.random()*Math.PI*2,speed:.00045+Math.random()*.0003});
       });
-    }
-    // reduced-motion: paint every card at its final state once, no counting, no loop.
-    if(matchMedia('(prefers-reduced-motion: reduce)').matches){
-      cards.forEach(function(card){
-        card.querySelectorAll('.fill').forEach(function(f){ f.style.transition='none'; f.style.width=f.dataset.w+'%'; });
-        card.querySelectorAll('.cnt').forEach(function(c){ c.textContent=(c.dataset.sign||'')+(+c.dataset.to).toLocaleString(); });
+    });
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    (function frame(now){
+      items.forEach(function(it){
+        const drift=Math.sin(now*it.speed+it.phase);       // −1..1, slow
+        it.f.style.width=(it.w+drift*2.2)+'%';             // ±2.2% of the rail
+        if(it.c){
+          const v=Math.round(it.to*(1+drift*.02));         // ±2% of the number
+          it.c.textContent=it.sign+v.toLocaleString();
+        }
       });
-      return;
-    }
-    // one cascade: each card starts STEP after the previous, in DOM (reading) order.
-    function cascade(){ cards.forEach(function(card,i){ setTimeout(function(){ play(card); }, i*STEP); }); }
-    let started=false;
-    const cycle=(cards.length-1)*STEP + ANIM + PAUSE;
-    const io=new IntersectionObserver(function(es){
-      es.forEach(function(e){
-        if(e.isIntersecting && !started){ started=true; cascade(); setInterval(cascade, cycle); }
-      });
-    },{threshold:.25});
-    io.observe(cards[0]);
+      requestAnimationFrame(frame);
+    })(performance.now());
   })();
 
 
