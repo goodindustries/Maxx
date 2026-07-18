@@ -17,8 +17,14 @@ const arg = (f, d) => { const i = process.argv.indexOf(f); return i >= 0 ? proce
 const port = Number(arg("--port", process.env.PORT || 8787));
 const dir = arg("--dir", process.env.MAXX_STATE_DIR || path.join(homedir(), ".maxx", "tally"));
 
-// secretFor: per-handle secret. Local dev = open (returns null). Prod injects real secrets.
-const handler = createHandler({ store: createFileStore(dir) });
+// Auth: MAXX_SECRET (shared bearer) enforced when set; unset = open (localhost dev
+// only — never expose an open instance on a public URL). MAXX_SECRET_<HANDLE>
+// overrides per user.
+const secretFor = async (h) =>
+  process.env[`MAXX_SECRET_${String(h).toUpperCase().replace(/[^A-Z0-9]/g, "_")}`] ||
+  process.env.MAXX_SECRET ||
+  null;
+const handler = createHandler({ store: createFileStore(dir), secretFor });
 
 const server = http.createServer(async (req, res) => {
   const chunks = [];
