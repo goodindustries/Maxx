@@ -125,7 +125,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         feed_url: `${base}/api/u/${h}/feed`,
         next: [
           "SAVE the secret — it is shown once and not recoverable.",
-          `Cloud: claude.ai → Settings → Connectors → Add custom connector → name "Maxx", URL = mcp_url above. Every agent with it gets the budget-gate rules automatically.`,
+          `Cloud (optional): open https://claude.ai/settings/connectors → Add custom connector → name "Maxx", URL = mcp_url above. Every agent with it gets the budget-gate rules automatically. NOTE: it auto-attaches to NEW routines only — add it to pre-existing routines by hand.`,
           "Laptop: curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/maxx/install.sh | bash",
           `Then: node ~/.claude/skills/maxx/emit.mjs --signup ${h}  (already done if you signed up via emit) and node ~/.claude/skills/maxx/emit.mjs --install-agent`,
         ],

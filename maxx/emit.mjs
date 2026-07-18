@@ -181,8 +181,10 @@ if (args.signup) {
   mkdirSync(path.dirname(CONFIG), { recursive: true });
   writeFileSync(CONFIG, JSON.stringify({ ...cfg, handle: out.handle, secret: out.secret, logsUrl: base }, null, 2));
   console.log(`maxx: handle "${out.handle}" claimed — config written to ${CONFIG}`);
-  console.log(`\n  Cloud connector (claude.ai → Settings → Connectors → Add custom connector):`);
+  console.log(`\n  Cloud connector — optional, only needed for claude.ai/cloud sessions:`);
+  console.log(`    open  https://claude.ai/settings/connectors  → Add custom connector`);
   console.log(`    Name: Maxx\n    URL:  ${out.mcp_url}`);
+  console.log(`    (attaches automatically to NEW routines only — add it to existing ones by hand)`);
   console.log(`\n  Laptop live-ship (start at login):\n    node ${fileURLToPath(import.meta.url)} --install-agent`);
   console.log(`\n  Watch it with your own eyes:\n    node ${path.join(path.dirname(fileURLToPath(import.meta.url)), "watch.mjs")}\n`);
   process.exit(0);
