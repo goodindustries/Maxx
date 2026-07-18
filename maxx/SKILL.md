@@ -18,6 +18,7 @@ Reads only token/usage metadata — never prompt or message content.
 /maxx session    # session tokens: how much to burn this rolling 5h window (plain language)
 /maxx json       # print the raw stats payload (JSON)
 /maxx nazi       # hourly posture check: ranked token drains + one lever (for agents)
+/maxx agents     # WHO is burning: per-root-session token attribution, named (for agents)
 ```
 
 ## What to do
@@ -30,6 +31,19 @@ Reads only token/usage metadata — never prompt or message content.
    - Session:   `node ~/.claude/skills/maxx/tracker.mjs session`   (when the user says `session`)
    - JSON:      `node ~/.claude/skills/maxx/tracker.mjs --json`
    - Nazi:      `node ~/.claude/skills/maxx/limit.mjs --nazi`   (when the user says `nazi`; add `--json` for the machine form)
+   - Agents:    `node ~/.claude/skills/maxx/agents.mjs`   (when the user says `agents`; `--children` to expand live descendants, `--mins N` window, `--json` machine form)
+
+   `agents` answers "what's using all the tokens" with names, not a count. Every
+   session log nests: a root session at `<project>/<ROOT>.jsonl` owns everything
+   under `<project>/<ROOT>/subagents/**` (subagent spawns AND workflow fan-outs).
+   A 300-agent workflow is ONE root's burn. agents.mjs rolls all descendants up to
+   their root, labels it with the human title (customTitle > aiTitle > agentName)
+   and git branch, ranks by billed tokens over the window, and flags 🔴 anything
+   with a turn in the last 5 min (live = still bleeding; idle = done, no action).
+   Agent-readable: the FIRST stdout line is a single `MAXX_AGENTS window=… billed=…
+   roots=… live_roots=… top=[…]` record — an agent can grep just that. `--json`
+   gives the full per-root breakdown (own / subagents / workflow split, live
+   children). Show the human the card verbatim.
 
    **Token budget — read before interpreting `session`.** "Session tokens" = weekly
    tokens-LEFT ÷ the 5h windows left this week, over a ROLLING 5h window, capped at the
