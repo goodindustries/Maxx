@@ -130,6 +130,9 @@ const fmt = (n) =>
   n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
 const pad = (s, w) => String(s).padStart(w);
 const projShort = (p) => p.replace(/^-Users-reify-(Classified-)?/, "").replace(/^-+/, "") || "?";
+// Per-root label: the short project name, or the session's cwd when there's no
+// real project dir (e.g. a `claude` run from `/` shows up as project "-" → "?").
+const projLabel = (r) => { const s = projShort(r.project); return s === "?" ? (r.cwd || "?") : s; };
 
 const args = parseArgs(process.argv.slice(2));
 const nowSec = Date.now() / 1000;
@@ -180,7 +183,7 @@ const totOut = ranked.reduce((a, r) => a + r.out, 0);
 const liveRoots = ranked.filter((r) => r.live > 0);
 
 // ── agent-readable first line ───────────────────────────────────────────────
-const label = (r) => `${projShort(r.project)}${r.name ? ":" + r.name.slice(0, 32) : ""}`;
+const label = (r) => `${projLabel(r)}${r.name ? ":" + r.name.slice(0, 32) : ""}`;
 const top = ranked.slice(0, 4).map((r) => `${label(r).replace(/\s+/g, "_")}=${fmt(r.billed)}`).join(" ");
 console.log(`MAXX_AGENTS window=${args.mins}m billed=${fmt(totBilled)} output=${fmt(totOut)} roots=${ranked.length} live_roots=${liveRoots.length} top=[${top}]`);
 
@@ -189,7 +192,7 @@ if (args.json) {
     windowMins: args.mins, at: new Date(nowSec * 1000).toISOString(),
     totalBilled: totBilled, totalOutput: totOut, rootCount: ranked.length, liveRoots: liveRoots.length,
     roots: ranked.map((r) => ({
-      key: r.key, project: projShort(r.project), name: r.name, branch: r.branch,
+      key: r.key, project: projLabel(r), name: r.name, branch: r.branch,
       billed: r.billed, output: r.out, live: r.live, agoMin: Math.round((nowSec - r.last) / 60),
       breakdown: { own: r.own, subagents: r.sub, workflow: r.wf, nSub: r.nSub, nWf: r.nWf },
       liveChildren: r.children.sort((a, b) => b.billed - a.billed).slice(0, 10),
@@ -203,12 +206,12 @@ console.log(`\n  maxx agents — who's burning  ·  last ${args.mins}m  ·  roll
 for (const r of ranked) {
   const flag = r.live ? "🔴" : "  ";
   const ago = r.live ? `${r.live} live` : `idle ${Math.round((nowSec - r.last) / 60)}m`;
-  const nm = r.name ? `"${r.name}"` : projShort(r.project);
+  const nm = r.name ? `"${r.name}"` : projLabel(r);
   const parts = [];
   if (r.sub) parts.push(`sub ${fmt(r.sub)}×${r.nSub}`);
   if (r.wf) parts.push(`wf ${fmt(r.wf)}×${r.nWf}`);
   const bd = parts.length ? `  (own ${fmt(r.own)} · ${parts.join(" · ")})` : "";
-  console.log(`  ${flag} ${pad(fmt(r.billed), 7)}  ${pad(ago, 8)}  ${projShort(r.project)} — ${nm}${bd}`);
+  console.log(`  ${flag} ${pad(fmt(r.billed), 7)}  ${pad(ago, 8)}  ${projLabel(r)} — ${nm}${bd}`);
   console.log(`            ${" ".repeat(9)}${r.root.slice(0, 8)}${r.branch ? "  @" + r.branch : ""}`);
   if (args.children && r.children.length) {
     for (const c of r.children.sort((a, b) => b.billed - a.billed).slice(0, 8)) {
