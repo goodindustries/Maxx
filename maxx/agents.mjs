@@ -78,7 +78,7 @@ function classify(dir, file) {
 
 async function ingest(file, cutoffSec) {
   let tok = 0, out = 0, turns = 0, last = 0;
-  let custom = null, ai = null, agent = null, branch = null;
+  let custom = null, ai = null, agent = null, branch = null, cwd = null;
   const rl = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
   for await (const line of rl) {
     if (!line || line[0] !== "{") continue;
@@ -88,6 +88,7 @@ async function ingest(file, cutoffSec) {
     if (rec.aiTitle) ai = rec.aiTitle;
     if (rec.agentName) agent = rec.agentName;
     if (rec.gitBranch) branch = rec.gitBranch;
+    if (rec.cwd) cwd = rec.cwd;
     const u = rec?.message?.usage || rec?.usage;
     const ts = rec?.timestamp;
     if (!u || !ts) continue;
@@ -99,7 +100,28 @@ async function ingest(file, cutoffSec) {
     turns++;
     if (t > last) last = t;
   }
-  return { tok, out, turns, last, custom, ai, agent, branch };
+  return { tok, out, turns, last, custom, ai, agent, branch, cwd };
+}
+
+// Metadata-only scan of a root's own .jsonl — no token/window filter. Used to
+// backfill name+branch for roots whose own log fell outside the window but whose
+// children are still live (idle root, bleeding descendants). Stops once it has both.
+async function readMeta(file) {
+  let custom = null, ai = null, agent = null, branch = null, cwd = null;
+  const rl = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (!line || line[0] !== "{") continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (rec.customTitle) custom = rec.customTitle;
+    if (rec.aiTitle) ai = rec.aiTitle;
+    if (rec.agentName) agent = rec.agentName;
+    if (rec.gitBranch) branch = rec.gitBranch;
+    if (rec.cwd) cwd = rec.cwd;
+    if (custom && branch) break; // best labels found, stop early
+  }
+  rl.close();
+  return { name: custom || ai || agent || null, branch, cwd };
 }
 
 const fmt = (n) =>
@@ -126,7 +148,7 @@ for (const f of files) {
   let r = roots.get(key);
   if (!r) {
     r = { key, project: c.project, root: c.root, billed: 0, out: 0, own: 0, sub: 0, wf: 0,
-          nSub: 0, nWf: 0, live: 0, last: 0, name: null, branch: null, children: [] };
+          nSub: 0, nWf: 0, live: 0, last: 0, name: null, branch: null, cwd: null, children: [] };
     roots.set(key, r);
   }
   r.billed += s.tok; r.out += s.out; r.last = Math.max(r.last, s.last);
@@ -134,9 +156,22 @@ for (const f of files) {
   if (c.kind === "sub") r.nSub++;
   if (c.kind === "wf") r.nWf++;
   if (s.last > liveSince) r.live++;
-  if (c.kind === "own") { r.name = s.custom || s.ai || s.agent || r.name; r.branch = s.branch || r.branch; }
+  if (c.kind === "own") { r.name = s.custom || s.ai || s.agent || r.name; r.branch = s.branch || r.branch; r.cwd = s.cwd || r.cwd; }
   else if (!r.name && (s.custom || s.ai || s.agent)) r.name = s.custom || s.ai || s.agent;
   if (s.last > liveSince) r.children.push({ kind: c.kind, billed: s.tok, file: path.basename(f).replace(/\.jsonl$/, "").slice(0, 12) });
+}
+
+// Backfill roots whose own log was outside the window (idle root, live children):
+// read the root .jsonl directly for its title + branch instead of showing "?".
+for (const r of roots.values()) {
+  if (r.name && r.branch) continue;
+  const rootFile = path.join(args.dir, r.project, r.root + ".jsonl");
+  try {
+    const m = await readMeta(rootFile);
+    r.name = r.name || m.name;
+    r.branch = r.branch || m.branch;
+    r.cwd = r.cwd || m.cwd;
+  } catch {}
 }
 
 const ranked = [...roots.values()].sort((a, b) => b.billed - a.billed);
