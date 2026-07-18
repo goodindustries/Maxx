@@ -128,6 +128,16 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
             websiteUrl: "https://meetmaxx.co",
             icons: [{ src: ICON_URL, mimeType: "image/svg+xml", sizes: ["any"] }],
           },
+          // Server-level directive injected wherever the Maxx connector is enabled —
+          // the closest MCP gets to a mandatory gate (still advisory; a PreToolUse
+          // hook is the hard block).
+          instructions:
+            "BUDGET GATE — before doing any token-expensive work (spawning agents/subagents, " +
+            "long generations, builds, large batches), you MUST first call `maxx_budget`. " +
+            "It returns the whole account's live remaining budget (all machines + cloud combined). " +
+            "STOP and do not proceed if: verdict is \"over\" or \"stale\", or session_to_spend is 0. " +
+            "If verdict is \"ok\", session_to_spend is roughly how many tokens you may safely use this window. " +
+            "This is a hard budget gate, not a suggestion — check it first, every run.",
         });
       if (rm === "notifications/initialized" || rm === "notifications/cancelled")
         return { status: 202, headers: {}, body: "" };
