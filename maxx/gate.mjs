@@ -132,7 +132,8 @@ console.log(JSON.stringify({
     permissionDecisionReason:
       `MAXX BUDGET GATE: verdict=${b.verdict}, session_to_spend=${b.session_to_spend ?? "unknown"} — ` +
       `account-wide budget window has no tokens for expensive work (${tool}). ` +
-      `Wait for the window, or the USER may explicitly overturn (recorded to the central feed): ` +
+      `Tokens again: ${b.tokens_again || "when the window resets"}. ` +
+      `Do cheap work or wait — or the USER may explicitly overturn (recorded to the central feed): ` +
       `node ~/.claude/skills/maxx/gate.mjs --overturn "<reason>"`,
   },
 }));

@@ -140,9 +140,20 @@ export function computeBudget(store, now) {
     if (e.ts > now - FIVE_H) surfaces[e.surface] = (surfaces[e.surface] || 0) + e.billed;
   }
 
+  // when tokens come back: session_to_spend refills at five_reset (next 5h
+  // window); a weekly wall only lifts at week_reset. Shipped as countdowns so
+  // an agent doesn't have to do epoch math to answer "how long until tokens?".
+  const fiveReset = a?.five_reset || null;
+  const resetIn = (t) => (t && t > now ? Math.round(t - now) : null);
+
   return {
     quota, week: weekPct,
-    five_reset: a?.five_reset || null, week_reset: wr || null,
+    five_reset: fiveReset, week_reset: wr || null,
+    five_reset_in_sec: resetIn(fiveReset), week_reset_in_sec: resetIn(wr),
+    tokens_again:
+      (weekPct != null && weekPct >= 0.99)
+        ? `weekly cap — tokens at week_reset (${resetIn(wr) != null ? Math.round(resetIn(wr) / 3600) + "h" : "?"})`
+        : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
     weekly_left_tokens: weeklyLeft, session_to_spend: sessionToSpend,
     verdict, fresh,
     anchor_age_sec: Number.isFinite(anchorAge) ? Math.round(anchorAge) : null,
