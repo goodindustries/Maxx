@@ -114,9 +114,12 @@ export function computeBudget(store, now) {
   }
 
   const weeklyLeft = weekCap != null ? Math.max(0, weekCap - week) : null;
-  // sessions-left-this-week paces the weekly headroom over the 5h windows remaining.
+  // sessions-left-this-week paces the weekly headroom over the 5h windows remaining,
+  // capped at the 5h wall, MINUS what this window already spent (limit.mjs rollSession).
   const windowsLeft = wr ? Math.max(1, (wr - now) / FIVE_H) : 1;
-  const sessionToSpend = weeklyLeft != null ? Math.max(0, Math.round(weeklyLeft / windowsLeft)) : null;
+  const sessionSafe = weeklyLeft != null
+    ? Math.min(fiveCap ?? Infinity, Math.round(weeklyLeft / windowsLeft)) : null;
+  const sessionToSpend = sessionSafe != null ? Math.max(0, sessionSafe - five) : null;
 
   let verdict = "ok";
   if (!a || !fresh) verdict = "stale";
