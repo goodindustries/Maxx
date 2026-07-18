@@ -106,7 +106,7 @@ const weightedTok = (u, model) =>
 
 // Sum only usage records strictly newer than `sinceSec`, per file, keeping the
 // root labels + per-model billed. Returns the new records' contribution.
-async function ingestSince(file, sinceSec) {
+async function ingestSince(file, sinceSec, seen) {
   let billed = 0, out = 0, turns = 0, first = 0, last = 0;
   const byModel = {};
   let custom = null, ai = null, agent = null, branch = null;
@@ -127,6 +127,10 @@ async function ingestSince(file, sinceSec) {
     const model = rec?.message?.model || rec?.model;
     const b = Math.round(weightedTok(u, model)); // quota-weighted, matches limit.mjs
     if (!b) continue;
+    // dedup repeated usage rows (retries/resumptions log the same turn twice) —
+    // matches limit.mjs, or the tally over-counts vs the /usage-anchored statusline.
+    const rid = rec.requestId || rec.uuid;
+    if (rid && seen) { if (seen.has(rid)) continue; seen.add(rid); }
     billed += b;
     out += u.output_tokens || 0;
     turns++;
@@ -160,8 +164,9 @@ async function runOnce({ quiet = false } = {}) {
   const files = await recentFiles(args.dir, (sinceSec - 120) * 1000 || 0);
   const roots = new Map();
   let maxTs = sinceSec;
+  const seen = new Set(); // dedup requestId/uuid across all files this cycle
   for (const f of files) {
-    const s = await ingestSince(f, sinceSec);
+    const s = await ingestSince(f, sinceSec, seen);
     if (!s.billed) continue;
     const c = classify(args.dir, f);
     const key = `${c.project}/${c.root}`;
