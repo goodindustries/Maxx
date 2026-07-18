@@ -12,12 +12,21 @@
  *   allow → exit 0, no output (normal permission flow continues)
  *
  * CLI:
- *   node gate.mjs --status              current gate state + live verdict
+ *   node gate.mjs --status              current gate state + policy + live verdict
  *   node gate.mjs --off                 disable (same as overturn, reason "manual off")
  *   node gate.mjs --on                  re-enable
  *   node gate.mjs --overturn "reason"   disable AND record the overturn: noted in
  *                                       ~/.maxx/gate.json + gate.log AND shipped to
  *                                       the central tally feed (visible in maxx watch)
+ *
+ * Fleet policy (every change is recorded to the central feed, like an overturn):
+ *   --mode paced|spree     paced (default): hold to the per-window share.
+ *                          spree: ignore pacing, spend until the weekly wall.
+ *   --margin <pct>         paced only: allow spending <pct>% PAST the window share
+ *                          (e.g. 25 → stop at 1.25× session_safe).
+ *   --weekly-stop <pct>    the hard reserve wall (default 99). Even spree stops at
+ *                          this weekly %. Set 90 to always keep a 10% reserve.
+ *   --fail open|closed     no fresh verdict: closed (default) denies, open allows.
  *
  * Fail-closed: no fresh verdict (server unreachable AND cache >10m old) → deny.
  * That is the whole point — an invisible budget must read as "no budget".
@@ -78,15 +87,35 @@ async function note(kind, text) {
 }
 
 const args = process.argv.slice(2);
-const gate = readJSON(GATE, { enabled: true });
+const gate = readJSON(GATE, {});
+// policy with defaults — gate.json only stores what was explicitly set
+const pol = {
+  enabled: gate.enabled !== false,
+  mode: gate.mode || "paced",
+  margin: gate.margin_pct || 0,
+  weeklyStop: gate.weekly_stop_pct ?? 99,
+  fail: gate.fail_mode || "closed",
+};
+const polLine = () => `mode=${pol.mode} margin=${pol.margin}% weekly_stop=${pol.weeklyStop}% fail=${pol.fail}`;
+const savePol = () => writeFileSync(GATE, JSON.stringify({
+  enabled: pol.enabled, mode: pol.mode, margin_pct: pol.margin,
+  weekly_stop_pct: pol.weeklyStop, fail_mode: pol.fail,
+  ...(gate.overturn && !pol.enabled ? { overturn: gate.overturn } : {}),
+}, null, 2));
 
 if (args.includes("--status")) {
   const b = await budget();
-  console.log(JSON.stringify({ gate: gate.enabled ? "ON" : "OFF", overturn: gate.overturn || null, verdict: b.verdict, session_to_spend: b.session_to_spend ?? null, week: b.week ?? null }, null, 2));
+  console.log(JSON.stringify({
+    gate: pol.enabled ? "ON" : "OFF", mode: pol.mode, margin_pct: pol.margin,
+    weekly_stop_pct: pol.weeklyStop, fail_mode: pol.fail, overturn: gate.overturn || null,
+    verdict: b.verdict, week: b.week ?? null, session_safe: b.session_safe ?? null,
+    session_to_spend: b.session_to_spend ?? null, five_billed: b.five_billed ?? null,
+    tokens_again: b.tokens_again ?? null,
+  }, null, 2));
   process.exit(0);
 }
 if (args.includes("--on")) {
-  writeFileSync(GATE, JSON.stringify({ enabled: true }, null, 2));
+  pol.enabled = true; delete gate.overturn; savePol();
   log("gate ON");
   await note("gate-on", "GATE RE-ENABLED");
   console.log("maxx gate: ON");
@@ -95,12 +124,30 @@ if (args.includes("--on")) {
 if (args.includes("--off") || args.includes("--overturn")) {
   const i = args.indexOf("--overturn");
   const reason = (i >= 0 && args[i + 1]) || "manual off";
-  const overturn = { ts: new Date().toISOString(), reason, host: hostname() };
-  writeFileSync(GATE, JSON.stringify({ enabled: false, overturn }, null, 2));
+  gate.overturn = { ts: new Date().toISOString(), reason, host: hostname() };
+  pol.enabled = false; savePol();
   log(`gate OVERTURN: ${reason}`);
   await note("gate-overturn", `⚠ GATE OVERTURNED: ${reason}`);
   console.log(`maxx gate: OFF — overturn RECORDED (local gate.log + central feed): "${reason}"`);
   console.log("re-enable: node gate.mjs --on");
+  process.exit(0);
+}
+// ---- fleet policy settings: every change is recorded like an overturn ----
+if (args.some((a) => ["--mode", "--margin", "--weekly-stop", "--fail"].includes(a))) {
+  const val = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : null; };
+  const m = val("--mode");
+  if (m) { if (!/^(paced|spree)$/.test(m)) { console.error("--mode paced|spree"); process.exit(1); } pol.mode = m; }
+  const mg = val("--margin");
+  if (mg != null) { const n = Number(mg); if (!(n >= 0 && n <= 500)) { console.error("--margin 0..500"); process.exit(1); } pol.margin = n; }
+  const ws = val("--weekly-stop");
+  if (ws != null) { const n = Number(ws); if (!(n >= 10 && n <= 100)) { console.error("--weekly-stop 10..100"); process.exit(1); } pol.weeklyStop = n; }
+  const fm = val("--fail");
+  if (fm) { if (!/^(open|closed)$/.test(fm)) { console.error("--fail open|closed"); process.exit(1); } pol.fail = fm; }
+  savePol();
+  log(`policy: ${polLine()}`);
+  await note("gate-policy", `GATE POLICY: ${polLine()}`);
+  console.log(`maxx gate policy set — RECORDED to central feed:\n  ${polLine()}`);
+  if (pol.mode === "spree") console.log(`  ⚠ SPREE: pacing off — spending until the ${pol.weeklyStop}% weekly wall.`);
   process.exit(0);
 }
 
@@ -113,27 +160,49 @@ try { hook = JSON.parse(input); } catch { process.exit(0); }   // not a hook cal
 const tool = hook.tool_name || "";
 if (!GATED.test(tool)) process.exit(0);                         // not an expensive tool → allow
 
-if (!gate.enabled) {
+if (!pol.enabled) {
   // overturned — allow, already noted at overturn time; keep a local trace
   log(`allow (gate OFF${gate.overturn ? `, overturn: ${gate.overturn.reason}` : ""}) tool=${tool}`);
   process.exit(0);
 }
 if (!cfg.handle || !cfg.secret) process.exit(0);                // no maxx account on this box → not our call
 
-const b = await budget();
-const over = b.verdict === "over" || b.verdict === "stale" || b.verdict === "unreachable" || b.session_to_spend === 0;
-if (!over) process.exit(0);
+const deny = (why) => {
+  log(`DENY tool=${tool} ${why} [${polLine()}]`);
+  console.log(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason:
+        `MAXX BUDGET GATE (${polLine()}): ${why} — no tokens for expensive work (${tool}). ` +
+        `Do cheap work or wait — or the USER may adjust policy / explicitly overturn (recorded to the central feed): ` +
+        `node ~/.claude/skills/maxx/gate.mjs --overturn "<reason>"`,
+    },
+  }));
+  process.exit(0);
+};
 
-log(`DENY tool=${tool} verdict=${b.verdict} session_to_spend=${b.session_to_spend ?? "?"}`);
-console.log(JSON.stringify({
-  hookSpecificOutput: {
-    hookEventName: "PreToolUse",
-    permissionDecision: "deny",
-    permissionDecisionReason:
-      `MAXX BUDGET GATE: verdict=${b.verdict}, session_to_spend=${b.session_to_spend ?? "unknown"} — ` +
-      `account-wide budget window has no tokens for expensive work (${tool}). ` +
-      `Tokens again: ${b.tokens_again || "when the window resets"}. ` +
-      `Do cheap work or wait — or the USER may explicitly overturn (recorded to the central feed): ` +
-      `node ~/.claude/skills/maxx/gate.mjs --overturn "<reason>"`,
-  },
-}));
+const b = await budget();
+
+// 1. signal health: stale/unreachable → fail per policy
+if (b.verdict === "stale" || b.verdict === "unreachable") {
+  if (pol.fail === "open") { log(`allow (fail-open, verdict=${b.verdict}) tool=${tool}`); process.exit(0); }
+  deny(`budget signal ${b.verdict} (fail-closed). Tokens again: unknown until the signal returns`);
+}
+// 2. the weekly reserve wall — absolute, even in spree
+if (b.week != null && b.week * 100 >= pol.weeklyStop) {
+  deny(`weekly at ${Math.round(b.week * 100)}% ≥ weekly_stop ${pol.weeklyStop}%. Tokens again: ${b.tokens_again || "at week_reset"}`);
+}
+// 3. spree: pacing off, wall already checked
+if (pol.mode === "spree") { log(`allow (spree) tool=${tool}`); process.exit(0); }
+// 4. paced (+ optional margin): stop at session_safe × (1 + margin)
+const safe = b.session_safe;
+if (safe != null) {
+  const allowed = Math.round(safe * (1 + pol.margin / 100));
+  if ((b.five_billed || 0) >= allowed)
+    deny(`window spend ${b.five_billed} ≥ paced allowance ${allowed}` +
+         `${pol.margin ? ` (share ${safe} + ${pol.margin}% margin)` : ""}. Tokens again: ${b.tokens_again || "next 5h window"}`);
+} else if (b.session_to_spend === 0) {
+  deny(`session_to_spend=0. Tokens again: ${b.tokens_again || "next 5h window"}`);   // old-server fallback
+}
+process.exit(0);

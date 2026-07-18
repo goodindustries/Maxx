@@ -155,6 +155,7 @@ export function computeBudget(store, now) {
         ? `weekly cap — tokens at week_reset (${resetIn(wr) != null ? Math.round(resetIn(wr) / 3600) + "h" : "?"})`
         : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
     weekly_left_tokens: weeklyLeft, session_to_spend: sessionToSpend,
+    session_safe: sessionSafe,
     verdict, fresh,
     anchor_age_sec: Number.isFinite(anchorAge) ? Math.round(anchorAge) : null,
     stored_at: new Date(now * 1000).toISOString(),
