@@ -33,6 +33,12 @@ const server = http.createServer(async (req, res) => {
   for await (const c of req) chunks.push(c);
   const body = Buffer.concat(chunks).toString("utf8");
   const out = await handler({ method: req.method, url: req.url, headers: req.headers, body });
+  // access log (journalctl): who hit what — for MCP, which tool. Never bodies/secrets.
+  let tool = "";
+  if (req.url.startsWith("/mcp")) {
+    try { const r = JSON.parse(body); tool = ` ${r.method}${r.params?.name ? `:${r.params.name}` : ""}`; } catch {}
+  }
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url.replace(/([?&]k=)[^&]+/, "$1***")}${tool} → ${out.status}`);
   res.writeHead(out.status, out.headers || {});
   res.end(out.body || "");
 });
