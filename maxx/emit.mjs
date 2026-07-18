@@ -44,11 +44,12 @@ const ANCHOR_MAX_AGE_SEC = 30 * 60; // an anchor older than this is not trustwor
 const readJSON = (p, d) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
 
 function parseArgs(argv) {
-  const out = { dir: DEFAULT_DIR, send: false, json: false, since: null };
+  const out = { dir: DEFAULT_DIR, send: false, json: false, since: null, watch: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--send" || a === "send") out.send = true;
     else if (a === "--json" || a === "json") out.json = true;
+    else if (a === "--watch" || a === "watch") { out.watch = true; out.send = true; }
     else if (a === "--since") out.since = argv[++i];
     else if (a === "--dir") out.dir = argv[++i];
   }
@@ -128,119 +129,134 @@ const cfg = readJSON(CONFIG, {});
 const handle = cfg.handle || "unknown";
 const secret = cfg.secret || "";
 const installId = cfg.installId || hostname();
-const base = (cfg.logsUrl || "https://meetmaxx.co").replace(/\/$/, "");
+const base = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://meetmaxx.co").replace(/\/$/, "");
 const surface = cfg.surface || `laptop:${installId.slice(0, 8)}`;
 
-// cursor: last emitted timestamp (seconds). --since overrides. First run (no
-// cursor) ships ALL history — a one-time bulk backfill so the server has the
-// complete ground truth to reconstruct usage over time and true-up cap
-// estimates against every past anchor. After that, each run streams only the
-// delta past the cursor. The server windows/dedupes; the client just ships.
-const nowSec = Date.now() / 1000;
-const cursorState = readJSON(CURSOR, {});
-const sinceSec = args.since ? Date.parse(args.since) / 1000 : (cursorState.lastTs || 0);
+// One emit cycle: read cursor, scan NEW usage past it, attach a fresh anchor,
+// print (dry) or POST (send) and advance the cursor only on a 2xx. Returns the
+// new maxTs so --watch can chain cycles. First run (no cursor) ships ALL history
+// — a one-time bulk backfill so the server has complete ground truth to
+// reconstruct usage over time and true-up caps against every past anchor.
+async function runOnce({ quiet = false } = {}) {
+  const nowSec = Date.now() / 1000;
+  const cursorState = readJSON(CURSOR, {});
+  const sinceSec = args.since ? Date.parse(args.since) / 1000 : (cursorState.lastTs || 0);
 
-// Scan files touched since the cursor (a small mtime pad so nothing is missed).
-const files = await recentFiles(args.dir, (sinceSec - 120) * 1000 || 0);
+  const files = await recentFiles(args.dir, (sinceSec - 120) * 1000 || 0);
+  const roots = new Map();
+  let maxTs = sinceSec;
+  for (const f of files) {
+    const s = await ingestSince(f, sinceSec);
+    if (!s.billed) continue;
+    const c = classify(args.dir, f);
+    const key = `${c.project}/${c.root}`;
+    let r = roots.get(key);
+    if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, billed: 0, output: 0, turns: 0, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
+    r.billed += s.billed; r.output += s.out; r.turns += s.turns;
+    for (const k in s.byModel) r.byModel[k] = (r.byModel[k] || 0) + s.byModel[k];
+    if (s.name) r.name = s.name;
+    if (s.branch) r.branch = s.branch;
+    if (!r.first || s.first < r.first) r.first = s.first;
+    if (s.last > r.last) r.last = s.last;
+    if (s.last > maxTs) maxTs = s.last;
+  }
 
-const roots = new Map();
-let maxTs = sinceSec;
-for (const f of files) {
-  const s = await ingestSince(f, sinceSec);
-  if (!s.billed) continue;
-  const c = classify(args.dir, f);
-  const key = `${c.project}/${c.root}`;
-  let r = roots.get(key);
-  if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, billed: 0, output: 0, turns: 0, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
-  r.billed += s.billed; r.output += s.out; r.turns += s.turns;
-  for (const k in s.byModel) r.byModel[k] = (r.byModel[k] || 0) + s.byModel[k];
-  if (s.name) r.name = s.name;
-  if (s.branch) r.branch = s.branch;
-  if (!r.first || s.first < r.first) r.first = s.first;
-  if (s.last > r.last) r.last = s.last;
-  if (s.last > maxTs) maxTs = s.last;
-}
+  // Anchor: the authoritative subscription %s the interactive statusline observed.
+  // Only attach if fresh — never ship a stale anchor with a new timestamp.
+  const rl = readJSON(RL, null);
+  let anchor = null;
+  if (rl && rl.ts && (Date.now() - rl.ts) / 1000 < ANCHOR_MAX_AGE_SEC && (rl.quota != null || rl.week != null)) {
+    anchor = {
+      five_pct: rl.quota ?? null, week_pct: rl.week ?? null,
+      five_reset: rl.fiveResetAt ?? null, week_reset: rl.weekResetAt ?? null,
+      observed_at: iso(rl.ts / 1000),
+    };
+  }
 
-// Anchor: the authoritative subscription %s the interactive statusline observed.
-// Only attach if fresh — a stale anchor must not be shipped with a new timestamp.
-const rl = readJSON(RL, null);
-let anchor = null;
-if (rl && rl.ts && (Date.now() - rl.ts) / 1000 < ANCHOR_MAX_AGE_SEC && (rl.quota != null || rl.week != null)) {
-  anchor = {
-    five_pct: rl.quota ?? null,
-    week_pct: rl.week ?? null,
-    five_reset: rl.fiveResetAt ?? null,
-    week_reset: rl.weekResetAt ?? null,
-    observed_at: iso(rl.ts / 1000),
+  const sessions = [...roots.values()]
+    .sort((a, b) => b.billed - a.billed)
+    .map((r) => ({
+      root: r.root, project: r.project, name: r.name, branch: r.branch,
+      billed: r.billed, output: r.output, turns: r.turns, by_model: r.byModel,
+      first_ts: r.first ? iso(r.first) : null, last_ts: r.last ? iso(r.last) : null,
+    }));
+  const totalBilled = sessions.reduce((a, s) => a + s.billed, 0);
+  const totalOutput = sessions.reduce((a, s) => a + s.output, 0);
+
+  const envelope = {
+    v: 1, surface, install_id: installId, handle,
+    emitted_at: iso(nowSec), since: sinceSec ? iso(sinceSec) : null,
+    cursor: String(Math.round(maxTs)),
+    totals: { billed: totalBilled, output: totalOutput, sessions: sessions.length },
+    sessions, anchor,
   };
-}
 
-const sessions = [...roots.values()]
-  .sort((a, b) => b.billed - a.billed)
-  .map((r) => ({
-    root: r.root, project: r.project, name: r.name, branch: r.branch,
-    billed: r.billed, output: r.output, turns: r.turns, by_model: r.byModel,
-    first_ts: r.first ? iso(r.first) : null, last_ts: r.last ? iso(r.last) : null,
-  }));
+  if (!quiet) {
+    console.log(`MAXX_EMIT handle=${handle} surface=${surface} new_billed=${totalBilled} output=${totalOutput} sessions=${sessions.length} anchor=${anchor ? "yes" : "no"} target=${base}/api/u/${handle}/logs mode=${args.send ? "send" : "dry"}`);
+    if (args.json) console.log(JSON.stringify(envelope, null, 2));
+  }
+  if (!totalBilled) { if (!quiet) console.log("  nothing new since cursor."); return maxTs; }
 
-const totalBilled = sessions.reduce((a, s) => a + s.billed, 0);
-const totalOutput = sessions.reduce((a, s) => a + s.output, 0);
-
-const envelope = {
-  v: 1,
-  surface,
-  install_id: installId,
-  handle,
-  emitted_at: iso(nowSec),
-  since: sinceSec ? iso(sinceSec) : null,
-  cursor: String(Math.round(maxTs)),           // server dedupes on (surface, cursor)
-  totals: { billed: totalBilled, output: totalOutput, sessions: sessions.length },
-  sessions,
-  anchor,
-};
-
-// agent-readable one-liner
-console.log(`MAXX_EMIT handle=${handle} surface=${surface} new_billed=${totalBilled} output=${totalOutput} sessions=${sessions.length} anchor=${anchor ? "yes" : "no"} target=${base}/api/u/${handle}/logs mode=${args.send ? "send" : "dry"}`);
-
-if (args.json) { console.log(JSON.stringify(envelope, null, 2)); }
-
-if (!totalBilled) {
-  console.log("  nothing new since cursor — nothing to emit.");
-  process.exit(0);
-}
-
-if (!args.send) {
-  if (!args.json) {
-    console.log(`\n  DRY RUN — would POST to ${base}/api/u/${handle}/logs:`);
-    for (const s of sessions.slice(0, 8)) {
-      const mm = Object.entries(s.by_model).map(([k, v]) => `${k} ${Math.round(v / 1e3)}k`).join(" ");
-      console.log(`    ${String(Math.round(s.billed / 1e3)).padStart(6)}k  ${s.project} — ${s.name || s.root.slice(0, 8)}  (${mm})`);
+  if (!args.send) {
+    if (!quiet && !args.json) {
+      console.log(`\n  DRY RUN — would POST to ${base}/api/u/${handle}/logs:`);
+      for (const s of sessions.slice(0, 8)) {
+        const mm = Object.entries(s.by_model).map(([k, v]) => `${k} ${Math.round(v / 1e3)}k`).join(" ");
+        console.log(`    ${String(Math.round(s.billed / 1e3)).padStart(6)}k  ${s.project} — ${s.name || s.root.slice(0, 8)}  (${mm})`);
+      }
+      console.log(`  anchor: ${anchor ? `5h ${Math.round((anchor.five_pct || 0) * 100)}% · week ${Math.round((anchor.week_pct || 0) * 100)}%` : "none fresh"}`);
+      console.log(`  cursor would advance ${sinceSec ? iso(sinceSec) : "(start)"} → ${iso(maxTs)}\n  run with --send to ship it.\n`);
     }
-    console.log(`  anchor: ${anchor ? `5h ${Math.round((anchor.five_pct || 0) * 100)}% · week ${Math.round((anchor.week_pct || 0) * 100)}%` : "none fresh"}`);
-    console.log(`  cursor would advance ${sinceSec ? iso(sinceSec) : "(start)"} → ${iso(maxTs)}`);
-    console.log(`  run with --send to ship it.\n`);
+    return maxTs;
   }
-  process.exit(0);
+
+  // --send
+  if (!secret) { process.stderr.write("maxx emit: no secret in ~/.maxx/config.json.\n"); if (!args.watch) process.exit(1); return maxTs; }
+  try {
+    const res = await fetch(`${base}/api/u/${encodeURIComponent(handle)}/logs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "authorization": `Bearer ${secret}` },
+      body: JSON.stringify(envelope),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await res.text().catch(() => "");
+    if (res.ok) {
+      writeFileSync(CURSOR, JSON.stringify({ lastTs: Math.round(maxTs), at: iso(nowSec) }));
+      console.log(`  sent ✓ ${res.status} +${fmtK(totalBilled)} · cursor → ${iso(maxTs)} · ${body.slice(0, 120)}`);
+    } else {
+      console.log(`  send FAILED ${res.status} — cursor NOT advanced · ${body.slice(0, 200)}`);
+      if (!args.watch) process.exit(1);
+    }
+  } catch (e) {
+    console.log(`  send error — cursor NOT advanced · ${e.message}`);
+    if (!args.watch) process.exit(1);
+  }
+  return maxTs;
 }
 
-// --send
-if (!secret) { process.stderr.write("maxx emit: no secret in ~/.maxx/config.json — cannot authenticate.\n"); process.exit(1); }
-try {
-  const res = await fetch(`${base}/api/u/${encodeURIComponent(handle)}/logs`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "authorization": `Bearer ${secret}` },
-    body: JSON.stringify(envelope),
-    signal: AbortSignal.timeout(15000),
-  });
-  const body = await res.text().catch(() => "");
-  if (res.ok) {
-    writeFileSync(CURSOR, JSON.stringify({ lastTs: Math.round(maxTs), at: iso(nowSec) }));
-    console.log(`  sent ✓ ${res.status} · cursor advanced to ${iso(maxTs)} · ${body.slice(0, 200)}`);
-  } else {
-    console.log(`  send FAILED ${res.status} — cursor NOT advanced · ${body.slice(0, 300)}`);
-    process.exit(1);
-  }
-} catch (e) {
-  console.log(`  send error — cursor NOT advanced · ${e.message}`);
-  process.exit(1);
+const fmtK = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
+
+if (!args.watch) {
+  await runOnce();
+} else {
+  // Live stream: a session's .jsonl is appended per-turn WHILE it runs, so tailing
+  // the projects dir emits each turn's usage as it lands. Debounce bursts; a slow
+  // interval backstops any watch event the OS drops.
+  const { watch } = await import("node:fs");
+  console.log(`MAXX_EMIT watch=on surface=${surface} target=${base} — live-streaming turns as they land (Ctrl-C to stop)`);
+  await runOnce({ quiet: true });
+  let timer = null, running = false;
+  const kick = () => {
+    if (timer) return;
+    timer = setTimeout(async () => {
+      timer = null;
+      if (running) return;
+      running = true;
+      try { await runOnce({ quiet: true }); } catch (e) { console.log("  cycle error:", e.message); }
+      running = false;
+    }, 2000); // debounce 2s
+  };
+  try { watch(args.dir, { recursive: true }, (_e, f) => { if (f && f.endsWith(".jsonl")) kick(); }); }
+  catch { /* recursive watch unsupported on some platforms */ }
+  setInterval(kick, 60000); // 60s backstop
 }

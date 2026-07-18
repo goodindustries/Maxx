@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+/**
+ * Local runner for the maxx tally server — node http wrapping the handler with a
+ * file-backed store. For dev/test and as the reference the Netlify function
+ * mirrors. Production wraps the same handler with createBlobStore instead.
+ *
+ *   node server/serve.mjs [--port 8787] [--dir <state dir>]
+ *   PORT / MAXX_STATE_DIR env also honored.
+ */
+import http from "node:http";
+import path from "node:path";
+import { homedir } from "node:os";
+import { createHandler } from "./handler.mjs";
+import { createFileStore } from "./store.mjs";
+
+const arg = (f, d) => { const i = process.argv.indexOf(f); return i >= 0 ? process.argv[i + 1] : d; };
+const port = Number(arg("--port", process.env.PORT || 8787));
+const dir = arg("--dir", process.env.MAXX_STATE_DIR || path.join(homedir(), ".maxx", "tally"));
+
+// secretFor: per-handle secret. Local dev = open (returns null). Prod injects real secrets.
+const handler = createHandler({ store: createFileStore(dir) });
+
+const server = http.createServer(async (req, res) => {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const body = Buffer.concat(chunks).toString("utf8");
+  const out = await handler({ method: req.method, url: req.url, headers: req.headers, body });
+  res.writeHead(out.status, out.headers || {});
+  res.end(out.body || "");
+});
+server.listen(port, () => console.log(`maxx tally on http://localhost:${port}  (state: ${dir})`));
