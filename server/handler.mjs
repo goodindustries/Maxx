@@ -54,6 +54,10 @@ const TOOLS = [
   },
 ];
 
+// meetmaxx.co favicon — served from api.meetmaxx.co too, and advertised in serverInfo.
+const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="hsl(265 60% 94%)"/><text x="32" y="47" text-anchor="middle" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="44" font-weight="700" fill="hsl(264 66% 54%)">m</text></svg>`;
+const ICON_URL = "https://meetmaxx.co/favicon.svg";
+
 const json = (status, obj) => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(obj) });
 const rpcOk = (id, result) => json(200, { jsonrpc: "2.0", id, result });
 const rpcErr = (id, code, message) => json(200, { jsonrpc: "2.0", id, error: { code, message } });
@@ -92,6 +96,8 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
     const p = url.pathname;
 
     if (method === "GET" && (p === "/" || p === "/health")) return json(200, { ok: true, service: "maxx-tally" });
+    if (method === "GET" && (p === "/favicon.svg" || p === "/favicon.ico" || p === "/icon"))
+      return { status: 200, headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }, body: FAVICON };
 
     // ---- REST ----
     let m = p.match(/^\/api\/u\/([^/]+)\/logs$/);
@@ -114,7 +120,15 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
       let rpc; try { rpc = JSON.parse(body || "{}"); } catch { return rpcErr(null, -32700, "parse error"); }
       const { id = null, method: rm, params = {} } = rpc;
       if (rm === "initialize")
-        return rpcOk(id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "Maxx", version: "1" } });
+        return rpcOk(id, {
+          protocolVersion: "2024-11-05",
+          capabilities: { tools: {} },
+          serverInfo: {
+            name: "Maxx", version: "1", title: "Maxx",
+            websiteUrl: "https://meetmaxx.co",
+            icons: [{ src: ICON_URL, mimeType: "image/svg+xml", sizes: ["any"] }],
+          },
+        });
       if (rm === "notifications/initialized" || rm === "notifications/cancelled")
         return { status: 202, headers: {}, body: "" };
       if (rm === "ping") return rpcOk(id, {});
