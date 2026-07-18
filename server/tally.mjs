@@ -67,11 +67,20 @@ export function applyEnvelope(store, env) {
 const latestAnchor = (store) =>
   store.anchors.length ? store.anchors.reduce((a, b) => (b.ts > a.ts ? b : a)) : null;
 
-// Sum billed across all surfaces whose effective ts is within [now - win, now].
-const windowedBilled = (events, now, win) => {
+// Sum billed across all surfaces whose effective ts is within (lo, now].
+const windowedBilled = (events, now, win, lo = now - win) => {
   let sum = 0;
-  for (const e of events) if (e.ts > now - win && e.ts <= now + 60) sum += e.billed;
+  for (const e of events) if (e.ts > lo && e.ts <= now + 60) sum += e.billed;
   return sum;
+};
+
+// Anthropic's weekly limit is a FIXED window that zeroes at week_reset, not a rolling
+// sum (limit.mjs computes weekUsed the same way — this is what makes tally == statusline).
+// Start = week_reset − 7d, rolled forward if the reset has already passed.
+const weekLoFor = (weekReset, now) => {
+  let lo = weekReset - WEEK;
+  while (lo + WEEK < now) lo += WEEK;
+  return lo;
 };
 
 /**
@@ -79,11 +88,13 @@ const windowedBilled = (events, now, win) => {
  * signals.budget. `now` in seconds.
  */
 export function computeBudget(store, now) {
-  const five = windowedBilled(store.events, now, FIVE_H);
-  const week = windowedBilled(store.events, now, WEEK);
   const a = latestAnchor(store);
   const anchorAge = a ? now - a.ts : Infinity;
   const fresh = anchorAge <= ANCHOR_TRUST_SEC;
+
+  const five = windowedBilled(store.events, now, FIVE_H);
+  const wr = a?.week_reset || 0;
+  const week = windowedBilled(store.events, now, WEEK, wr ? weekLoFor(wr, now) : undefined);
 
   // Anchor the caps: cap = tokens-in-window ÷ observed-pct, measured at anchor time.
   // Use the anchor's own windowed sums so cap reflects the same window the % described.
@@ -94,7 +105,7 @@ export function computeBudget(store, now) {
       fiveCap = Math.round(fiveAtAnchor / a.five_pct);
     }
     if (a.week_pct > 0.01) {
-      const weekAtAnchor = windowedBilled(store.events, a.ts, WEEK);
+      const weekAtAnchor = windowedBilled(store.events, a.ts, WEEK, wr ? weekLoFor(wr, a.ts) : undefined);
       weekCap = Math.round(weekAtAnchor / a.week_pct);
     }
     // Live utilization = current windowed sum ÷ anchored cap (extrapolated forward).
@@ -104,8 +115,7 @@ export function computeBudget(store, now) {
 
   const weeklyLeft = weekCap != null ? Math.max(0, weekCap - week) : null;
   // sessions-left-this-week paces the weekly headroom over the 5h windows remaining.
-  const weekReset = a?.week_reset || 0;
-  const windowsLeft = weekReset ? Math.max(1, (weekReset - now) / FIVE_H) : 1;
+  const windowsLeft = wr ? Math.max(1, (wr - now) / FIVE_H) : 1;
   const sessionToSpend = weeklyLeft != null ? Math.max(0, Math.round(weeklyLeft / windowsLeft)) : null;
 
   let verdict = "ok";
@@ -119,7 +129,7 @@ export function computeBudget(store, now) {
 
   return {
     quota, week: weekPct,
-    five_reset: a?.five_reset || null, week_reset: weekReset || null,
+    five_reset: a?.five_reset || null, week_reset: wr || null,
     weekly_left_tokens: weeklyLeft, session_to_spend: sessionToSpend,
     verdict, fresh,
     anchor_age_sec: Number.isFinite(anchorAge) ? Math.round(anchorAge) : null,
