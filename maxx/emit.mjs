@@ -89,6 +89,21 @@ const modelFamily = (m) => {
   return "other";
 };
 
+// Quota-pressure weighting — MUST match limit.mjs so the tally's token amounts
+// agree with the /usage-anchored statusline (not raw billed, which is ~10x higher
+// because cache reads dominate). Per-token: output 5x, cache-write 1.25x,
+// cache-read 0.1x. Per-model weight from ~/.maxx/prices.json (daily-refreshed) or
+// the built-in fallback. `billed` we ship IS this weighted number.
+const PRICE_W = (() => {
+  const fallback = { fable: 10 / 3, mythos: 10 / 3, opus: 5 / 3, sonnet: 1, haiku: 1 / 3 };
+  try { return { ...fallback, ...(readJSON(path.join(HOME, ".maxx", "prices.json"), {}).weights || {}) }; }
+  catch { return fallback; }
+})();
+const modelWeight = (m) => { m = String(m || "").toLowerCase(); for (const fam in PRICE_W) if (m.includes(fam)) return PRICE_W[fam]; return PRICE_W.sonnet; };
+const weightedTok = (u, model) =>
+  ((u.input_tokens || 0) + (u.output_tokens || 0) * 5 +
+   (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1) * modelWeight(model);
+
 // Sum only usage records strictly newer than `sinceSec`, per file, keeping the
 // root labels + per-model billed. Returns the new records' contribution.
 async function ingestSince(file, sinceSec) {
@@ -109,13 +124,13 @@ async function ingestSince(file, sinceSec) {
     if (!u || !ts) continue;
     const t = Date.parse(ts) / 1000;
     if (!Number.isFinite(t) || t <= sinceSec) continue; // only NEW records
-    const b = (u.input_tokens || 0) + (u.output_tokens || 0) +
-              (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+    const model = rec?.message?.model || rec?.model;
+    const b = Math.round(weightedTok(u, model)); // quota-weighted, matches limit.mjs
+    if (!b) continue;
     billed += b;
     out += u.output_tokens || 0;
     turns++;
-    const fam = modelFamily(rec?.message?.model || rec?.model);
-    byModel[fam] = (byModel[fam] || 0) + b;
+    byModel[modelFamily(model)] = (byModel[modelFamily(model)] || 0) + b;
     if (!first || t < first) first = t;
     if (t > last) last = t;
   }
