@@ -1,9 +1,20 @@
 # Maxx connector — deploy + wire-up
 
-## LIVE NOW — served from lucky (not Netlify)
+## LIVE NOW — api.meetmaxx.co (CF-direct) on lucky (hardware)
 
-Deployed on the lucky host, reverse-proxied to lucky's public URL. §1 below
-(Netlify) is the alternative path; the live setup is:
+Routing: `api.meetmaxx.co → Cloudflare (proxied) → lucky named tunnel → server`.
+No Netlify in the API path (confirmed by `cf-ray` header). meetmaxx.co (Netlify,
+`site/`) serves the **landing page only** — `/mcp` there is 404 by design.
+
+- **Connector URL: `https://api.meetmaxx.co/mcp?handle=reif`** (Bearer).
+- **CF DNS:** proxied CNAME `api.meetmaxx.co` → `51665939-…​.cfargotunnel.com` in the
+  meetmaxx.co zone (needs a CF token with Zone:DNS:Edit on meetmaxx.co — lucky's
+  tunnel cert only covers luckymachines.co).
+- **lucky tunnel ingress** (`~/.cloudflared/config.yml`): `api.meetmaxx.co →
+  http://127.0.0.1:8791`, before the 404 catch-all. Reload with SIGHUP to the
+  `cloudflared tunnel run lucky` process (`config.yml.bak-premaxx` is the backup).
+
+Behind the tunnel — the server itself:
 
 - **Server:** `node server/serve.mjs --port 8791` as lucky job (queue:false daemon),
   cwd `/home/agent/maxxbudget` (shallow clone of the `maxx-budget` branch),
