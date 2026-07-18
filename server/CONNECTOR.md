@@ -1,5 +1,29 @@
 # Maxx connector — deploy + wire-up
 
+## LIVE NOW — served from lucky (not Netlify)
+
+Deployed on the lucky host, reverse-proxied to lucky's public URL. §1 below
+(Netlify) is the alternative path; the live setup is:
+
+- **Server:** `node server/serve.mjs --port 8791` as lucky job (queue:false daemon),
+  cwd `/home/agent/maxxbudget` (shallow clone of the `maxx-budget` branch),
+  state `/home/agent/maxxbudget-state`, `MAXX_SECRET` from `…-state/.secret`.
+- **Reverse proxy:** `site_deploy name=maxxbudget target=8791` — the `/maxxbudget`
+  prefix is stripped before the upstream, so routes are clean.
+- **Public base:** `https://luckymachines.co/maxxbudget`
+  - MCP connector URL: `https://luckymachines.co/maxxbudget/mcp?handle=reif`
+  - emit / budget: `…/maxxbudget/api/u/reif/{logs,budget}`
+- **Laptop:** `~/.maxx/config.json` → `logsUrl=https://luckymachines.co/maxxbudget`,
+  matching `secret`. Continuous ship via launchd agent `co.meetmaxx.emit`
+  (`emit.mjs --watch`, logs `~/.maxx/emit.log`).
+- **Redeploy after a code change:** push to `maxx-budget`, then on lucky
+  `git -C /home/agent/maxxbudget pull && (restart the maxx-tally job)`.
+- **Not yet durable across host reboot** (queue:false daemon, no boot unit) — fine
+  "for now"; add a boot service later. Secret is a rotatable metadata token.
+
+---
+
+
 The account-wide **Maxx** connector is how every Claude Code cloud routine reports
 its token burn to the central tally (and reads budget back). It's a standard
 custom MCP connector added through Claude's official connector setup — one MCP
