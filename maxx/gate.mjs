@@ -191,7 +191,9 @@ if (b.verdict === "stale" || b.verdict === "unreachable") {
 }
 // 2. the weekly reserve wall — absolute, even in spree
 if (b.week != null && b.week * 100 >= pol.weeklyStop) {
-  deny(`weekly at ${Math.round(b.week * 100)}% ≥ weekly_stop ${pol.weeklyStop}%. Tokens again: ${b.tokens_again || "at week_reset"}`);
+  // a weekly wall only lifts at week_reset — the 5h refill doesn't lower week %
+  const wh = b.week_reset_in_sec != null ? `${Math.round(b.week_reset_in_sec / 3600)}h` : "?";
+  deny(`weekly at ${Math.round(b.week * 100)}% ≥ weekly_stop ${pol.weeklyStop}%. Tokens again: at week_reset (${wh})`);
 }
 // 3. spree: pacing off, wall already checked
 if (pol.mode === "spree") { log(`allow (spree) tool=${tool}`); process.exit(0); }
