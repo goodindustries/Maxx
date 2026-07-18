@@ -44,10 +44,14 @@ content. The emitter enforces this by construction (it reads only `usage` blocks
   "sessions": [
     {
       "root": "<uuid>", "project": "nonprofit-atlas",
-      "name": "<title>", "branch": "<git>",
-      "billed": int,                     // input+output+cache_creation+cache_read
+      "name": "<title>", "branch": "<git>", "cc_version": "<claude-code ver|null>",
+      "billed": int,                     // QUOTA-WEIGHTED (limit.mjs formula) — matches the statusline
       "output": int, "turns": int,
       "by_model": { "Opus": int, "Sonnet": int, "Haiku": int, "Fable": int, "other": int },
+      "input": int, "cache_read": int, "cache_write": int,   // raw usage split (cache-hit analytics)
+      "raw": int,                        // unweighted input+output+cache_creation+cache_read
+      "tool_calls": int,                 // count of tool_use blocks (types only, never args)
+      "agent_turns": int,                // turns from subagent sidechains
       "first_ts": "<ISO>", "last_ts": "<ISO>"
     }
   ],

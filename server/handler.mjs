@@ -13,6 +13,7 @@
  * Storage-agnostic (inject a store adapter) and clock-injectable (for tests).
  * The Netlify function and a local node http server are both thin wrappers.
  */
+import { randomBytes } from "node:crypto";
 import { applyEnvelope, computeBudget } from "./tally.mjs";
 
 const TOOLS = [
@@ -62,7 +63,10 @@ const json = (status, obj) => ({ status, headers: { "content-type": "application
 const rpcOk = (id, result) => json(200, { jsonrpc: "2.0", id, result });
 const rpcErr = (id, code, message) => json(200, { jsonrpc: "2.0", id, error: { code, message } });
 
-export function createHandler({ store, secretFor = () => null, now = () => Date.now() / 1000 }) {
+// secretFor(handle) = PER-HANDLE secret only (e.g. MAXX_SECRET_<HANDLE> env);
+// fallbackSecret = shared operator secret that also gates unclaimed handles on a
+// public deploy — it must NOT make handles look "taken" to signup.
+export function createHandler({ store, secretFor = () => null, fallbackSecret = null, now = () => Date.now() / 1000 }) {
   const bearer = (headers) => {
     const h = headers.authorization || headers.Authorization || "";
     const m = /^Bearer\s+(.+)$/i.exec(h);
@@ -72,9 +76,11 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
   // claude.ai custom connector self-authenticate via the URL alone (it can't
   // always set an Authorization header).
   const tokenOf = (headers, url) => bearer(headers) || url.searchParams.get("k") || "";
+  // Self-serve secrets (signup) live in the store; env secrets (MAXX_SECRET*) are
+  // the operator fallback that also gates unclaimed handles on a public deploy.
   const authed = async (handle, token) => {
-    const want = await secretFor(handle);
-    if (!want) return true; // no secret configured for this handle → open (local/dev)
+    const want = (await store.getSecret?.(handle)) || (await secretFor(handle)) || fallbackSecret;
+    if (!want) return true; // no secret configured at all → open (local/dev)
     return token === want;
   };
 
@@ -98,6 +104,33 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
     if (method === "GET" && (p === "/" || p === "/health")) return json(200, { ok: true, service: "maxx-tally" });
     if (method === "GET" && (p === "/favicon.svg" || p === "/favicon.ico" || p === "/icon"))
       return { status: 200, headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }, body: FAVICON };
+
+    // ---- signup: claim a handle, mint its secret (first come, first served) ----
+    if (p === "/api/signup" && method === "POST") {
+      if (!store.setSecret) return json(404, { error: "signup not enabled on this deploy" });
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      const h = String(b.handle || "").toLowerCase();
+      if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(h))
+        return json(400, { error: "handle must be 3-32 chars: a-z 0-9 - _ (no leading - or _)" });
+      if ((await store.getSecret(h)) || (await secretFor(h)) || (await store.load(h)).events.length)
+        return json(409, { error: `handle "${h}" is taken` });
+      const secret = randomBytes(18).toString("base64url");
+      await store.setSecret(h, secret);
+      const base = `https://${headers["x-forwarded-host"] || headers.host || "api.meetmaxx.co"}`;
+      return json(200, {
+        ok: true, handle: h, secret,
+        mcp_url: `${base}/mcp?handle=${h}&k=${secret}`,
+        logs_url: `${base}/api/u/${h}/logs`,
+        budget_url: `${base}/api/u/${h}/budget`,
+        feed_url: `${base}/api/u/${h}/feed`,
+        next: [
+          "SAVE the secret — it is shown once and not recoverable.",
+          `Cloud: claude.ai → Settings → Connectors → Add custom connector → name "Maxx", URL = mcp_url above. Every agent with it gets the budget-gate rules automatically.`,
+          "Laptop: curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/maxx/install.sh | bash",
+          `Then: node ~/.claude/skills/maxx/emit.mjs --signup ${h}  (already done if you signed up via emit) and node ~/.claude/skills/maxx/emit.mjs --install-agent`,
+        ],
+      });
+    }
 
     // ---- REST ----
     let m = p.match(/^\/api\/u\/([^/]+)\/logs$/);
@@ -124,6 +157,10 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
       const events = s.events.slice(-n).reverse().map((e) => ({
         surface: e.surface, root: e.root, ts: new Date(e.ts * 1000).toISOString(),
         billed: e.billed, output: e.output || 0,
+        project: e.project || null, name: e.name || null, branch: e.branch || null,
+        by_model: e.by_model || {}, turns: e.turns || 0, tool_calls: e.tool_calls || 0,
+        agent_turns: e.agent_turns || 0, raw: e.raw || 0,
+        cache_read: e.cache_read || 0, cache_write: e.cache_write || 0,
       }));
       return json(200, { count: s.events.length, events });
     }

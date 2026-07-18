@@ -1,5 +1,38 @@
 # Maxx connector — deploy + wire-up
 
+## Self-serve — anyone can use the hosted server
+
+One account = one **handle** + one **secret**, minted once at signup (first come,
+first served). Everything is per-handle: your own tally, budget, feed, and the
+budget-gate rules ship automatically to every agent that carries your connector.
+
+```bash
+# 1. install the statusline + skill (also places emit.mjs/watch.mjs)
+curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/maxx/install.sh | bash
+
+# 2. claim your handle (writes ~/.maxx/config.json, prints your connector URL)
+node ~/.claude/skills/maxx/emit.mjs --signup <your-handle>
+
+# 3. live-ship this machine's usage at login (launchd on macOS)
+node ~/.claude/skills/maxx/emit.mjs --install-agent
+```
+
+Then add the printed URL as a custom connector (claude.ai → Settings →
+Connectors → Add custom connector, name `Maxx`):
+`https://api.meetmaxx.co/mcp?handle=<you>&k=<secret>`. Any agent (cloud routine,
+claude.ai chat, another machine) with that connector gets the budget-gate
+`instructions` on initialize and can call `maxx_emit` / `maxx_budget` against
+**your** account only.
+
+Your own eyes: `node ~/.claude/skills/maxx/watch.mjs` (live dashboard) ·
+`tail -f ~/.maxx/emit.log` (shipper log) ·
+`GET /api/u/<you>/feed?n=50` (server-side event feed).
+
+The secret is shown once at signup and stored only in `~/.maxx/config.json` —
+treat it like a password (it's a rotatable metadata token; no content ever
+leaves the machine, only token counts). Signup endpoint: `POST /api/signup
+{"handle":"you"}`.
+
 ## LIVE NOW — api.meetmaxx.co (CF-direct) on lucky (hardware)
 
 Routing: `api.meetmaxx.co → Cloudflare (proxied) → lucky named tunnel → server`.

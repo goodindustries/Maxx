@@ -25,14 +25,17 @@
  *   node maxx/emit.mjs --since ISO   — override the cursor (re-emit from a timestamp)
  *   node maxx/emit.mjs --json        — print the raw envelope JSON only
  *   node maxx/emit.mjs --dir PATH    — override projects dir
+ *   node maxx/emit.mjs --signup H    — claim handle H on the tally server, write ~/.maxx/config.json
+ *   node maxx/emit.mjs --install-agent — keep --watch running at login (launchd on macOS)
  *
  * Wire contract: see maxx/LOGS.md.
  */
-import { createReadStream, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HOME = homedir();
 const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
@@ -44,7 +47,7 @@ const ANCHOR_MAX_AGE_SEC = 30 * 60; // an anchor older than this is not trustwor
 const readJSON = (p, d) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
 
 function parseArgs(argv) {
-  const out = { dir: DEFAULT_DIR, send: false, json: false, since: null, watch: false };
+  const out = { dir: DEFAULT_DIR, send: false, json: false, since: null, watch: false, signup: null, installAgent: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--send" || a === "send") out.send = true;
@@ -52,6 +55,8 @@ function parseArgs(argv) {
     else if (a === "--watch" || a === "watch") { out.watch = true; out.send = true; }
     else if (a === "--since") out.since = argv[++i];
     else if (a === "--dir") out.dir = argv[++i];
+    else if (a === "--signup" || a === "signup") out.signup = argv[++i];
+    else if (a === "--install-agent") out.installAgent = true;
   }
   return out;
 }
@@ -78,7 +83,7 @@ function classify(dir, file) {
   return { project, root: rel[1] };
 }
 
-const projShort = (p) => p.replace(/^-Users-reify-(Classified-)?/, "").replace(/^-+/, "") || "?";
+const projShort = (p) => p.replace(/^-(Users|home)-[^-]+-(Classified-)?/, "").replace(/^-+/, "") || "?";
 const modelFamily = (m) => {
   if (!m) return "other";
   const s = String(m).toLowerCase();
@@ -108,8 +113,9 @@ const weightedTok = (u, model) =>
 // root labels + per-model billed. Returns the new records' contribution.
 async function ingestSince(file, sinceSec, seen) {
   let billed = 0, out = 0, turns = 0, first = 0, last = 0;
+  let inp = 0, cacheR = 0, cacheW = 0, raw = 0, tools = 0, agentTurns = 0;
   const byModel = {};
-  let custom = null, ai = null, agent = null, branch = null;
+  let custom = null, ai = null, agent = null, branch = null, version = null;
   const rl = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
   for await (const line of rl) {
     if (!line || line[0] !== "{") continue;
@@ -119,6 +125,7 @@ async function ingestSince(file, sinceSec, seen) {
     if (rec.aiTitle) ai = rec.aiTitle;
     if (rec.agentName) agent = rec.agentName;
     if (rec.gitBranch) branch = rec.gitBranch;
+    if (rec.version) version = rec.version;
     const u = rec?.message?.usage || rec?.usage;
     const ts = rec?.timestamp;
     if (!u || !ts) continue;
@@ -133,12 +140,23 @@ async function ingestSince(file, sinceSec, seen) {
     if (rid && seen) { if (seen.has(rid)) continue; seen.add(rid); }
     billed += b;
     out += u.output_tokens || 0;
+    inp += u.input_tokens || 0;
+    cacheR += u.cache_read_input_tokens || 0;
+    cacheW += u.cache_creation_input_tokens || 0;
+    raw += (u.input_tokens || 0) + (u.output_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+    // tool-use COUNT only (block types, never arguments or results)
+    const content = rec?.message?.content;
+    if (Array.isArray(content)) for (const c of content) if (c?.type === "tool_use") tools++;
+    if (rec.isSidechain) agentTurns++;
     turns++;
     byModel[modelFamily(model)] = (byModel[modelFamily(model)] || 0) + b;
     if (!first || t < first) first = t;
     if (t > last) last = t;
   }
-  return { billed, out, turns, byModel, first, last, name: custom || ai || agent || null, branch };
+  return {
+    billed, out, turns, byModel, first, last, name: custom || ai || agent || null, branch, version,
+    inp, cacheR, cacheW, raw, tools, agentTurns,
+  };
 }
 
 const iso = (sec) => new Date(sec * 1000).toISOString();
@@ -148,8 +166,66 @@ const cfg = readJSON(CONFIG, {});
 const handle = cfg.handle || "unknown";
 const secret = cfg.secret || "";
 const installId = cfg.installId || hostname();
-const base = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://meetmaxx.co").replace(/\/$/, "");
+const base = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://api.meetmaxx.co").replace(/\/$/, "");
 const surface = cfg.surface || `laptop:${installId.slice(0, 8)}`;
+
+// --signup: claim a handle on the tally server, persist handle/secret/logsUrl.
+if (args.signup) {
+  const res = await fetch(`${base}/api/signup`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ handle: args.signup }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) { console.error(`signup failed (${res.status}): ${out.error || "?"}`); process.exit(1); }
+  mkdirSync(path.dirname(CONFIG), { recursive: true });
+  writeFileSync(CONFIG, JSON.stringify({ ...cfg, handle: out.handle, secret: out.secret, logsUrl: base }, null, 2));
+  console.log(`maxx: handle "${out.handle}" claimed — config written to ${CONFIG}`);
+  console.log(`\n  Cloud connector (claude.ai → Settings → Connectors → Add custom connector):`);
+  console.log(`    Name: Maxx\n    URL:  ${out.mcp_url}`);
+  console.log(`\n  Laptop live-ship (start at login):\n    node ${fileURLToPath(import.meta.url)} --install-agent`);
+  console.log(`\n  Watch it with your own eyes:\n    node ${path.join(path.dirname(fileURLToPath(import.meta.url)), "watch.mjs")}\n`);
+  process.exit(0);
+}
+
+// --install-agent: run `emit.mjs --watch` at login. launchd on macOS; prints a
+// systemd user unit elsewhere.
+if (args.installAgent) {
+  if (!cfg.handle || !cfg.secret) { console.error("no handle/secret in ~/.maxx/config.json — run --signup <handle> first."); process.exit(1); }
+  const self = fileURLToPath(import.meta.url);
+  if (process.platform === "darwin") {
+    const label = "co.meetmaxx.emit";
+    const plist = path.join(HOME, "Library", "LaunchAgents", `${label}.plist`);
+    mkdirSync(path.dirname(plist), { recursive: true });
+    writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${label}</string>
+  <key>ProgramArguments</key><array>
+    <string>${process.execPath}</string><string>${self}</string><string>--watch</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${path.join(HOME, ".maxx", "emit.log")}</string>
+  <key>StandardErrorPath</key><string>${path.join(HOME, ".maxx", "emit.log")}</string>
+</dict></plist>\n`);
+    const { execSync } = await import("node:child_process");
+    const uid = process.getuid();
+    try { execSync(`launchctl bootout gui/${uid}/${label} 2>/dev/null`); } catch {}
+    execSync(`launchctl bootstrap gui/${uid} ${plist}`);
+    execSync(`launchctl kickstart -k gui/${uid}/${label}`);
+    console.log(`maxx: launchd agent ${label} installed + running (log: ~/.maxx/emit.log)`);
+  } else {
+    console.log(`maxx: no launchd here — create a systemd user unit:\n
+  ~/.config/systemd/user/maxx-emit.service:
+    [Unit]\n    Description=maxx emit --watch
+    [Service]\n    ExecStart=${process.execPath} ${self} --watch\n    Restart=always
+    [Install]\n    WantedBy=default.target
+
+  systemctl --user daemon-reload && systemctl --user enable --now maxx-emit`);
+  }
+  process.exit(0);
+}
 
 // One emit cycle: read cursor, scan NEW usage past it, attach a fresh anchor,
 // print (dry) or POST (send) and advance the cursor only on a 2xx. Returns the
@@ -171,11 +247,14 @@ async function runOnce({ quiet = false } = {}) {
     const c = classify(args.dir, f);
     const key = `${c.project}/${c.root}`;
     let r = roots.get(key);
-    if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, billed: 0, output: 0, turns: 0, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
+    if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, version: null, billed: 0, output: 0, turns: 0, input: 0, cache_read: 0, cache_write: 0, raw: 0, tool_calls: 0, agent_turns: 0, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
     r.billed += s.billed; r.output += s.out; r.turns += s.turns;
+    r.input += s.inp; r.cache_read += s.cacheR; r.cache_write += s.cacheW;
+    r.raw += s.raw; r.tool_calls += s.tools; r.agent_turns += s.agentTurns;
     for (const k in s.byModel) r.byModel[k] = (r.byModel[k] || 0) + s.byModel[k];
     if (s.name) r.name = s.name;
     if (s.branch) r.branch = s.branch;
+    if (s.version) r.version = s.version;
     if (!r.first || s.first < r.first) r.first = s.first;
     if (s.last > r.last) r.last = s.last;
     if (s.last > maxTs) maxTs = s.last;
@@ -196,8 +275,10 @@ async function runOnce({ quiet = false } = {}) {
   const sessions = [...roots.values()]
     .sort((a, b) => b.billed - a.billed)
     .map((r) => ({
-      root: r.root, project: r.project, name: r.name, branch: r.branch,
+      root: r.root, project: r.project, name: r.name, branch: r.branch, cc_version: r.version,
       billed: r.billed, output: r.output, turns: r.turns, by_model: r.byModel,
+      input: r.input, cache_read: r.cache_read, cache_write: r.cache_write,
+      raw: r.raw, tool_calls: r.tool_calls, agent_turns: r.agent_turns,
       first_ts: r.first ? iso(r.first) : null, last_ts: r.last ? iso(r.last) : null,
     }));
   const totalBilled = sessions.reduce((a, s) => a + s.billed, 0);
@@ -243,6 +324,12 @@ async function runOnce({ quiet = false } = {}) {
     if (res.ok) {
       writeFileSync(CURSOR, JSON.stringify({ lastTs: Math.round(maxTs), at: iso(nowSec) }));
       console.log(`  sent ✓ ${res.status} +${fmtK(totalBilled)} · cursor → ${iso(maxTs)} · ${body.slice(0, 120)}`);
+      // who/what per session, so a tail of this log is attributable on its own:
+      // billed · project — session name [branch] (model mix)
+      for (const s of sessions.slice(0, 6)) {
+        const mm = Object.entries(s.by_model).map(([k, v]) => `${k} ${fmtK(v)}`).join(" ");
+        console.log(`      ${fmtK(s.billed).padStart(6)}  ${s.project} — ${s.name || s.root.slice(0, 8)}${s.branch ? ` [${s.branch}]` : ""}  (${mm})`);
+      }
     } else {
       console.log(`  send FAILED ${res.status} — cursor NOT advanced · ${body.slice(0, 200)}`);
       if (!args.watch) process.exit(1);

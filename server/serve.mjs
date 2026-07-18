@@ -17,14 +17,16 @@ const arg = (f, d) => { const i = process.argv.indexOf(f); return i >= 0 ? proce
 const port = Number(arg("--port", process.env.PORT || 8787));
 const dir = arg("--dir", process.env.MAXX_STATE_DIR || path.join(homedir(), ".maxx", "tally"));
 
-// Auth: MAXX_SECRET (shared bearer) enforced when set; unset = open (localhost dev
-// only — never expose an open instance on a public URL). MAXX_SECRET_<HANDLE>
-// overrides per user.
+// Auth: signup-minted secrets live in the store (_auth.json). MAXX_SECRET_<HANDLE>
+// env is a per-user override; MAXX_SECRET (shared) gates unclaimed handles when set.
+// Nothing set = open (localhost dev only — never expose an open instance publicly).
 const secretFor = async (h) =>
-  process.env[`MAXX_SECRET_${String(h).toUpperCase().replace(/[^A-Z0-9]/g, "_")}`] ||
-  process.env.MAXX_SECRET ||
-  null;
-const handler = createHandler({ store: createFileStore(dir), secretFor });
+  process.env[`MAXX_SECRET_${String(h).toUpperCase().replace(/[^A-Z0-9]/g, "_")}`] || null;
+const handler = createHandler({
+  store: createFileStore(dir),
+  secretFor,
+  fallbackSecret: process.env.MAXX_SECRET || null,
+});
 
 const server = http.createServer(async (req, res) => {
   const chunks = [];

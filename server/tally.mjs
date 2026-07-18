@@ -49,6 +49,16 @@ export function applyEnvelope(store, env) {
       billed: s.billed || 0,
       output: s.output || 0,
       by_model: s.by_model || {},
+      // attribution + analytics metadata (optional on the wire, counts only)
+      project: s.project || null,
+      name: s.name || null,
+      branch: s.branch || null,
+      raw: s.raw || 0,
+      cache_read: s.cache_read || 0,
+      cache_write: s.cache_write || 0,
+      tool_calls: s.tool_calls || 0,
+      agent_turns: s.agent_turns || 0,
+      turns: s.turns || 0,
     });
     accepted++;
   }

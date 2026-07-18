@@ -38,6 +38,8 @@ place "$SRC/render.mjs"   "$SKILL/render.mjs"
 place "$SRC/tracker.mjs"  "$SKILL/tracker.mjs"
 place "$SRC/limit.mjs"    "$SKILL/limit.mjs"
 place "$SRC/agents.mjs"   "$SKILL/agents.mjs"
+place "$SRC/emit.mjs"     "$SKILL/emit.mjs"
+place "$SRC/watch.mjs"    "$SKILL/watch.mjs"
 
 # wire the statusLine (node render.mjs) into settings.json. render.mjs also refreshes the rolling-token
 # window.json on a cadence, so no Stop hook is needed. (Older installs added a brain.mjs Stop hook — we
@@ -63,3 +65,7 @@ echo "maxx installed ($MODE)."
 echo "  statusline -> node $SKILL/render.mjs"
 echo "  skill      -> $SKILL   (/maxx)"
 echo "Start a new Claude Code session to see the bar."
+echo ""
+echo "Optional — central budget tally (cloud + all machines, one number):"
+echo "  node $SKILL/emit.mjs --signup <your-handle>   # claim a handle, get your connector URL"
+echo "  node $SKILL/emit.mjs --install-agent          # live-ship usage at login"
