@@ -27,7 +27,9 @@ const ANCHOR_TRUST_SEC = 45 * 60; // matches the routines' staleness gate
 const sec = (iso) => (iso ? Date.parse(iso) / 1000 : 0);
 
 export function emptyStore() {
-  return { events: [], anchors: [], seen: {} };
+  // webhooks: [{url, secret, headers, format}] · leases: [{id, tokens, expires, label}]
+  // signal: last-notified state for transition webhooks · config: per-handle overrides
+  return { events: [], anchors: [], seen: {}, webhooks: [], leases: [], signal: null, config: {} };
 }
 
 /**
@@ -131,14 +133,43 @@ export function computeBudget(store, now) {
     ? Math.min(fiveCap ?? Infinity, Math.round(weeklyLeft / windowsLeft)) : null;
   const sessionToSpend = sessionSafe != null ? Math.max(0, sessionSafe - five) : null;
 
+  // #4 reservation leases: active leases subtract from the allowance other
+  // callers see (the grantee tracks its own lease). Expired leases are ignored
+  // here and pruned on write in the handler.
+  const activeLeases = (store.leases || []).filter((l) => l.expires > now);
+  const reservedTokens = activeLeases.reduce((s, l) => s + l.tokens, 0);
+  const spendAfterReserve = sessionToSpend != null ? Math.max(0, sessionToSpend - reservedTokens) : null;
+
   let verdict = "ok";
   if (!a || !fresh) verdict = "stale";
-  else if ((weekPct != null && weekPct >= 0.99) || sessionToSpend === 0) verdict = "over";
+  else if ((weekPct != null && weekPct >= 0.99) || spendAfterReserve === 0) verdict = "over";
 
   const surfaces = {};
   for (const e of store.events) {
     if (e.ts > now - FIVE_H) surfaces[e.surface] = (surfaces[e.surface] || 0) + e.billed;
   }
+
+  // #5 burn rate (account-wide, last 5m) + time-to-empty at that rate
+  const burn5m = store.events.reduce((s, e) => (e.ts > now - 300 && e.ts <= now + 60 ? s + e.billed : s), 0);
+  const ratePerSec = burn5m / 300;
+  const emptiesAt =
+    ratePerSec > 3 && spendAfterReserve != null
+      ? Math.round(now + spendAfterReserve / ratePerSec)
+      : null;
+
+  // #2 attribution: heaviest sessions of the last hour, with live 5m rate
+  const burners = new Map();
+  for (const e of store.events) {
+    if (e.ts <= now - 3600 || e.ts > now + 60) continue;
+    const key = `${e.surface}|${e.root}`;
+    let b = burners.get(key);
+    if (!b) { b = { surface: e.surface, session: e.root, project: null, name: null, tokens_1h: 0, rate_5m: 0 }; burners.set(key, b); }
+    b.tokens_1h += e.billed;
+    if (e.ts > now - 300) b.rate_5m += e.billed;
+    if (e.project) b.project = e.project;
+    if (e.name) b.name = e.name;
+  }
+  const topBurners = [...burners.values()].sort((x, y) => y.tokens_1h - x.tokens_1h).slice(0, 3);
 
   // when tokens come back: session_to_spend refills at five_reset (next 5h
   // window); a weekly wall only lifts at week_reset. Shipped as countdowns so
@@ -154,8 +185,11 @@ export function computeBudget(store, now) {
       (weekPct != null && weekPct >= 0.99)
         ? `weekly cap — tokens at week_reset (${resetIn(wr) != null ? Math.round(resetIn(wr) / 3600) + "h" : "?"})`
         : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
-    weekly_left_tokens: weeklyLeft, session_to_spend: sessionToSpend,
+    weekly_left_tokens: weeklyLeft, session_to_spend: spendAfterReserve,
     session_safe: sessionSafe,
+    reserved_tokens: reservedTokens, leases: activeLeases.length,
+    burn_5m: burn5m, empties_at: emptiesAt,
+    top_burners: topBurners,
     verdict, fresh,
     anchor_age_sec: Number.isFinite(anchorAge) ? Math.round(anchorAge) : null,
     stored_at: new Date(now * 1000).toISOString(),
@@ -164,4 +198,52 @@ export function computeBudget(store, now) {
       .sort((x, y) => y[1] - x[1])
       .map(([surface, billed_5h]) => ({ surface, billed_5h })),
   };
+}
+
+// #3 runaway detection — sessions burning ≥ rate for ≥ sustain minutes.
+// Pure: returns the CURRENT offenders; the caller (notifier) diffs against
+// store.signal.runaway to fire exactly one event per episode and clear on stop.
+export function runawaySessions(store, now, config = {}) {
+  const rate = config.runaway_rate_5m || 500_000;      // tokens per 5m
+  const sustainMin = config.runaway_min || 30;
+  const need = rate * (sustainMin / 5);                // sustained total over the window
+  const per = new Map();
+  for (const e of store.events) {
+    if (e.ts <= now - sustainMin * 60 || e.ts > now + 60) continue;
+    const key = `${e.surface}|${e.root}`;
+    let p = per.get(key);
+    if (!p) { p = { surface: e.surface, session: e.root, project: null, tokens: 0, last5: 0 }; per.set(key, p); }
+    p.tokens += e.billed;
+    if (e.ts > now - 300) p.last5 += e.billed;
+    if (e.project) p.project = e.project;
+  }
+  return [...per.values()]
+    .filter((p) => p.last5 >= rate && p.tokens >= need)
+    .map((p) => ({ surface: p.surface, session: p.session, project: p.project, rate_5m: p.last5, duration_min: sustainMin }));
+}
+
+// #1 push on state transitions — diff current state against store.signal and
+// return the webhook events to fire. Mutates store.signal (persist after).
+// First observation baselines silently (no event storm on deploy).
+export function transitionEvents(store, budget, now) {
+  const weekBand = budget.week == null ? 0 : budget.week >= 0.95 ? 95 : budget.week >= 0.9 ? 90 : budget.week >= 0.8 ? 80 : 0;
+  const runaway = runawaySessions(store, now, store.config || {});
+  const runawayKeys = runaway.map((r) => `${r.surface}|${r.session}`).sort();
+  const prev = store.signal;
+  const cur = { verdict: budget.verdict, weekBand, runaway: runawayKeys };
+  store.signal = cur;
+  if (!prev) return [];                                 // baseline, fire nothing
+  const events = [];
+  if (prev.verdict === "ok" && budget.verdict === "over") events.push({ event: "over" });
+  if (prev.verdict === "over" && budget.verdict === "ok") events.push({ event: "refill" });
+  if (weekBand > (prev.weekBand || 0)) events.push({ event: `week-${weekBand}` });
+  for (const r of runaway)
+    if (!(prev.runaway || []).includes(`${r.surface}|${r.session}`))
+      events.push({ event: "runaway", ...r });
+  return events.map((e) => ({
+    handle: null, // filled by the notifier
+    ...e,
+    verdict: budget.verdict, session_to_spend: budget.session_to_spend,
+    week: budget.week, ts: Math.round(now),
+  }));
 }

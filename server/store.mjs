@@ -6,7 +6,7 @@
  * on Netlify swaps in a Blobs adapter (same two methods) with zero handler
  * changes. A store doc is exactly what server/tally.mjs's emptyStore() returns.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { emptyStore } from "./tally.mjs";
 
@@ -32,6 +32,12 @@ export function createFileStore(dir) {
       const a = auth();
       a[safe(handle)] = secret;
       writeFileSync(authPath, JSON.stringify(a, null, 2));
+    },
+    // every handle with a store doc (for the transition-notifier sweep)
+    async listHandles() {
+      try {
+        return readdirSync(dir).filter((f) => f.endsWith(".json") && !f.startsWith("_")).map((f) => f.slice(0, -5));
+      } catch { return []; }
     },
   };
 }

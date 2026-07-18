@@ -14,7 +14,7 @@
  * The Netlify function and a local node http server are both thin wrappers.
  */
 import { randomBytes } from "node:crypto";
-import { applyEnvelope, computeBudget } from "./tally.mjs";
+import { applyEnvelope, computeBudget, transitionEvents } from "./tally.mjs";
 
 const TOOLS = [
   {
@@ -53,6 +53,20 @@ const TOOLS = [
       properties: { handle: { type: "string" } },
     },
   },
+  {
+    name: "maxx_reserve",
+    description: "Reserve part of session_to_spend before spawning agents, so concurrent dispatchers don't double-spend the same allowance. Granted leases subtract from the session_to_spend other callers see and auto-expire at ttl_sec. Returns {granted, lease_id, remaining}. Call before a fan-out; size tokens to the fleet you're about to spawn.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        handle: { type: "string" },
+        tokens: { type: "integer", description: "Tokens to reserve" },
+        ttl_sec: { type: "integer", description: "Lease lifetime (default 3600)" },
+        label: { type: "string", description: "Who/what this lease is for" },
+      },
+      required: ["tokens"],
+    },
+  },
 ];
 
 // meetmaxx.co favicon — served from api.meetmaxx.co too, and advertised in serverInfo.
@@ -84,9 +98,45 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     return token === want;
   };
 
+  // ---- webhook push (#1/#3): fire transition events to registered URLs.
+  // Fire-and-forget with a timeout; a dead consumer never blocks ingest.
+  function fireWebhooks(handle, s, events) {
+    for (const hook of s.webhooks || []) {
+      for (const ev of events) {
+        const payload = { ...ev, handle };
+        const isDash = hook.format === "dash";
+        const body = isDash
+          ? JSON.stringify({ source: "maxx", kind: `budget-${ev.event}`, payload: { text: `maxx: ${ev.event} verdict=${ev.verdict} spend=${ev.session_to_spend} week=${Math.round((ev.week || 0) * 100)}%${ev.session ? ` session=${ev.session}` : ""}` } })
+          : JSON.stringify(payload);
+        fetch(hook.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(hook.secret ? { authorization: `Bearer ${hook.secret}` } : {}),
+            ...(hook.headers || {}),
+          },
+          body,
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // Recompute state + fire any transition webhooks. Used after every ingest AND
+  // by the periodic sweep (refills happen on the clock, not on an ingest).
+  function settle(handle, s) {
+    const t = now();
+    s.leases = (s.leases || []).filter((l) => l.expires > t);   // prune expired
+    const b = computeBudget(s, t);
+    const events = transitionEvents(s, b, t);
+    if (events.length) fireWebhooks(handle, s, events);
+    return { budget: b, events };
+  }
+
   async function ingest(handle, env) {
     const s = await store.load(handle);
     const res = applyEnvelope(s, env || {});
+    settle(handle, s);
     await store.save(handle, s);
     return res;
   }
@@ -95,7 +145,38 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     return computeBudget(s, now());
   }
 
-  return async function handle(req) {
+  // #4: grant a lease against the CURRENT allowance (which already subtracts
+  // other active leases) — two concurrent dispatchers can't double-spend.
+  async function reserve(handle, { tokens, ttl_sec = 3600, label = null } = {}) {
+    tokens = Math.round(Number(tokens));
+    if (!(tokens > 0)) return { granted: false, error: "tokens must be > 0" };
+    const s = await store.load(handle);
+    const t = now();
+    s.leases = (s.leases || []).filter((l) => l.expires > t);
+    const b = computeBudget(s, t);
+    const avail = b.session_to_spend ?? 0;
+    if (b.verdict !== "ok" || tokens > avail)
+      return { granted: false, remaining: avail, verdict: b.verdict };
+    const lease = { id: randomBytes(8).toString("hex"), tokens, expires: Math.round(t + Math.min(Math.max(ttl_sec, 60), 6 * 3600)), label };
+    s.leases.push(lease);
+    await store.save(handle, s);
+    return { granted: true, lease_id: lease.id, tokens, remaining: avail - tokens, expires_at: lease.expires };
+  }
+
+  // periodic sweep for time-driven transitions (refill while idle) — serve.mjs
+  // calls this on an interval; handles without webhooks are skipped cheaply.
+  async function sweepTransitions() {
+    if (!store.listHandles) return;
+    for (const h of await store.listHandles()) {
+      const s = await store.load(h);
+      if (!(s.webhooks || []).length) continue;
+      const { events } = settle(h, s);
+      await store.save(h, s);
+      if (events.length) console.log(`sweep: ${h} fired ${events.map((e) => e.event).join(",")}`);
+    }
+  }
+
+  async function handle(req) {
     const { method = "GET", headers = {}, body = "" } = req;
     let url;
     try { url = new URL(req.url, "http://x"); } catch { return json(400, { error: "bad url" }); }
@@ -146,6 +227,60 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const h = decodeURIComponent(m[1]);
       if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       return json(200, await budget(h));
+    }
+    // ---- webhooks (#1): register push consumers for state transitions ----
+    m = p.match(/^\/api\/u\/([^/]+)\/webhooks$/);
+    if (m) {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      const s = await store.load(h);
+      s.webhooks = s.webhooks || [];
+      if (method === "GET")
+        return json(200, { webhooks: s.webhooks.map((w) => ({ url: w.url, format: w.format || "json", secret: w.secret ? "(set)" : null })) });
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      if (method === "DELETE") {
+        s.webhooks = s.webhooks.filter((w) => w.url !== b.url);
+        await store.save(h, s);
+        return json(200, { ok: true, webhooks: s.webhooks.length });
+      }
+      if (method === "POST") {
+        if (!/^https?:\/\//.test(b.url || "")) return json(400, { error: "url required" });
+        s.webhooks = s.webhooks.filter((w) => w.url !== b.url);
+        s.webhooks.push({ url: b.url, secret: b.secret || null, headers: b.headers || null, format: b.format || null });
+        await store.save(h, s);
+        return json(200, { ok: true, webhooks: s.webhooks.length, events: ["over", "refill", "week-80", "week-90", "week-95", "runaway"] });
+      }
+    }
+    // ---- reservation lease (#4) ----
+    m = p.match(/^\/api\/u\/([^/]+)\/reserve$/);
+    if (m && method === "POST") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      return json(200, await reserve(h, b));
+    }
+    m = p.match(/^\/api\/u\/([^/]+)\/release$/);
+    if (m && method === "POST") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      const s = await store.load(h);
+      const before = (s.leases || []).length;
+      s.leases = (s.leases || []).filter((l) => l.id !== b.lease_id);
+      await store.save(h, s);
+      return json(200, { ok: true, released: before - s.leases.length });
+    }
+    // ---- per-handle config (#3 overrides: runaway_rate_5m, runaway_min) ----
+    m = p.match(/^\/api\/u\/([^/]+)\/config$/);
+    if (m && method === "POST") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      const s = await store.load(h);
+      s.config = { ...(s.config || {}) };
+      for (const k of ["runaway_rate_5m", "runaway_min"]) if (b[k] != null) s.config[k] = Number(b[k]);
+      await store.save(h, s);
+      return json(200, { ok: true, config: s.config });
     }
     // Recent emit events (newest first) — the "who's emitting" feed for `maxx watch`.
     m = p.match(/^\/api\/u\/([^/]+)\/feed$/);
@@ -208,6 +343,9 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
           if (name === "maxx_budget") {
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(await budget(h)) }] });
           }
+          if (name === "maxx_reserve") {
+            return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(await reserve(h, args)) }] });
+          }
           return rpcOk(id, { isError: true, content: [{ type: "text", text: `unknown tool ${name}` }] });
         } catch (e) {
           return rpcOk(id, { isError: true, content: [{ type: "text", text: `error: ${e.message}` }] });
@@ -217,7 +355,10 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     }
 
     return json(404, { error: "not found" });
-  };
+  }
+
+  handle.sweepTransitions = sweepTransitions;   // for the runner's interval
+  return handle;
 }
 
 export { TOOLS };

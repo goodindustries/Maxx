@@ -43,3 +43,7 @@ const server = http.createServer(async (req, res) => {
   res.end(out.body || "");
 });
 server.listen(port, () => console.log(`maxx tally on http://localhost:${port}  (state: ${dir})`));
+
+// transition webhooks fire on ingest, but refills happen on the CLOCK while
+// idle — sweep every 30s so over→ok reaches consumers within a minute.
+setInterval(() => handler.sweepTransitions?.().catch?.(() => {}), 30_000);
