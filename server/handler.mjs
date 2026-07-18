@@ -114,6 +114,19 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
       if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       return json(200, await budget(h));
     }
+    // Recent emit events (newest first) — the "who's emitting" feed for `maxx watch`.
+    m = p.match(/^\/api\/u\/([^/]+)\/feed$/);
+    if (m && method === "GET") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      const n = Math.min(200, Math.max(1, Number(url.searchParams.get("n")) || 30));
+      const s = await store.load(h);
+      const events = s.events.slice(-n).reverse().map((e) => ({
+        surface: e.surface, root: e.root, ts: new Date(e.ts * 1000).toISOString(),
+        billed: e.billed, output: e.output || 0,
+      }));
+      return json(200, { count: s.events.length, events });
+    }
 
     // ---- MCP (JSON-RPC 2.0 over Streamable HTTP) ----
     if (p === "/mcp" && method === "POST") {
