@@ -64,10 +64,14 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
     const m = /^Bearer\s+(.+)$/i.exec(h);
     return m ? m[1] : "";
   };
-  const authed = async (handle, headers) => {
+  // Token from the Bearer header OR a ?k= query param — the query form lets a
+  // claude.ai custom connector self-authenticate via the URL alone (it can't
+  // always set an Authorization header).
+  const tokenOf = (headers, url) => bearer(headers) || url.searchParams.get("k") || "";
+  const authed = async (handle, token) => {
     const want = await secretFor(handle);
     if (!want) return true; // no secret configured for this handle → open (local/dev)
-    return bearer(headers) === want;
+    return token === want;
   };
 
   async function ingest(handle, env) {
@@ -93,7 +97,7 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
     let m = p.match(/^\/api\/u\/([^/]+)\/logs$/);
     if (m && method === "POST") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, headers))) return json(401, { error: "unauthorized" });
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       let env; try { env = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
       const res = await ingest(h, env);
       return json(200, { ok: true, ...res });
@@ -101,7 +105,7 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
     m = p.match(/^\/api\/u\/([^/]+)\/budget$/);
     if (m && method === "GET") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, headers))) return json(401, { error: "unauthorized" });
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       return json(200, await budget(h));
     }
 
@@ -120,7 +124,7 @@ export function createHandler({ store, secretFor = () => null, now = () => Date.
         const args = params.arguments || {};
         const h = args.handle || url.searchParams.get("handle") || "";
         if (!h) return rpcOk(id, { isError: true, content: [{ type: "text", text: "no handle (pass args.handle or ?handle=)" }] });
-        if (!(await authed(h, headers)))
+        if (!(await authed(h, tokenOf(headers, url))))
           return rpcOk(id, { isError: true, content: [{ type: "text", text: "unauthorized" }] });
         try {
           if (name === "maxx_emit") {
