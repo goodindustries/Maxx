@@ -131,14 +131,14 @@ const installId = cfg.installId || hostname();
 const base = (cfg.logsUrl || "https://meetmaxx.co").replace(/\/$/, "");
 const surface = cfg.surface || `laptop:${installId.slice(0, 8)}`;
 
-// cursor: last emitted timestamp (seconds). --since overrides. On the very first
-// run (no cursor) default to the weekly window, NOT all-time — the tally only
-// needs current-window tokens; shipping all history would inflate every window.
+// cursor: last emitted timestamp (seconds). --since overrides. First run (no
+// cursor) ships ALL history — a one-time bulk backfill so the server has the
+// complete ground truth to reconstruct usage over time and true-up cap
+// estimates against every past anchor. After that, each run streams only the
+// delta past the cursor. The server windows/dedupes; the client just ships.
 const nowSec = Date.now() / 1000;
-const WEEK_SEC = 7 * 24 * 3600;
 const cursorState = readJSON(CURSOR, {});
-const sinceSec = args.since ? Date.parse(args.since) / 1000
-  : (cursorState.lastTs || nowSec - WEEK_SEC);
+const sinceSec = args.since ? Date.parse(args.since) / 1000 : (cursorState.lastTs || 0);
 
 // Scan files touched since the cursor (a small mtime pad so nothing is missed).
 const files = await recentFiles(args.dir, (sinceSec - 120) * 1000 || 0);

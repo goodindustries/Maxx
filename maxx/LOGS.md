@@ -62,9 +62,17 @@ content. The emitter enforces this by construction (it reads only `usage` blocks
 Response: `{ "ok": true, "accepted": int, "deduped": int }`. The emitter advances
 its cursor only on a 2xx.
 
-**Idempotency:** the server keys stored batches by `(handle, surface, cursor)` and
-sums per (root) so a re-sent batch (cursor not advanced after a failed send) is a
-no-op. Windows are reconstructed from `last_ts` per session, not from arrival time.
+**Backfill vs delta:** the first emit (no cursor) ships **all history** — a one-time
+bulk load so the server has complete ground truth to reconstruct usage over time and
+true-up cap estimates against every past anchor. Every run after streams only the
+delta past the cursor.
+
+**Idempotency:** the server keys stored batches by `(handle, surface, cursor, root)`
+so a re-sent batch (cursor not advanced after a failed send) is a no-op. Windows are
+reconstructed from each session-delta's `last_ts`, not from arrival time — so old
+backfill records fall outside the live 5h/weekly windows and never distort live
+budget; they're retained purely for anchor true-up. Proven on-box: a full envelope
+through `server/tally.mjs` reproduces the anchor's weekly % exactly.
 
 ---
 
