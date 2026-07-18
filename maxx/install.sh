@@ -37,6 +37,7 @@ place "$SRC/SKILL.md"     "$SKILL/SKILL.md"
 place "$SRC/render.mjs"   "$SKILL/render.mjs"
 place "$SRC/tracker.mjs"  "$SKILL/tracker.mjs"
 place "$SRC/limit.mjs"    "$SKILL/limit.mjs"
+place "$SRC/agents.mjs"   "$SKILL/agents.mjs"
 
 # wire the statusLine (node render.mjs) into settings.json. render.mjs also refreshes the rolling-token
 # window.json on a cadence, so no Stop hook is needed. (Older installs added a brain.mjs Stop hook — we
