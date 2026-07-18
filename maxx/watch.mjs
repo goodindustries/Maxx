@@ -20,7 +20,7 @@ import path from "node:path";
 const cfg = (() => { try { return JSON.parse(readFileSync(path.join(homedir(), ".maxx", "config.json"), "utf8")); } catch { return {}; } })();
 const HANDLE = cfg.handle || "unknown";
 const SECRET = cfg.secret || "";
-const BASE = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://meetmaxx.co").replace(/\/$/, "");
+const BASE = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://api.meetmaxx.co").replace(/\/$/, "");
 const args = process.argv.slice(2);
 const ONCE = args.includes("--once");
 const EVERY = (() => { const i = args.indexOf("--every"); return i >= 0 ? Number(args[i + 1]) || 2 : 2; })();
@@ -71,7 +71,9 @@ async function frame() {
   L.push(` ${C.b}LIVE EMITS${C.rst} ${C.dim}(newest first · total events ${feed.count})${C.rst}${isNew ? `  ${C.grn}▲ +${feed.count - lastCount} new${C.rst}` : ""}`);
   for (const e of (feed.events || []).slice(0, 12)) {
     const cloud = e.surface.startsWith("cloud:");
-    L.push(`   ${C.dim}${ago(e.ts).padStart(4)} ago${C.rst}  ${(cloud ? C.mag : C.cyn)}${e.surface.slice(0, 26).padEnd(26)}${C.rst}  ${C.grn}+${fmt(e.billed).padStart(7)}${C.rst}`);
+    const models = Object.keys(e.by_model || {}).join("+");
+    const who = [e.project, e.name].filter(Boolean).join(" — ").slice(0, 30);
+    L.push(`   ${C.dim}${ago(e.ts).padStart(4)} ago${C.rst}  ${(cloud ? C.mag : C.cyn)}${e.surface.slice(0, 16).padEnd(16)}${C.rst}  ${C.grn}+${fmt(e.billed).padStart(7)}${C.rst}  ${who}${models ? `${C.dim} (${models})${C.rst}` : ""}`);
   }
   lastCount = feed.count;
   L.push("");
