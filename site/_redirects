@@ -1,8 +1,3 @@
 # short installer: curl -fsSL https://meetmaxx.co/install | bash  → repo install.sh (proxied)
 /install  https://raw.githubusercontent.com/goodindustries/Maxx/main/maxx/install.sh  200!
 
-# maxx budget tally — meetmaxx.co is the SERVICE; compute runs on lucky hardware.
-# These proxy the tally's API + MCP surface behind the meetmaxx.co identity.
-/mcp    https://luckymachines.co/maxxbudget/mcp             200!
-/api/*  https://luckymachines.co/maxxbudget/api/:splat      200!
-/health https://luckymachines.co/maxxbudget/health          200!
