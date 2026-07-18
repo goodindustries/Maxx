@@ -10,3 +10,23 @@
   to = "https://raw.githubusercontent.com/goodindustries/Maxx/main/maxx/install.sh"
   status = 200
   force = true
+
+# maxx budget tally — meetmaxx.co is the SERVICE; lucky is just the hardware.
+# Front the tally's API + MCP surface behind the meetmaxx.co identity.
+[[redirects]]
+  from = "/mcp"
+  to = "https://luckymachines.co/maxxbudget/mcp"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://luckymachines.co/maxxbudget/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/health"
+  to = "https://luckymachines.co/maxxbudget/health"
+  status = 200
+  force = true
