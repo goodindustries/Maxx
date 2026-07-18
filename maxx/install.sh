@@ -40,6 +40,7 @@ place "$SRC/limit.mjs"    "$SKILL/limit.mjs"
 place "$SRC/agents.mjs"   "$SKILL/agents.mjs"
 place "$SRC/emit.mjs"     "$SKILL/emit.mjs"
 place "$SRC/watch.mjs"    "$SKILL/watch.mjs"
+place "$SRC/gate.mjs"     "$SKILL/gate.mjs"
 
 # wire the statusLine (node render.mjs) into settings.json. render.mjs also refreshes the rolling-token
 # window.json on a cadence, so no Stop hook is needed. (Older installs added a brain.mjs Stop hook — we
@@ -57,6 +58,14 @@ if (d.hooks?.Stop) {
   d.hooks.Stop = d.hooks.Stop.filter((h) => !JSON.stringify(h).includes(`${process.env.SKILLDIR}/brain.mjs`));
   if (d.hooks.Stop.length === 0) delete d.hooks.Stop;
 }
+// hard budget gate: deny expensive spawns when the central tally says over/stale.
+// Toggle/overturn: node <skill>/gate.mjs --on|--off|--overturn "reason" (overturns are recorded).
+d.hooks = d.hooks || {};
+d.hooks.PreToolUse = (d.hooks.PreToolUse || []).filter((h) => !JSON.stringify(h).includes("gate.mjs"));
+d.hooks.PreToolUse.push({
+  matcher: "Agent|Task|Workflow|ScheduleWakeup|CronCreate",
+  hooks: [{ type: "command", command: `node ${process.env.SKILLDIR}/gate.mjs`, timeout: 10 }],
+});
 mkdirSync(dirname(p), { recursive: true });
 writeFileSync(p, JSON.stringify(d, null, 2));
 JS

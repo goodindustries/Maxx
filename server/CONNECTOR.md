@@ -28,6 +28,28 @@ Your own eyes: `node ~/.claude/skills/maxx/watch.mjs` (live dashboard) ·
 `tail -f ~/.maxx/emit.log` (shipper log) ·
 `GET /api/u/<you>/feed?n=50` (server-side event feed).
 
+### The hard gate (PreToolUse deny)
+
+The connector's `instructions` are advisory. install.sh also wires the HARD gate:
+a PreToolUse hook (`gate.mjs`) that DENIES expensive spawns (Agent / Task /
+Workflow / ScheduleWakeup / CronCreate) when the tally says `over`/`stale`/
+`session_to_spend 0`. Fail-closed: no fresh verdict = deny. Cloud routines honor
+repo `.claude/settings.json` hooks, so to enforce in cloud add to the repo:
+
+```json
+{ "hooks": { "PreToolUse": [ { "matcher": "Agent|Task|Workflow",
+  "hooks": [{ "type": "command", "command": "node maxx/gate.mjs", "timeout": 10 }] } ] } }
+```
+
+Toggle at agent level — any session's user can overturn, but it's RECORDED
+(local `~/.maxx/gate.log` + a `⚠ GATE OVERTURNED` event in the central feed):
+
+```bash
+node ~/.claude/skills/maxx/gate.mjs --status
+node ~/.claude/skills/maxx/gate.mjs --overturn "shipping a prod hotfix"   # off, noted
+node ~/.claude/skills/maxx/gate.mjs --on                                  # re-enable, noted
+```
+
 The secret is shown once at signup and stored only in `~/.maxx/config.json` —
 treat it like a password (it's a rotatable metadata token; no content ever
 leaves the machine, only token counts). Signup endpoint: `POST /api/signup
