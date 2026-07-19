@@ -3,93 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>reif — Maxx Token Card</title>
+<title>reif — Verified token usage · Maxx</title>
 <meta property="og:title" content="reif — verified Claude token usage">
-<meta property="og:description" content="1.27B tokens this week · 77 agent sessions · verified by Maxx, anchored to Anthropic /usage">
+<meta property="og:description" content="5.09B lifetime tokens · verified by Maxx, anchored to Anthropic /usage · see your usage at meetmaxx.co">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root{
-    --surface:#1a1a19; --card:#121211; --line:#2c2c2a;
-    --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8a897f;
-    --accent:#9085e9;
-    --s1:#3987e5; --s2:#008300; --s3:#d55181; --s4:#c98500;
-    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --bg:#f6f9fc; --card:#ffffff; --line:#e6ebf1;
+    --ink:#0a2540; --ink-2:#425466; --ink-3:#8898aa;
+    --accent:#635bff; --ok:#0e9f6e;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
   }
   *{box-sizing:border-box;margin:0}
-  body{background:var(--surface);color:var(--ink);font-family:var(--mono);
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
        min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
   .card{width:1200px;max-width:100%;aspect-ratio:1200/630;background:var(--card);
-        border:1px solid var(--line);border-radius:18px;padding:44px 52px;
-        display:flex;flex-direction:column;gap:0;position:relative;overflow:hidden}
-  .card::before{content:"";position:absolute;inset:0;pointer-events:none;
-        background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-        background-size:52px 52px;opacity:.18}
-  .row{display:flex;align-items:baseline;justify-content:space-between;position:relative}
-  .brand{font-weight:700;font-size:20px;color:var(--accent);letter-spacing:.02em}
-  .handle{color:var(--ink-2);font-size:16px}
-  .hero{margin-top:26px;position:relative}
-  .hero .n{font-size:104px;font-weight:700;line-height:1;letter-spacing:-.03em}
-  .hero .l{color:var(--ink-2);font-size:17px;margin-top:8px}
-  .weekly{margin-top:26px;position:relative}
-  .bar{height:14px;border-radius:7px;background:var(--line);overflow:hidden}
-  .bar>i{display:block;height:100%;width:96%;background:var(--accent);border-radius:7px 0 0 7px}
-  .weekly .meta{display:flex;justify-content:space-between;color:var(--ink-2);font-size:15px;margin-top:9px}
-  .weekly b{color:var(--ink)}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:26px;position:relative}
-  .tile{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:rgba(255,255,255,.015)}
-  .tile .v{font-size:30px;font-weight:700}
-  .tile .k{color:var(--ink-3);font-size:12.5px;margin-top:4px;letter-spacing:.04em;text-transform:uppercase}
-  .mix{margin-top:20px;position:relative}
-  .mix .stack{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px;background:var(--card)}
-  .mix .stack i{display:block;height:100%}
-  .mix .legend{display:flex;gap:18px;margin-top:8px;color:var(--ink-2);font-size:13.5px}
-  .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:baseline}
-  .foot{margin-top:auto;padding-top:20px;border-top:1px solid var(--line);display:flex;
-        justify-content:space-between;color:var(--ink-3);font-size:13px;position:relative}
-  .foot b{color:var(--ink-2);font-weight:600}
-  .v-mark{color:var(--accent)}
+        border:1px solid var(--line);border-radius:20px;
+        box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);
+        padding:52px 60px;display:flex;flex-direction:column}
+  .top{display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:21px;color:var(--ink)}
+  .brand .m{color:var(--accent);font-size:24px}
+  .badge{display:inline-flex;align-items:center;gap:7px;background:#f0f4ff;color:var(--accent);
+         border:1px solid #dfe5ff;border-radius:999px;padding:7px 16px;font-size:14.5px;font-weight:600}
+  .badge svg{width:15px;height:15px}
+  .hero{margin-top:46px}
+  .hero .n{font-size:96px;font-weight:700;letter-spacing:-.035em;line-height:1;
+           font-variant-numeric:tabular-nums}
+  .hero .l{color:var(--ink-2);font-size:18px;margin-top:10px}
+  .rows{margin-top:44px;border-top:1px solid var(--line)}
+  .r{display:flex;justify-content:space-between;align-items:baseline;
+     padding:16px 0;border-bottom:1px solid var(--line);font-size:16.5px}
+  .r .k{color:var(--ink-2)}
+  .r .v{font-weight:600;font-variant-numeric:tabular-nums}
+  .r .sub{color:var(--ink-3);font-weight:400;font-size:14.5px}
+  .pill{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);
+        margin-right:8px;vertical-align:1px}
+  .pill.warn{background:#f5a623}
+  .foot{margin-top:auto;display:flex;justify-content:space-between;align-items:baseline;
+        color:var(--ink-3);font-size:14.5px}
+  .foot a{color:var(--accent);font-weight:600;text-decoration:none;font-size:16px}
+  .who{font-family:var(--mono);font-size:14px;color:var(--ink-2)}
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="row">
-    <div class="brand">⩗ maxx</div>
-    <div class="handle">@reif · claude max</div>
+  <div class="top">
+    <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @reif</span></div>
+    <div class="badge">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0l1.9 1.4 2.3-.3 1 2.1 2.1 1-.3 2.3L16 8l-1 1.5.3 2.3-2.1 1-1 2.1-2.3-.3L8 16l-1.9-1.4-2.3.3-1-2.1-2.1-1 .3-2.3L0 8l1-1.5-.3-2.3 2.1-1 1-2.1 2.3.3L8 0zm3.1 5.5L7 9.6 5 7.6 3.9 8.7 7 11.8l5.2-5.2-1.1-1.1z"/></svg>
+      Verified usage
+    </div>
   </div>
 
   <div class="hero">
-    <div class="n">1.27B</div>
-    <div class="l">weighted tokens this week — every laptop &amp; cloud session, one tally</div>
+    <div class="n">5,090,189,914</div>
+    <div class="l">lifetime Claude tokens — every machine and cloud session, one verified tally</div>
   </div>
 
-  <div class="weekly">
-    <div class="bar"><i></i></div>
-    <div class="meta">
-      <span><b>96%</b> of weekly limit used</span>
-      <span><b>52.9M</b> available · resets in <b>57h</b></span>
+  <div class="rows">
+    <div class="r">
+      <span class="k">Available right now</span>
+      <span class="v"><span class="pill warn"></span>0 tokens <span class="sub">· window refills in 3h 4m</span></span>
     </div>
-  </div>
-
-  <div class="tiles">
-    <div class="tile"><div class="v">61</div><div class="k">agent sessions · last 5h</div></div>
-    <div class="tile"><div class="v">77</div><div class="k">agent sessions · recent</div></div>
-    <div class="tile"><div class="v">70 / 6</div><div class="k">laptop / cloud</div></div>
-    <div class="tile"><div class="v">196M<span style="font-size:17px;color:var(--ink-3)">/hr</span></div><div class="k">current burn</div></div>
-  </div>
-
-  <div class="mix">
-    <div class="stack">
-      <i style="width:98.8%;background:var(--s1)"></i><i style="width:1.2%;background:var(--s2)"></i>
+    <div class="r">
+      <span class="k">Weekly limit remaining</span>
+      <span class="v">53.1M <span class="sub">· 96% used · resets in 57h</span></span>
     </div>
-    <div class="legend">
-      <span><span class="dot" style="background:var(--s1)"></span>Fable 98.8%</span>
-      <span><span class="dot" style="background:var(--s2)"></span>Sonnet 1.2%</span>
+    <div class="r">
+      <span class="k">Agent sessions this week</span>
+      <span class="v">77 <span class="sub">· 70 laptop / 6 cloud · top model Fable</span></span>
     </div>
   </div>
 
   <div class="foot">
-    <span><span class="v-mark">⩗</span> <b>Verified by Maxx</b> — counted from session logs, anchored to Anthropic /usage</span>
-    <span>meetmaxx.co · 2026-07-19 04:05 UTC</span>
+    <span>⩗ Verified by Maxx — counted from session logs, anchored to Anthropic /usage · 2026-07-19 04:59 UTC</span>
+    <a href="https://meetmaxx.co">See your usage at meetmaxx.co →</a>
   </div>
 </div>
 </body>
