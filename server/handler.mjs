@@ -296,6 +296,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         by_model: e.by_model || {}, turns: e.turns || 0, tool_calls: e.tool_calls || 0,
         agent_turns: e.agent_turns || 0, raw: e.raw || 0,
         cache_read: e.cache_read || 0, cache_write: e.cache_write || 0,
+        ctx: e.ctx || 0, cost_per_action: e.cost_per_action || 0,
       }));
       return json(200, { count: s.events.length, events });
     }

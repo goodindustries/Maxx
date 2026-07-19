@@ -61,6 +61,8 @@ export function applyEnvelope(store, env) {
       tool_calls: s.tool_calls || 0,
       agent_turns: s.agent_turns || 0,
       turns: s.turns || 0,
+      ctx: s.ctx || 0,
+      cost_per_action: s.cost_per_action || 0,
     });
     accepted++;
   }
@@ -166,11 +168,12 @@ export function computeBudget(store, now) {
     if (e.ts <= now - 3600 || e.ts > now + 60) continue;
     const key = `${e.surface}|${e.root}`;
     let b = burners.get(key);
-    if (!b) { b = { surface: e.surface, session: e.root, project: null, name: null, tokens_1h: 0, rate_5m: 0 }; burners.set(key, b); }
+    if (!b) { b = { surface: e.surface, session: e.root, project: null, name: null, tokens_1h: 0, rate_5m: 0, ctx: 0, cost_per_action: 0, _ts: 0 }; burners.set(key, b); }
     b.tokens_1h += e.billed;
     if (e.ts > now - 300) b.rate_5m += e.billed;
     if (e.project) b.project = e.project;
     if (e.name) b.name = e.name;
+    if (e.ts >= b._ts && e.ctx) { b._ts = e.ts; b.ctx = e.ctx; b.cost_per_action = e.cost_per_action || 0; }
   }
   const topBurners = [...burners.values()].sort((x, y) => y.tokens_1h - x.tokens_1h).slice(0, 3);
 
