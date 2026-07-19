@@ -167,6 +167,27 @@ if (!pol.enabled) {
 }
 if (!cfg.handle || !cfg.secret) process.exit(0);                // no maxx account on this box → not our call
 
+// ---- directive channel: orchestrator → THIS session, via the tally ----
+// GET consumes (clear = one-shot, pause = sticky until ttl/resume). Fail-open:
+// a directive miss must never deny — the budget checks below still run.
+async function directives(session) {
+  if (!session) return [];
+  try {
+    const res = await fetch(
+      `${base}/api/u/${encodeURIComponent(cfg.handle)}/directives?session=${encodeURIComponent(session)}`,
+      { headers: { authorization: `Bearer ${cfg.secret}` }, signal: AbortSignal.timeout(3000) },
+    );
+    if (!res.ok) throw new Error(`${res.status}`);
+    return (await res.json()).directives || [];
+  } catch { return []; }
+}
+const dirs = await directives(hook.session_id);
+const clearDir = dirs.find((d) => d.action === "clear");
+const clearCtx = clearDir
+  ? `MAXX DIRECTIVE (orchestrator asks): /clear this session${clearDir.note ? ` — ${clearDir.note}` : ""}. ` +
+    `Finish the immediate step cheaply, then tell the user to /clear (or /compact) before continuing.`
+  : null;
+
 const deny = (why) => {
   log(`DENY tool=${tool} ${why} [${polLine()}]`);
   console.log(JSON.stringify({
@@ -176,17 +197,32 @@ const deny = (why) => {
       permissionDecisionReason:
         `MAXX BUDGET GATE (${polLine()}): ${why} — no tokens for expensive work (${tool}). ` +
         `Do cheap work or wait — or the USER may adjust policy / explicitly overturn (recorded to the central feed): ` +
-        `node ~/.claude/skills/maxx/gate.mjs --overturn "<reason>"`,
+        `node ~/.claude/skills/maxx/gate.mjs --overturn "<reason>"` +
+        (clearCtx ? ` | ${clearCtx}` : ""),
     },
   }));
   process.exit(0);
 };
+// allow, delivering any pending clear advisory as injected context
+const allow = (why) => {
+  log(`allow (${why}) tool=${tool}${clearCtx ? " +clear-directive" : ""}`);
+  if (clearCtx)
+    console.log(JSON.stringify({
+      hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: clearCtx },
+    }));
+  process.exit(0);
+};
+
+const paused = dirs.find((d) => d.action === "pause");
+if (paused)
+  deny(`ORCHESTRATOR PAUSE${paused.note ? ` — "${paused.note}"` : ""}. This session is paused until ` +
+       `${new Date(paused.expires * 1000).toISOString()} or a resume directive (maxx_directive action=resume)`);
 
 const b = await budget();
 
 // 1. signal health: stale/unreachable → fail per policy
 if (b.verdict === "stale" || b.verdict === "unreachable") {
-  if (pol.fail === "open") { log(`allow (fail-open, verdict=${b.verdict}) tool=${tool}`); process.exit(0); }
+  if (pol.fail === "open") allow(`fail-open, verdict=${b.verdict}`);
   deny(`budget signal ${b.verdict} (fail-closed). Tokens again: unknown until the signal returns`);
 }
 // 2. the weekly reserve wall — absolute, even in spree
@@ -196,7 +232,7 @@ if (b.week != null && b.week * 100 >= pol.weeklyStop) {
   deny(`weekly at ${Math.round(b.week * 100)}% ≥ weekly_stop ${pol.weeklyStop}%. Tokens again: at week_reset (${wh})`);
 }
 // 3. spree: pacing off, wall already checked
-if (pol.mode === "spree") { log(`allow (spree) tool=${tool}`); process.exit(0); }
+if (pol.mode === "spree") allow("spree");
 // 4. paced (+ optional margin): stop at session_safe × (1 + margin)
 const safe = b.session_safe;
 if (safe != null) {
@@ -207,4 +243,4 @@ if (safe != null) {
 } else if (b.session_to_spend === 0) {
   deny(`session_to_spend=0. Tokens again: ${b.tokens_again || "next 5h window"}`);   // old-server fallback
 }
-process.exit(0);
+allow("under budget");

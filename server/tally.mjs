@@ -29,7 +29,8 @@ const sec = (iso) => (iso ? Date.parse(iso) / 1000 : 0);
 export function emptyStore() {
   // webhooks: [{url, secret, headers, format}] · leases: [{id, tokens, expires, label}]
   // signal: last-notified state for transition webhooks · config: per-handle overrides
-  return { events: [], anchors: [], seen: {}, webhooks: [], leases: [], signal: null, config: {} };
+  // directives: [{id, session, surface, action, note, created, expires, delivered_to}]
+  return { events: [], anchors: [], seen: {}, webhooks: [], leases: [], signal: null, config: {}, directives: [] };
 }
 
 /**
@@ -204,6 +205,70 @@ export function computeBudget(store, now) {
       .sort((x, y) => y[1] - x[1])
       .map(([surface, billed_5h]) => ({ surface, billed_5h })),
   };
+}
+
+// ---- directive channel: orchestrator → specific session commands ----------
+// Actions: clear (advise /clear — injected as context, one-shot per session),
+// pause (deny expensive tools until ttl/resume — sticky, re-delivered every
+// read), resume (lifts pending pauses immediately, never queued).
+// session "*" = broadcast. Every create/delivery lands in the feed as a
+// billed:0 event (visible in maxx watch, never counted — same as gate notes).
+
+const feedNote = (store, root, text, now) =>
+  store.events.push({ surface: "directive", root, ts: now, billed: 0, name: text });
+
+const pruneDirectives = (store, now) => {
+  store.directives = (store.directives || []).filter((d) => d.expires > now);
+};
+
+export function addDirective(store, d, now) {
+  const session = String(d.session || "").trim();
+  const action = String(d.action || "");
+  if (!session) return { ok: false, error: "session required ('*' = broadcast)" };
+  if (!/^(clear|pause|resume)$/.test(action)) return { ok: false, error: "action must be clear|pause|resume" };
+  pruneDirectives(store, now);
+  if (action === "resume") {
+    const before = store.directives.length;
+    store.directives = store.directives.filter(
+      (x) => !(x.action === "pause" && (session === "*" || x.session === session)),
+    );
+    const lifted = before - store.directives.length;
+    feedNote(store, session, `▶ resume — ${lifted} pause${lifted === 1 ? "" : "s"} lifted`, now);
+    return { ok: true, action, lifted };
+  }
+  const ttl = Math.min(Math.max(Number(d.ttl_sec) || 3600, 60), 24 * 3600);
+  const dir = {
+    id: `d${Math.round(now)}-${(store.directives.length + 1).toString(36)}`,
+    session, surface: d.surface || null, action, note: d.note || null,
+    created: Math.round(now), expires: Math.round(now + ttl), delivered_to: [],
+  };
+  store.directives.push(dir);
+  feedNote(store, session, `⌘ ${action}→${session === "*" ? "all" : session.slice(0, 8)}${dir.note ? `: ${dir.note}` : ""}`, now);
+  return { ok: true, id: dir.id, action, session, expires: dir.expires };
+}
+
+/**
+ * Directives pending for one session; reading IS consuming (unless peek).
+ * clear → delivered once per session; pause → sticky until expiry/resume.
+ */
+export function pendingDirectives(store, { session, surface = null, peek = false }, now) {
+  pruneDirectives(store, now);
+  const hits = store.directives.filter(
+    (d) =>
+      (d.session === "*" || d.session === session) &&
+      (!d.surface || !surface || d.surface === surface) &&
+      !(d.action === "clear" && (d.delivered_to || []).includes(session)),
+  );
+  if (!peek)
+    for (const d of hits) {
+      d.delivered_to = d.delivered_to || [];
+      if (!d.delivered_to.includes(session)) {
+        d.delivered_to.push(session);
+        feedNote(store, d.session, `✓ ${d.action} delivered→${String(session).slice(0, 8)}`, now);
+      }
+    }
+  return hits.map(({ id, session: s, surface: sf, action, note, created, expires }) =>
+    ({ id, session: s, surface: sf, action, note, created, expires }));
 }
 
 // #3 runaway detection — sessions burning ≥ rate for ≥ sustain minutes.

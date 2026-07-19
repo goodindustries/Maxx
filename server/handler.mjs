@@ -14,7 +14,7 @@
  * The Netlify function and a local node http server are both thin wrappers.
  */
 import { randomBytes } from "node:crypto";
-import { applyEnvelope, computeBudget, transitionEvents } from "./tally.mjs";
+import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives } from "./tally.mjs";
 
 const TOOLS = [
   {
@@ -65,6 +65,26 @@ const TOOLS = [
         label: { type: "string", description: "Who/what this lease is for" },
       },
       required: ["tokens"],
+    },
+  },
+  {
+    name: "maxx_directive",
+    description:
+      "Send a command to a specific live session (or '*' broadcast) through the fleet command plane. " +
+      "Actions: pause (deny that session's expensive tool calls until ttl or resume — use to throttle a runaway or protect budget), " +
+      "resume (lift pauses), clear (advise the session to /clear — injected as context when its context is bloated). " +
+      "Target sessions come from maxx_budget top_burners or the feed. Delivery + consumption are audited in the feed.",
+    inputSchema: {
+      type: "object", additionalProperties: false,
+      properties: {
+        handle: { type: "string" },
+        session: { type: "string", description: "Target session id, or '*' for all" },
+        action: { type: "string", enum: ["clear", "pause", "resume"] },
+        note: { type: "string", description: "Why — shown to the target session" },
+        ttl_sec: { type: "integer", description: "Directive lifetime (default 3600, max 86400)" },
+        surface: { type: "string", description: "Optional surface filter, e.g. laptop:abc123" },
+      },
+      required: ["session", "action"],
     },
   },
 ];
@@ -282,6 +302,29 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       await store.save(h, s);
       return json(200, { ok: true, config: s.config });
     }
+    // ---- directive channel: queue a command / agent-side consume ----
+    m = p.match(/^\/api\/u\/([^/]+)\/directive$/);
+    if (m && method === "POST") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      const s = await store.load(h);
+      const res = addDirective(s, b, now());
+      if (res.ok) await store.save(h, s);
+      return json(res.ok ? 200 : 400, res);
+    }
+    m = p.match(/^\/api\/u\/([^/]+)\/directives$/);
+    if (m && method === "GET") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      const session = url.searchParams.get("session") || "";
+      if (!session) return json(400, { error: "session query param required" });
+      const peek = url.searchParams.get("peek") === "1";
+      const s = await store.load(h);
+      const directives = pendingDirectives(s, { session, surface: url.searchParams.get("surface"), peek }, now());
+      if (!peek) await store.save(h, s);
+      return json(200, { directives });
+    }
     // Recent emit events (newest first) — the "who's emitting" feed for `maxx watch`.
     m = p.match(/^\/api\/u\/([^/]+)\/feed$/);
     if (m && method === "GET") {
@@ -346,6 +389,12 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
           }
           if (name === "maxx_reserve") {
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(await reserve(h, args)) }] });
+          }
+          if (name === "maxx_directive") {
+            const s = await store.load(h);
+            const res = addDirective(s, args, now());
+            if (res.ok) await store.save(h, s);
+            return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(res) }] });
           }
           return rpcOk(id, { isError: true, content: [{ type: "text", text: `unknown tool ${name}` }] });
         } catch (e) {
