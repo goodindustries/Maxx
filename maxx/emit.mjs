@@ -334,6 +334,15 @@ async function runOnce({ quiet = false } = {}) {
         const mm = Object.entries(s.by_model).map(([k, v]) => `${k} ${fmtK(v)}`).join(" ");
         console.log(`      ${fmtK(s.billed).padStart(6)}  ${s.project} — ${s.name || s.root.slice(0, 8)}${s.branch ? ` [${s.branch}]` : ""}  (${mm})`);
       }
+      // pace context — the "so what" for the numbers above, from the local
+      // statusline state (window.json): position vs the paced share + the walls.
+      const w = readJSON(path.join(HOME, ".maxx", "window.json"), null);
+      if (w && w.ts && Date.now() - w.ts < 10 * 60_000) {
+        const pace = w.sessionOver > 0
+          ? `OVER share by ${fmtK(w.sessionOver)}`
+          : `${fmtK(w.sessionToSpend)} left of ${fmtK(w.sessionSafe)} share`;
+        console.log(`      pace: ${pace} · window ${fmtK(w.used5)}/${fmtK(w.cap5)} · week ${Math.round((w.weekPct || 0) * 100)}% (${fmtK(Math.max(0, (w.weekCap || 0) - (w.weekUsed || 0)))} left) · ${w.sessionsLeft} windows to reset`);
+      }
     } else {
       console.log(`  send FAILED ${res.status} — cursor NOT advanced · ${body.slice(0, 200)}`);
       if (!args.watch) process.exit(1);
