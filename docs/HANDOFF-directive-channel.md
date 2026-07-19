@@ -1,5 +1,10 @@
 # Handoff: build the directive channel (fleet command plane)
 
+> **DONE 2026-07-19** (commit d4fe2a1, deployed to lucky, proven live: pause →
+> gate deny on prod, resume lifts, clear → additionalContext, feed audited).
+> Read semantics: GET consumes; `?peek=1` inspects without consuming. Open
+> items 2–5 below still stand.
+
 Written 2026-07-18 (session 90e767c1, ctx-fat, pre-/clear). Everything below is
 deployed and verified unless marked TODO. Full system context: memory file
 `maxx-central-budget-tally` (auto-loaded).
