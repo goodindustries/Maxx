@@ -160,6 +160,8 @@ async function ingestSince(file, sinceSec, seen) {
 }
 
 const iso = (sec) => new Date(sec * 1000).toISOString();
+// human time for LOG DISPLAY only (wire stays ISO/UTC): laptop-local, e.g. "Jul 18 22:10:25"
+const localT = (sec) => new Date(sec * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
 const args = parseArgs(process.argv.slice(2));
 const cfg = readJSON(CONFIG, {});
@@ -325,7 +327,7 @@ async function runOnce({ quiet = false } = {}) {
     const body = await res.text().catch(() => "");
     if (res.ok) {
       writeFileSync(CURSOR, JSON.stringify({ lastTs: Math.round(maxTs), at: iso(nowSec) }));
-      console.log(`  sent ✓ ${res.status} +${fmtK(totalBilled)} · cursor → ${iso(maxTs)} · ${body.slice(0, 120)}`);
+      console.log(`  sent ✓ ${res.status} +${fmtK(totalBilled)} · ${localT(maxTs)} · ${body.slice(0, 120)}`);
       // who/what per session, so a tail of this log is attributable on its own:
       // billed · project — session name [branch] (model mix)
       for (const s of sessions.slice(0, 6)) {
