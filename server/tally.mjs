@@ -149,6 +149,9 @@ export function computeBudget(store, now) {
     if (e.ts > now - FIVE_H) surfaces[e.surface] = (surfaces[e.surface] || 0) + e.billed;
   }
 
+  // lifetime odometer: the whole store, backfill included (weighted units)
+  const lifetime = store.events.reduce((s, e) => s + e.billed, 0);
+
   // #5 burn rate (account-wide, last 5m) + time-to-empty at that rate
   const burn5m = store.events.reduce((s, e) => (e.ts > now - 300 && e.ts <= now + 60 ? s + e.billed : s), 0);
   const ratePerSec = burn5m / 300;
@@ -193,7 +196,7 @@ export function computeBudget(store, now) {
     verdict, fresh,
     anchor_age_sec: Number.isFinite(anchorAge) ? Math.round(anchorAge) : null,
     stored_at: new Date(now * 1000).toISOString(),
-    five_billed: five, week_billed: week,
+    five_billed: five, week_billed: week, lifetime_billed: lifetime,
     surfaces: Object.entries(surfaces)
       .sort((x, y) => y[1] - x[1])
       .map(([surface, billed_5h]) => ({ surface, billed_5h })),
