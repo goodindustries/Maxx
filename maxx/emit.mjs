@@ -117,6 +117,7 @@ async function ingestSince(file, sinceSec, seen) {
   let billed = 0, out = 0, turns = 0, first = 0, last = 0;
   let inp = 0, cacheR = 0, cacheW = 0, raw = 0, tools = 0, agentTurns = 0;
   let ctx = 0, lastModel = null; // live context size = latest request's full input
+  let errors = 0; // API/token errors (rate-limit, overloaded) — CC flags these rows
   const byModel = {};
   let custom = null, ai = null, agent = null, branch = null, version = null;
   const rl = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
@@ -129,6 +130,10 @@ async function ingestSince(file, sinceSec, seen) {
     if (rec.agentName) agent = rec.agentName;
     if (rec.gitBranch) branch = rec.gitBranch;
     if (rec.version) version = rec.version;
+    if (rec.isApiErrorMessage) {
+      const et = Date.parse(rec.timestamp || 0) / 1000;
+      if (Number.isFinite(et) && et > sinceSec) errors++;
+    }
     const u = rec?.message?.usage || rec?.usage;
     const ts = rec?.timestamp;
     if (!u || !ts) continue;
@@ -162,7 +167,7 @@ async function ingestSince(file, sinceSec, seen) {
   }
   return {
     billed, out, turns, byModel, first, last, name: custom || ai || agent || null, branch, version,
-    inp, cacheR, cacheW, raw, tools, agentTurns, ctx, lastModel,
+    inp, cacheR, cacheW, raw, tools, agentTurns, ctx, lastModel, errors,
   };
 }
 
@@ -298,10 +303,10 @@ async function runOnce({ quiet = false } = {}) {
     const c = classify(args.dir, f);
     const key = `${c.project}/${c.root}`;
     let r = roots.get(key);
-    if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, version: null, billed: 0, output: 0, turns: 0, input: 0, cache_read: 0, cache_write: 0, raw: 0, tool_calls: 0, agent_turns: 0, ctx: 0, lastModel: null, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
+    if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, version: null, billed: 0, output: 0, turns: 0, input: 0, cache_read: 0, cache_write: 0, raw: 0, tool_calls: 0, agent_turns: 0, errors: 0, ctx: 0, lastModel: null, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
     r.billed += s.billed; r.output += s.out; r.turns += s.turns;
     r.input += s.inp; r.cache_read += s.cacheR; r.cache_write += s.cacheW;
-    r.raw += s.raw; r.tool_calls += s.tools; r.agent_turns += s.agentTurns;
+    r.raw += s.raw; r.tool_calls += s.tools; r.agent_turns += s.agentTurns; r.errors += s.errors || 0;
     if (s.last >= r.last) { r.ctx = s.ctx; r.lastModel = s.lastModel; }
     for (const k in s.byModel) r.byModel[k] = (r.byModel[k] || 0) + s.byModel[k];
     if (s.name) r.name = s.name;
@@ -341,7 +346,7 @@ async function runOnce({ quiet = false } = {}) {
       root: r.root, project: r.project, name: r.name, branch: r.branch, cc_version: r.version,
       billed: r.billed, output: r.output, turns: r.turns, by_model: r.byModel,
       input: r.input, cache_read: r.cache_read, cache_write: r.cache_write,
-      raw: r.raw, tool_calls: r.tool_calls, agent_turns: r.agent_turns,
+      raw: r.raw, tool_calls: r.tool_calls, agent_turns: r.agent_turns, errors: r.errors,
       ctx: r.ctx, cost_per_action: Math.round(r.ctx * 0.1 * modelWeight(r.lastModel)),
       first_ts: r.first ? iso(r.first) : null, last_ts: r.last ? iso(r.last) : null,
     }));

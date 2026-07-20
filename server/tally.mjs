@@ -69,6 +69,7 @@ export function applyEnvelope(store, env) {
       cache_write: s.cache_write || 0,
       tool_calls: s.tool_calls || 0,
       agent_turns: s.agent_turns || 0,
+      errors: s.errors || 0,
       turns: s.turns || 0,
       ctx: s.ctx || 0,
       cost_per_action: s.cost_per_action || 0,

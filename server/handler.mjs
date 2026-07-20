@@ -814,7 +814,8 @@ if(location.search)history.replaceState(null,'',location.pathname);
         '<span class="num"><span style="color:#8a93a5">'+(pct!=null?Math.round(w)+'%':'—')+'</span> · '+num+'</span></div>';
     };
     var rate=b.burn_5m!=null?b.burn_5m/5:0;
-    var sNum='+'+kf(b.five_billed||0)+(rate>0?' · <span class="good">+'+kf(rate)+'/min</span>':'');
+    var sNum='+'+kf(b.five_billed||0)+(rate>0?' · <span class="good">+'+kf(rate)+'/min</span>':'')+
+      (b.session_to_spend>0?' · ~'+kf(b.session_to_spend)+' left':' · <span class="bad">0 left</span>');
     var wNum=(b.weekly_left_tokens!=null?'~'+kf(b.weekly_left_tokens)+' left':'—')+
       (b.session_over>0?' · <span class="bad">-'+kf(b.session_over)+' over</span>':'')+
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
@@ -945,6 +946,8 @@ if(location.search)history.replaceState(null,'',location.pathname);
         ' · ~'+hum(perTurn)+'/turn · '+tn+' turns/1h ≈ '+hum(perTurn*Math.max(1,tn))+'/h → '+
         (sev?'<b>run /fenix or /clear NOW</b>':'consider /clear soon'));
     }
+    var errs=h1.reduce(function(a,e){return a+(e.errors||0)},0);
+    if(errs>0)lines.push('⚠ <b>'+errs+' token error'+(errs===1?'':'s')+'</b> last hour (rate-limit / API) — the wall is pushing back');
     var held=(window.__ops||[]).filter(function(o){return /held|OVER|pause/i.test((o.op||'')+' '+(o.d||''))&&o.ts>t-1800}).sort(function(x,y){return y.ts-x.ts})[0];
     if(held)lines.push('🛡 maxx protected you · '+esc(held.op+(held.d?' · '+held.d:''))+' · '+ago(Math.max(0,t-held.ts))+' ago');
     if(lines.length){ins.style.display='block';ins.innerHTML=lines.join('<br>');}
@@ -1003,7 +1006,8 @@ if(location.search)history.replaceState(null,'',location.pathname);
         '<span class="v">+'+hum(e.billed)+'</span>'+
         (who?' <span class="p">'+esc(who)+'</span>':'')+
         (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+
-        (e.ctx?' <span class="'+cxCls+'">ctx'+hum(e.ctx)+'</span>':'')+'</div>'});
+        (e.ctx?' <span class="'+cxCls+'">ctx'+hum(e.ctx)+'</span>':'')+
+        (e.errors>0?' <span class="cx hot">⚠'+e.errors+'err</span>':'')+'</div>'});
     });
     (window.__ops||[]).forEach(function(o){
       var ms=o.ts*1000;
@@ -1500,7 +1504,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         billed: e.billed, output: e.output || 0,
         project: e.project || null, name: e.name || null, branch: e.branch || null,
         by_model: e.by_model || {}, turns: e.turns || 0, tool_calls: e.tool_calls || 0,
-        agent_turns: e.agent_turns || 0, raw: e.raw || 0,
+        agent_turns: e.agent_turns || 0, errors: e.errors || 0, raw: e.raw || 0,
         cache_read: e.cache_read || 0, cache_write: e.cache_write || 0,
         ctx: e.ctx || 0, cost_per_action: e.cost_per_action || 0,
       }));
