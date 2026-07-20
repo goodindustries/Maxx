@@ -47,7 +47,7 @@ const TOOLS = [
   },
   {
     name: "maxx_budget",
-    description: "Read the current omni-surface subscription budget (5h + weekly utilization, verdict, tokens left) from the central maxx tally. Use this to gate spend instead of reading any single machine's local signal.",
+    description: "Read the current omni-surface subscription budget from the central maxx tally: verdict (ok/over/stale), session_to_spend (tokens safe to use now — nets reserves, refills as usage ages out), net_per_min (positive = banking, negative = burning faster than refill), weekly_left_tokens, and the 5h/weekly reset clocks. Use this to gate spend instead of any single machine's local signal. A positive session_to_spend that is net-negative is still draining — re-check before each expensive step.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: { handle: { type: "string" } },
@@ -1728,12 +1728,17 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
           // the closest MCP gets to a mandatory gate (still advisory; a PreToolUse
           // hook is the hard block).
           instructions:
-            "BUDGET GATE — before doing any token-expensive work (spawning agents/subagents, " +
-            "long generations, builds, large batches), you MUST first call `maxx_budget`. " +
-            "It returns the whole account's live remaining budget (all machines + cloud combined). " +
-            "STOP and do not proceed if: verdict is \"over\" or \"stale\", or session_to_spend is 0. " +
-            "If verdict is \"ok\", session_to_spend is roughly how many tokens you may safely use this window. " +
-            "This is a hard budget gate, not a suggestion — check it first, every run.",
+            "BUDGET GATE — before any token-expensive work (spawning agents/subagents, long " +
+            "generations, builds, large batches) you MUST first call `maxx_budget`. It returns the " +
+            "whole account's live budget (all machines + cloud combined). STOP if: verdict is " +
+            "\"over\" or \"stale\", or session_to_spend <= 0. If verdict is \"ok\", session_to_spend is " +
+            "the tokens you may safely use — it already nets active reserves and refills as old usage " +
+            "ages out. Two things it does NOT mean on its own: (1) A positive session_to_spend can " +
+            "still be DRAINING — check net_per_min; if it's negative you're burning faster than the " +
+            "tank refills, so re-check the gate before each expensive step, not just once at the start. " +
+            "(2) Before a FAN-OUT (spawning multiple agents at once) call `maxx_reserve` for the tokens " +
+            "you'll need FIRST — otherwise every concurrent agent sees the same full allowance and the " +
+            "fleet can overspend it. This is a hard gate, not a suggestion — check it every run.",
         });
       }
       if (rm === "notifications/initialized" || rm === "notifications/cancelled")

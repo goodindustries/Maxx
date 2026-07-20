@@ -266,7 +266,11 @@ export function computeBudget(store, now) {
         : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
     weekly_left_tokens: weeklyLeft, session_to_spend: spendAfterReserve,
     session_over: slOver,
-    week_bank: slBank, net_per_min: slNet,
+    week_bank: slBank,
+    // net_per_min = refill (rolling 5h tank ÷ 300) − recent burn (5m rate). One
+    // definition for every surface: the dash, the card, and an agent reading this
+    // all get the same net. Falls back to the statusline's own net when burn is absent.
+    net_per_min: five != null && burn5m != null ? Math.round(five / (FIVE_H / 60) - burn5m / 5) : slNet,
     session_safe: sessionSafe,
     reserved_tokens: reservedTokens, leases: activeLeases.length,
     burn_5m: burn5m, empties_at: emptiesAt,
