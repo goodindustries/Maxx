@@ -214,6 +214,7 @@ function renderCard(h, s, b, setup = null) {
   const bars0 = JSON.stringify({
     five_billed: b.five_billed, available: b.session_to_spend, week: b.week, quota: b.quota,
     weekly_left: b.weekly_left_tokens, session_over: b.session_over, burn_5m: b.burn_5m,
+    week_billed: b.week_billed, week_bank: b.week_bank,
     week_reset_in_sec: b.week_reset_in_sec, fresh: b.fresh, anchor_age_sec: b.anchor_age_sec,
   });
   // badge: "live" only when data actually flows; a retired handle says so
@@ -378,24 +379,46 @@ ${CHART_JS}
   var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
   var ago=function(s){return s<60?s+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
   var kf=function(n){return Math.round(n/1000).toLocaleString('en-US')+'k'};
+  // IDENTICAL semantics + geometry to the dash renderBudget — session is the netBar
+  // (green from left = banked standing, red from right = over), week is the fuel tank
+  // (fill = what's LEFT, ╎ even-pace tick). Numbers: signed STANDING (available, not
+  // used) + net rate (refill − recent burn, sign follows the NET). One ruler everywhere.
+  var GRAD={green:'linear-gradient(90deg,#9be3b0,#4fbe7e 55%,#159a52)',amber:'linear-gradient(90deg,#f4d9a6,#e0a93e 55%,#c98a12)'};
   function renderBars(d){
-    var bar=function(lab,pct,num){
-      var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
-      return '<div class="bar'+(w>=90?' hot':'')+'"><span class="lab">'+lab+'</span>'+
-        '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
-        '<span class="num"><span style="color:#8a93a5">'+(pct!=null?Math.round(w)+'%':'—')+'</span> · '+num+'</span></div>';
+    var bar=function(lab,spec,num){
+      var g=Math.max(0,Math.min(100,(spec.green||0)*100));
+      var r=Math.max(0,Math.min(100,(spec.red||0)*100));
+      var tick=spec.tick!=null?Math.max(0,Math.min(100,spec.tick*100)):null;
+      return '<div class="bar"><span class="lab">'+lab+'</span><span class="track">'+
+        (g>=0.5?'<span class="fill" style="width:'+g.toFixed(1)+'%;background:'+GRAD[spec.col||'green']+'"></span>':'')+
+        (r>=0.5?'<span class="fill" style="left:auto;right:0;width:'+r.toFixed(1)+'%;background:linear-gradient(270deg,#f2b8b5,#d23b3b)"></span>':'')+
+        (tick!=null?'<span style="position:absolute;left:'+tick.toFixed(1)+'%;top:0;bottom:0;width:2px;background:#152036;z-index:2"></span>':'')+
+        '</span><span class="num">'+num+'</span></div>';
     };
-    // same stats, same order, same semantics as the CLI statusline — that pick is the spec
-    var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale · no recent anchor'):'';
+    var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale'):'';
     var calib=d.week!=null&&d.week<0.05?' · calibrating':'';
-    var gcls=d.fresh?'good':'',bcls=d.fresh?'bad':'';
-    var rate=d.burn_5m!=null?d.burn_5m/5:0;
-    var sNum='+'+kf(d.five_billed||0)+(rate>0?' · <span class="'+gcls+'">+'+kf(rate)+'/min</span>':'')+stale;
-    var wNum=(d.weekly_left!=null?'~'+kf(d.weekly_left)+' left':'—')+
-      (d.session_over>0?' · <span class="'+bcls+'">-'+kf(d.session_over)+' over</span>':'')+
+    var burnMin=d.burn_5m!=null?d.burn_5m/5:0,refuel=(d.five_billed||0)/300;
+    var prog=refuel-burnMin,up=prog>=0;
+    var avail=d.available!=null?d.available:0,over=d.session_over||0,banked=avail>0;
+    var sNum=(banked?'+'+kf(avail):'<span class="bad">−'+kf(over)+'</span>')+
+      (Math.abs(prog)>=500?' · <span class="'+(up?'good':'bad')+'">'+(up?'+':'−')+kf(Math.abs(prog))+'/min</span>':'')+stale;
+    var bank=d.week_bank;
+    var wNum=(d.weekly_left!=null?kf(d.weekly_left)+' left':'—')+
+      (bank!=null?(bank>=0?' · <span class="good">+'+kf(bank)+' banked</span>':' · <span class="bad">−'+kf(-bank)+' over</span>'):'')+
       (d.week_reset_in_sec!=null?' · '+ago(d.week_reset_in_sec):'')+calib;
+    // session netBar: standing / realMax (green), over / room-to-lockout (red)
+    var realMax=(d.five_billed||0)+avail-over;
+    var fiveCap=d.quota>0?(d.five_billed||0)/d.quota:null;
+    var overRoom=fiveCap&&fiveCap>realMax?fiveCap-realMax:Math.max(realMax,1);
+    var sSpec={green:realMax>0?avail/realMax:0,red:over/overRoom,col:'green'};
+    // week fuel tank: fill = LEFT, pace tick from bank, CLI color thresholds
+    var weekCap=(d.week_billed||0)+(d.weekly_left||0);
+    var leftFrac=weekCap>0?(d.weekly_left||0)/weekCap:0;
+    var wTick=weekCap>0&&bank!=null?Math.min(1,Math.max(0,((d.weekly_left||0)-bank)/weekCap)):null;
+    var wRatio=wTick!=null&&wTick>0.02?leftFrac/wTick:1;
+    var wCol=(leftFrac<0.1||wRatio<0.5)?'red':wRatio<0.85?'amber':'green';
     document.getElementById('bars').innerHTML=
-      bar('session',d.quota,sNum)+bar('week',d.week,wNum);
+      bar('session',sSpec,sNum)+bar('week',{green:leftFrac,tick:wTick,col:wCol},wNum);
   }
   renderBars(${bars0});
   // odometer: creep the hero at the REAL burn rate between polls (burn_5m/300 tok/s),
@@ -1393,8 +1416,9 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             // data as "available"; never names
             five_billed: budget.five_billed, week: budget.week, quota: budget.quota,
             weekly_left: budget.weekly_left_tokens, session_over: budget.session_over,
+            week_billed: budget.week_billed, week_bank: budget.week_bank,
             five_reset_in_sec: budget.five_reset_in_sec, week_reset_in_sec: budget.week_reset_in_sec,
-            fresh: budget.fresh, feed,
+            fresh: budget.fresh, anchor_age_sec: budget.anchor_age_sec, feed,
           }) };
       }
       // owner view: /u/{h}?k={secret} adds the private setup-check panel — "is my install right?"
