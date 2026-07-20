@@ -725,19 +725,19 @@ table{font-size:12px}
 
  <div class="trio">
   <div>
-   <div class="klabel">BURN RATE</div>
-   <div class="big"><span class="v" id="burnV">—</span><span class="u" id="burnU"></span></div>
-   <div class="sub" id="burnSub"></div>
+   <div class="klabel">NET / MIN</div>
+   <div class="big"><span class="v" id="netV">—</span><span class="u" id="netU"></span></div>
+   <div class="sub" id="netSub"></div>
   </div>
   <div>
-   <div class="klabel">SESSION RUNS OUT</div>
+   <div class="klabel">REMAINING</div>
+   <div class="big"><span class="v" id="remV" style="font-size:38px">—</span></div>
+   <div class="sub" id="remSub"></div>
+  </div>
+  <div>
+   <div class="klabel">AT PACE</div>
    <div class="big"><span class="v" id="runV" style="font-size:38px">—</span></div>
    <div class="sub" id="runSub"></div>
-  </div>
-  <div>
-   <div class="klabel">TOKENS / TURN</div>
-   <div class="big"><span class="v" id="ptV" style="font-size:38px">—</span></div>
-   <div class="sub" id="ptSub"></div>
   </div>
  </div>
 
@@ -829,24 +829,43 @@ if(location.search)history.replaceState(null,'',location.pathname);
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
     document.getElementById('bars').innerHTML=bar('session',b.quota,sNum)+bar('week',b.week,wNum);
 
-    // trio: burn rate / runout / per-turn
-    var perSec=(b.burn_5m||0)/300,perHr=perSec*3600;
-    var hs=hum(perHr);
-    document.getElementById('burnV').textContent=perHr>0?hs.slice(0,-1):'0';
-    document.getElementById('burnU').textContent=(perHr>0?hs.slice(-1):'')+'/hr';
-    document.getElementById('burnSub').textContent=hum(perSec*60)+' /min · '+hum(perSec)+' /s';
+    // trio: NET/MIN (burn minus even-pace) / REMAINING / AT PACE (where you land)
+    var perSec=(b.burn_5m||0)/300,perMin=perSec*60;
+    var minsLeft=b.five_reset_in_sec!=null?b.five_reset_in_sec/60:null;
+    // even = what you could burn per minute from now and land at 0 exactly at reset
+    var even=(minsLeft>0&&b.session_to_spend>0)?b.session_to_spend/minsLeft:0;
+    var net=perMin-even;
+    var netV=document.getElementById('netV'),netU=document.getElementById('netU'),netSub=document.getElementById('netSub');
+    var nh=hum(Math.abs(net));
+    netV.textContent=(net>0?'+':net<0?'−':'')+nh.slice(0,-1);
+    netU.textContent=nh.slice(-1)+'/min';
+    netV.style.color=net>0?'var(--red)':net<0?'var(--green)':'var(--ink)';
+    netSub.textContent='burn '+hum(perMin)+' − even '+hum(even)+' /min';
+    var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
+    if(b.session_to_spend>0){
+      remV.textContent=hum(b.session_to_spend);remV.style.color='var(--ink)';
+      remSub.textContent='this window · week ~'+hum(b.weekly_left_tokens||0)+' left';
+    }else{
+      remV.textContent=b.session_over>0?'-'+hum(b.session_over):'0';remV.style.color='var(--red)';
+      remSub.textContent=(b.session_over>0?'over · ':'')+'week ~'+hum(b.weekly_left_tokens||0)+' left';
+    }
     var runV=document.getElementById('runV'),runSub=document.getElementById('runSub');
-    if(b.session_to_spend>0&&perSec>1){
+    if(b.session_to_spend<=0){runV.textContent='0 left';runV.style.color='var(--red)';runSub.textContent=b.five_reset_in_sec!=null?'window refills in '+dur(b.five_reset_in_sec):'';}
+    else if(perSec<=1){runV.textContent='holds';runV.style.color='var(--green)';runSub.textContent='no burn · resets in '+(minsLeft!=null?dur(minsLeft*60):'—');}
+    else if(net>0){
       var sec=b.session_to_spend/perSec;
       runV.textContent=dur(sec);
-      runV.style.color=sec>3600?'var(--green)':sec>1200?'var(--amber)':'var(--red)';
-      runSub.textContent='at '+clockAt(sec)+' · '+hum(b.session_to_spend)+' left';
-    }else if(b.session_to_spend>0){runV.textContent='—';runV.style.color='var(--ink)';runSub.textContent=hum(b.session_to_spend)+' left · no burn';}
-    else{runV.textContent='0 left';runV.style.color='var(--red)';runSub.textContent=b.five_reset_in_sec!=null?'window refills in '+dur(b.five_reset_in_sec):'';}
+      runV.style.color=sec>1200?'var(--amber)':'var(--red)';
+      runSub.textContent='runs out at '+clockAt(sec);
+    }else{
+      var landing=b.session_to_spend-perMin*(minsLeft||0);
+      runV.textContent='+'+hum(Math.max(0,landing));
+      runV.style.color='var(--green)';
+      runSub.textContent='left at reset ('+(minsLeft!=null?dur(minsLeft*60):'—')+')';
+    }
     var h1=ev.filter(function(e){var ts=new Date(e.ts).getTime()/1000;return ts>t-3600});
     var h1b=h1.reduce(function(a,e){return a+e.billed},0),h1t=h1.reduce(function(a,e){return a+(e.turns||0)},0);
-    document.getElementById('ptV').textContent=h1t>0?hum(h1b/h1t):'—';
-    document.getElementById('ptSub').textContent=h1t+' turns · '+hum(h1b)+' /1h';
+    window.__perTurn=h1t>0?hum(h1b/h1t)+' /turn · '+h1t+' turns/1h':'';
 
     // 48-min tokens/min chart from the feed
     var buckets=new Array(48).fill(0);
@@ -867,7 +886,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
     if(avg>0){var atop=H-sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=Math.max(0,atop-15).toFixed(0)+'px';}
     else{al.style.display='none';ab.style.display='none';}
-    document.getElementById('chartMeta').textContent='avg '+hum(avg)+' /min · peak '+hum(mx)+' · √ scale';
+    document.getElementById('chartMeta').textContent='avg '+hum(avg)+' /min · peak '+hum(mx)+' · √ scale'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
