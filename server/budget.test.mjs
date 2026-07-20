@@ -36,6 +36,8 @@ test("statusline passthrough: sl numbers become the ruler, extrapolated since an
   assert.equal(b.week_billed, 122e6);
   assert.equal(b.weekly_left_tokens, 1300e6 - 122e6);
   assert.ok(Math.abs(b.week - 122e6 / 1300e6) < 1e-9);
+  // the CLI's toSpend governs, minus since-anchor burn: 30M − 2M
+  assert.equal(b.session_to_spend, 28e6);
 });
 
 test("five window falls back to rolling when the anchored reset already passed", () => {

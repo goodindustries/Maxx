@@ -160,6 +160,7 @@ export function computeBudget(store, now) {
   // Between anchors we extrapolate with server-billed-since-anchor; anchors ship every
   // interactive turn, so the drift window is small (and the % anchor path above remains
   // the fallback for old emitters / stale sl).
+  let slSpend = null;
   if (a && fresh && a.sl) {
     const since = windowedBilled(store.events, now, WEEK, a.ts);
     if (a.sl.five_cap > 0) { fiveCap = a.sl.five_cap; five = a.sl.five_used + since; }
@@ -167,6 +168,9 @@ export function computeBudget(store, now) {
     week = a.sl.week_used + since;
     quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
     weekPct = Math.min(1, week / weekCap);
+    // the CLI's roll-session toSpend is the governor's allowance — pass it through
+    // (minus since-anchor burn) so the gate agrees with the bar, not a second pacer
+    slSpend = Math.max(0, a.sl.to_spend - since);
   }
 
   const weeklyLeft = weekCap != null ? Math.max(0, weekCap - week) : null;
@@ -175,7 +179,7 @@ export function computeBudget(store, now) {
   const windowsLeft = wr ? Math.max(1, (wr - now) / FIVE_H) : 1;
   const sessionSafe = weeklyLeft != null
     ? Math.min(fiveCap ?? Infinity, Math.round(weeklyLeft / windowsLeft)) : null;
-  const sessionToSpend = sessionSafe != null ? Math.max(0, sessionSafe - five) : null;
+  const sessionToSpend = slSpend != null ? slSpend : sessionSafe != null ? Math.max(0, sessionSafe - five) : null;
 
   // #4 reservation leases: active leases subtract from the allowance other
   // callers see (the grantee tracks its own lease). Expired leases are ignored
