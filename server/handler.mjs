@@ -642,7 +642,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .trio .sub{font-family:var(--mono);font-size:13.5px;color:#8a93a5;margin-top:7px}
 .chart48{position:relative;height:170px;margin-top:12px}
 .chart48 .zero{position:absolute;left:0;right:0;top:42px;border-top:1.5px solid #d4d7e2;z-index:1}
-.chart48 .refill{position:absolute;left:0;right:0;background:linear-gradient(0deg,#dbeafe,#3b82f6);border-radius:3px 3px 0 0;opacity:.85;z-index:0}
+.chart48 .refill{position:absolute;left:0;right:0;background:linear-gradient(0deg,rgba(59,130,246,.06),rgba(59,130,246,.22));border-top:2px solid #2563eb;border-radius:2px 2px 0 0;z-index:0}
 .chart48 .refillab{position:absolute;right:0;font-family:var(--mono);font-size:11px;color:#1d4ed8;background:#fff;padding:0 4px;z-index:3}
 .chart48 .avgline{position:absolute;left:0;right:0;border-top:1.5px dashed #e8b58a;z-index:2}
 .chart48 .avglab{position:absolute;left:0;font-family:var(--mono);font-size:11px;color:#c2703a;background:#fff;padding:0 4px;z-index:3}
