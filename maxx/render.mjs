@@ -401,15 +401,19 @@ function main() {
   let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null, burn60 = 0, refuelPerMin = 0;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
-    const sum = (ms) => { const c = now - ms; let s = 0; for (const b of win.buckets) if (b[0] > c) s += b[1]; return s; };
-    const sumFrom = (lo) => { let s = 0; for (const b of win.buckets) if (b[0] > lo) s += b[1]; return s; };
+    // account clamp: buckets before the current Claude account's epoch (limit.mjs stamps it from the
+    // accounts ledger) belong to a different account's rate limits — never count them here.
+    const acctLo = win.accountSince || 0;
+    const bkts = acctLo ? win.buckets.filter((b) => b[0] > acctLo) : win.buckets;
+    const sum = (ms) => { const c = now - ms; let s = 0; for (const b of bkts) if (b[0] > c) s += b[1]; return s; };
+    const sumFrom = (lo) => { let s = 0; for (const b of bkts) if (b[0] > lo) s += b[1]; return s; };
     // SMOOTH rolling window (age-weighted decay): every bucket's weight fades LINEARLY from 1 (just now)
     // to 0 (5h old), so all recent spend is continuously decaying — not a hard cutoff that only drops the
     // trailing bucket. `now` advances every render (~1s), so the weighted sum shrinks a little each second
     // and the fuel tank refills smoothly per second while you idle, at ~(last-5h spend)/5h per second.
     // A spend fully "returns" 5h after it happened; idling just lets the decay run. This is the roll-
     // session's own pacing clock, not Anthropic's hard 5h wall (that stays in the raw* fields).
-    const decaySum = (winMs) => { let s = 0; for (const b of win.buckets) { const age = now - b[0]; if (age >= winMs) continue; s += b[1] * (1 - age / winMs); } return s; };
+    const decaySum = (winMs) => { let s = 0; for (const b of bkts) { const age = now - b[0]; if (age >= winMs) continue; s += b[1] * (1 - age / winMs); } return s; };
     // session: sum from the real window start (resets_at − 5h), same as weekly below — NOT a blind
     // rolling 5h. So the instant the wall resets (resets_at leaps +5h), pre-reset burn stops counting
     // and the bar drops to ~0 immediately, instead of decaying stale over the next 5 hours.
@@ -455,7 +459,13 @@ function main() {
   // held value survives across renders (and across a reset, since the cap itself doesn't change).
   const capsPath = path.join(HOME, ".maxx", "caps.json");
   const caps = readJSON(capsPath, {});
+  // caps anchored under a DIFFERENT Claude account are meaningless against this one's %s — flush and
+  // re-anchor fresh on the first render after a switch (window.json carries the current account uuid).
+  if (win && win.accountUuid && caps.acct !== win.accountUuid) for (const k of Object.keys(caps)) delete caps[k];
   const anchorCap = (have, pct, tok, prevPct, prevCap, brainCap) => {
+    // a held cap below the tokens already counted against it is nonsense (a cold-start render can pin
+    // cap=1 right after an account switch) — drop it so the brain's cap or a fresh anchor takes over.
+    if (prevCap && tok != null && prevCap < tok) prevCap = 0;
     if (have && pct > 0.02 && tok != null) {
       if (prevCap && prevPct != null && Math.abs(prevPct - pct) < 0.005) return prevCap; // wall % steady → hold
       // wall ticked → re-anchor, but EMA-smooth the jump (½ old, ½ new). The cap is an estimate (tok is
@@ -474,7 +484,7 @@ function main() {
     have && pct > 0.02 && tok != null && !(prevCap && prevPct != null && Math.abs(prevPct - pct) < 0.005);
   const tok5a = didAnchor(haveQuota, quota, tok5, caps.q5, caps.cap5) ? tok5 : (caps.tok5a ?? (tok5 ?? 0));
   const tok7a = didAnchor(haveWeek, week, tok7, caps.q7, caps.cap7) ? tok7 : (caps.tok7a ?? (tok7 ?? 0));
-  try { writeFileSync(capsPath, JSON.stringify({ q5: haveQuota ? quota : caps.q5, cap5: cap5s, tok5a, q7: haveWeek ? week : caps.q7, cap7: cap7s, tok7a })); } catch {}
+  try { writeFileSync(capsPath, JSON.stringify({ q5: haveQuota ? quota : caps.q5, cap5: cap5s, tok5a, q7: haveWeek ? week : caps.q7, cap7: cap7s, tok7a, acct: (win && win.accountUuid) || caps.acct })); } catch {}
   // LIVE used = authoritative base + scaled burn since the last %-tick. The base (wall% × cap) is
   // Anthropic's truth — what /usage shows. On top we add the tokens burned since the anchor, but the raw
   // bucket delta over-counts (cache reads at full weight), so we scale it by the deflation factor we can

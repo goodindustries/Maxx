@@ -61,7 +61,12 @@ Routing: `api.meetmaxx.co → Cloudflare (proxied) → lucky named tunnel → se
 No Netlify in the API path (confirmed by `cf-ray` header). meetmaxx.co (Netlify,
 `site/`) serves the **landing page only** — `/mcp` there is 404 by design.
 
-- **Connector URL: `https://api.meetmaxx.co/mcp?handle=reif`** (Bearer).
+- **Connector URL: `https://api.meetmaxx.co/mcp?handle=reif_tgp`** (Bearer). One
+  handle per Claude ACCOUNT — every account has its own timeline, there is no
+  global one. `reif` = the retired account's frozen tally; `reif_tgp` = the
+  reif@thegoodproject.net account (active since 2026-07-20). The laptop's
+  account ledger (`~/.maxx/accounts.json`, maintained by `limit.mjs`) marks
+  which account owns which slice of the local logs.
 - **CF DNS:** proxied CNAME `api.meetmaxx.co` → `51665939-…​.cfargotunnel.com` in the
   meetmaxx.co zone (needs a CF token with Zone:DNS:Edit on meetmaxx.co — lucky's
   tunnel cert only covers luckymachines.co).

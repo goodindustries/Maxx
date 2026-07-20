@@ -63,6 +63,19 @@ async function findSessionFiles(dir) {
   return files;
 }
 
+// ─── account epoch ────────────────────────────────────────────────────────────
+// Every Claude ACCOUNT has its own timeline — there is no global one. Local logs
+// don't carry account identity, so limit.mjs keeps a ledger (~/.maxx/accounts.json)
+// of when each account was active on this machine; the card counts only records
+// since the current account's epoch. No ledger yet → all-time (single-account box).
+function accountEpoch() {
+  try {
+    const led = JSON.parse(readFileSync(path.join(CONFIG_DIR, "accounts.json"), "utf8"));
+    const cur = (led.accounts || []).find((a) => a.uuid === led.current);
+    return cur ? cur.from : 0;
+  } catch { return 0; }
+}
+
 // ─── local YYYY-MM-DD from an ISO timestamp ───────────────────────────────────
 function localDay(iso) {
   const d = new Date(iso);
@@ -106,6 +119,7 @@ async function ingestFile(file, acc) {
 
     const day = localDay(rec.timestamp);
     if (!day) continue;
+    if (acc.since && new Date(rec.timestamp).getTime() < acc.since) continue; // other account's burn
 
     acc.totals.input += inp;
     acc.totals.cacheCreate += cc;
@@ -220,6 +234,7 @@ function buildStats(acc) {
   return {
     generatedAt: new Date().toISOString(),
     schema: "maxx.stats.v1",
+    accountSince: acc.since ? new Date(acc.since).toISOString() : null, // per-account timeline start (null = no ledger yet)
     totals: {
       tokens: grand,
       input: t.input,
@@ -308,6 +323,7 @@ export async function collectStats(dir = DEFAULT_DIR) {
     sessions: new Set(),
     seen: new Set(),
     messages: 0,
+    since: accountEpoch(),
   };
   const files = await findSessionFiles(dir);
   for (const f of files) {

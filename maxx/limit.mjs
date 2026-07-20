@@ -24,6 +24,7 @@ const OUT = path.join(HOME, ".maxx", "window.json");
 const CONFIG = path.join(HOME, ".maxx", "config.json");
 const RL = path.join(HOME, ".maxx", "rl.json");   // render drops the live %s here to anchor caps
 const CURSOR = path.join(HOME, ".maxx", "scan.json"); // per-file byte offsets for the incremental tail
+const ACCOUNTS = path.join(HOME, ".maxx", "accounts.json"); // which Claude account owns which slice of the local logs
 const WINDOW_MS = 5 * 60 * 60 * 1000;     // Claude's ~5-hour limit window
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;  // the 7-day wall
 const BUCKET_MS = 30 * 1000;              // 30-sec buckets: fine enough that the momentum + recovery step every ~30s, still cheap to re-sum every render tick
@@ -138,6 +139,32 @@ function historicalPeak(pts, win = WINDOW_MS) {
     if (sum > peak) peak = sum;
   }
   return peak;
+}
+
+// ACCOUNT EPOCH — rate limits are per Claude ACCOUNT, but the local logs are per MACHINE. After an
+// account switch the old account's burn still sits inside the current 5h/7d spans, so summing blindly
+// anchors caps against a % the burn never counted toward (seen live: cap7 ballooned to 1.27B = 1.23B
+// old-account tokens ÷ the new account's 1%). Fix: track the signed-in account (~/.claude.json
+// oauthAccount) in a ledger and only count buckets since the current account was first seen here.
+// Re-entering a previously seen account also restamps `from` — interleaved foreign burn would corrupt
+// its windows anyway, and rate-limit windows are ≤7d so history past the switch has no budget value.
+export function accountEpoch(now) {
+  let uuid = null, email = null;
+  try {
+    const oa = JSON.parse(readFileSync(path.join(HOME, ".claude.json"), "utf8")).oauthAccount || {};
+    uuid = oa.accountUuid || null; email = oa.emailAddress || null;
+  } catch {}
+  if (!uuid) return { uuid: null, since: 0 }; // can't tell → no clamp (pre-switch behavior)
+  let led = readJSON(ACCOUNTS, {});
+  if (!Array.isArray(led.accounts)) led = { accounts: [] };
+  let e = led.accounts.find((a) => a.uuid === uuid);
+  if (!e || led.current !== uuid) {
+    if (e) e.from = now;
+    else { e = { uuid, email, from: now }; led.accounts.push(e); }
+    led.current = uuid;
+    try { mkdirSync(path.dirname(ACCOUNTS), { recursive: true }); writeFileSync(ACCOUNTS, JSON.stringify(led)); } catch {}
+  }
+  return { uuid, since: e.from };
 }
 
 // ROLL-SESSION — the safe spend for THIS 5h window = weekly-tokens-LEFT ÷ 5h-windows-left, capped at the
@@ -273,12 +300,16 @@ async function main() {
   let quota = 0, week = 0, weekResetAt = 0;
   try { const rl = JSON.parse(readFileSync(RL, "utf8")); quota = rl.quota || 0; week = rl.week || 0; weekResetAt = rl.weekResetAt || 0; } catch {}
   // weekly window start = Anthropic's reset − 7d; max() never loosens past the rolling 7d, so a
-  // stale/absent resets_at just falls back to the old behavior.
-  const weekLo = Math.max(now - WEEK_MS, weekResetAt ? weekResetAt * 1000 - WEEK_MS : 0);
+  // stale/absent resets_at just falls back to the old behavior. Both lows also clamp to the current
+  // account's epoch — burn charged to a previous account never counts against this one's walls.
+  const acct = accountEpoch(now);
+  const weekLo = Math.max(now - WEEK_MS, weekResetAt ? weekResetAt * 1000 - WEEK_MS : 0, acct.since);
+  const fiveLo = Math.max(now - WINDOW_MS, acct.since);
 
   // --json prints the full report (authoritative scan); other invocations refresh window.json.
   if (process.argv.includes("--json")) {
-    const r = report(await collect(), now, weekLo, quota, week, weekResetAt);
+    const pts = (await collect()).filter(([t]) => t > acct.since);
+    const r = report(pts, now, weekLo, quota, week, weekResetAt);
     console.log(JSON.stringify(r, null, 2));
     return;
   }
@@ -302,17 +333,25 @@ async function main() {
   }
 
   // re-anchor caps against the freshly-summed window each run (quota comes from the live bar).
+  // Held-over caps from a DIFFERENT account are poison (anchored to that account's %s) — drop them.
   const prev = readJSON(OUT, {});
+  const prevOk = !acct.uuid || prev.accountUuid === acct.uuid;
   let used = 0, weekUsed = 0;
-  for (const [t, k] of buckets) { if (t > now - WINDOW_MS) used += k; if (t > weekLo) weekUsed += k; }
-  const cap5 = quota > 0.01 ? Math.round(used / quota) : (prev.cap5 || Math.round(used * 1.05) || 1);
-  const cap7 = week  > 0.01 ? Math.round(weekUsed / week) : (prev.cap7 || Math.round(weekUsed * 1.05) || 1);
+  for (const [t, k] of buckets) { if (t > fiveLo) used += k; if (t > weekLo) weekUsed += k; }
+  // a held cap below what's already used is nonsense (seen: a cold-start run pinned cap7=1 and the
+  // gate read toSpend 0 forever) — treat it as absent so the fallback re-derives a sane magnitude.
+  const prev5 = prevOk && prev.cap5 >= used ? prev.cap5 : 0;
+  const prev7 = prevOk && prev.cap7 >= weekUsed ? prev.cap7 : 0;
+  // anchor floors: >0.005 accepts a 1% wall reading — right after an account switch that's the only
+  // anchor there is, and holding a *1.05 guess instead reads "week nearly gone" on a fresh account.
+  const cap5 = quota > 0.005 ? Math.round(used / quota) : (prev5 || Math.round(used * 1.05) || 1);
+  const cap7 = week  > 0.005 ? Math.round(weekUsed / week) : (prev7 || Math.round(weekUsed * 1.05) || 1);
   // the roll-session gate, written into the cache so a governor reads the SAFE per-window spend directly —
   // no re-summing raw buckets, no hardcoded cap. Gate on sessionOver > 0 (or sessionToSpend === 0) to pause
   // an unattended agent until the 5h window resets; weekPct is the authoritative weekly % (= /usage).
   const roll = rollSession(cap5, cap7, used, weekUsed, weekResetAt, now);
   mkdirSync(path.dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify({ buckets, cap5, cap7, used5: used, weekUsed, weekPct: week, weekResetAt, ...roll, ts: now }));
+  writeFileSync(OUT, JSON.stringify({ buckets, cap5, cap7, used5: used, weekUsed, weekPct: week, weekResetAt, accountUuid: acct.uuid, accountSince: acct.since, ...roll, ts: now }));
   writeFileSync(CURSOR, JSON.stringify({ offsets, ts: now }));
 }
 // run only when invoked directly (CLI / statusline), not when imported by a test.
