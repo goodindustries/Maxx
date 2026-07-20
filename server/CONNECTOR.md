@@ -5,6 +5,14 @@
 One account = one **handle** + one **secret**, minted once at signup (first come,
 first served). Everything is per-handle: your own tally, budget, feed, and the
 budget-gate rules ship automatically to every agent that carries your connector.
+Every Claude account keeps its own timeline — there is no global one.
+
+Three ways to sign up (all hit `POST /api/signup`):
+- **Web:** meetmaxx.co → "Track every machine & cloud session" → claim a handle,
+  the connector URL is shown once in the browser.
+- **Zero-input CLI:** `node ~/.claude/skills/maxx/emit.mjs --signup` (no handle)
+  derives the handle from the signed-in Claude login and binds the account uuid.
+- **Named CLI:** `--signup <handle>` as below.
 
 ```bash
 # 1. install the statusline + skill (also places emit.mjs/watch.mjs)
