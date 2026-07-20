@@ -921,25 +921,27 @@ if(location.search)history.replaceState(null,'',location.pathname);
       if(idx>=0&&idx<48)buckets[idx]+=e.billed;
     });
     var mx=Math.max.apply(null,buckets.concat([1]));
-    var avg=buckets.reduce(function(a,v){return a+v},0)/48;
-    // Double bar around the zero line at 44px. Each minute is one column: usage OUT
-    // hangs DOWN (orange), tokens IN point UP (blue). Refill is the rolling tank's
-    // regen rate (5h burn ÷ 300) — a slow 5h average, so the blue waterline is ~flat;
-    // an orange bar reaching PAST it = net loss that minute. Shared √ scale (blue
-    // capped to the up-zone). Per-minute refill history isn't in the feed → flat.
-    var HD=124,HU=42;
-    var sc=function(v){return Math.max(2,Math.sqrt(v/mx)*HD)};
+    // NET per minute = refill IN − usage OUT. One bar per column off the zero line:
+    // ABOVE (blue) = banked that minute (refill outpaced burn — idle minutes bank the
+    // full refill), BELOW (orange) = net drain. Refill is the tank's regen (5h burn ÷
+    // 300, a slow 5h average → ~constant per min). Shared √ scale on |net|, up capped.
     var refillNow=(b.five_billed||0)/300;
-    var hUp=refillNow>0?Math.min(HU,Math.max(2,Math.sqrt(refillNow/mx)*HD)):0;
-    document.getElementById('cols').innerHTML=buckets.map(function(v,i){
-      return '<div class="col'+(i===47?' live':'')+'">'+
-        (hUp>0?'<div class="up" style="height:'+hUp.toFixed(0)+'px"></div>':'')+
-        '<div class="dn" style="height:'+sc(v).toFixed(0)+'px"></div></div>';
+    var nets=buckets.map(function(v){return refillNow-v});
+    var mxAbs=Math.max(1,Math.max.apply(null,nets.map(Math.abs)));
+    var HD=124,HU=42;
+    var sc=function(v){return Math.max(2,Math.sqrt(Math.abs(v)/mxAbs)*HD)};
+    document.getElementById('cols').innerHTML=nets.map(function(n,i){
+      var live=i===47?' live':'';
+      return '<div class="col'+live+'">'+(n>=0
+        ? '<div class="up" style="height:'+Math.min(HU,sc(n)).toFixed(0)+'px"></div>'
+        : '<div class="dn" style="height:'+sc(n).toFixed(0)+'px"></div>')+'</div>';
     }).join('');
+    var avgNet=nets.reduce(function(a,v){return a+v},0)/48;
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    if(avg>0){var atop=44+sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=(atop+2).toFixed(0)+'px';}
-    else{al.style.display='none';ab.style.display='none';}
-    document.getElementById('chartMeta').textContent='↑ in '+hum(refillNow)+'/min · ↓ out · avg out '+hum(avg)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    var atop=avgNet>=0?44-Math.min(HU,sc(avgNet)):44+sc(avgNet);
+    al.style.display='block';al.style.top=atop.toFixed(0)+'px';al.style.borderTopColor=avgNet>=0?'#8ec5ff':'#e8b58a';
+    ab.style.display='block';ab.style.top=(avgNet>=0?atop-14:atop+2).toFixed(0)+'px';ab.style.color=avgNet>=0?'#2563eb':'#c2703a';ab.textContent='avg net';
+    document.getElementById('chartMeta').textContent='net/min = in − out · ↑ banking ↓ burning · in '+hum(refillNow)+'/min · peak out '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
@@ -1141,7 +1143,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
       var ts=new Date((st.t-(47-idx)*60)*1000);
       var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
-      var html=esc(hh)+' · <span style="color:#f0873c">↓ '+esc(hum(st.buckets[idx]))+' out</span> · <span style="color:#60a5fa">↑ '+esc(hum(st.refill||0))+' in</span>';
+      var netv=(st.refill||0)-st.buckets[idx],up=netv>=0;
+      var html=esc(hh)+' · <span style="color:'+(up?'#60a5fa':'#f0873c')+'">'+(up?'▲ +':'▼ −')+esc(hum(Math.abs(netv)))+' net</span>'+
+        '<br><span style="color:#8a93a5">in '+esc(hum(st.refill||0))+' · out '+esc(hum(st.buckets[idx]))+'</span>';
       var m=st.ops[idx];
       if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
       tip.style.display='block';
