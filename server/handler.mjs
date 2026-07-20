@@ -447,6 +447,14 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .term .v{color:#4ade80;font-weight:600}
 .term .p{color:#e2e8f0}
 .term .d{color:#8ea3c0}
+.bars{margin-top:20px;background:#f0ebfd;border-radius:12px;padding:14px 18px;font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:10px}
+.bar{display:grid;grid-template-columns:64px minmax(120px,1fr) auto;gap:14px;align-items:center}
+.bar .lab{color:#6d5fa8}
+.bar .track{height:13px;background:#e2d9f8;border-radius:3px;position:relative;overflow:hidden;border-right:4px solid #8b2635}
+.bar .fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#8fd4ae,#1c7c54);border-left:3px solid #5b21b6}
+.bar .num{color:#4a3f6b;white-space:nowrap}
+.bar .num .good{color:#1c7c54;font-weight:600}
+.bar .num .bad{color:#c0392b;font-weight:600}
 .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
 .brand .m{color:var(--accent);font-size:23px}
@@ -478,6 +486,7 @@ td b{font-weight:600}
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
   <div class="badge" id="verdict">loading…</div>
  </div>
+ <div class="bars" id="bars"></div>
  <div class="ranges" id="ranges">${RANGE_PILLS}<span class="tot"><span id="tot"></span> <span class="sub" id="totSub"></span></span></div>
  <div class="chart" id="chart">${CHART_HTML}
   <div class="cap"><span id="capL"></span><span>all machines &amp; cloud</span><span id="capR">today</span></div>
@@ -521,6 +530,30 @@ ${CHART_JS}
       var vd=document.getElementById('verdict');
       vd.textContent=b.verdict==='ok'?'✓ verdict ok':b.verdict;
       vd.className='badge'+(b.verdict==='ok'?'':' '+esc(b.verdict));
+      // statusline-style bars: 5h session window + weekly, same shape as the laptop bar
+      var bar=function(lab,pct,num){
+        var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
+        return '<div class="bar"><span class="lab">'+lab+'</span>'+
+          '<span class="track"><span class="fill" style="width:'+w.toFixed(1)+'%"></span></span>'+
+          '<span class="num">'+num+'</span></div>';
+      };
+      // statusline number style: thousands + k (12,106k); left-amounts are estimates → ~
+      var kf=function(n){return Math.round(n/1000).toLocaleString('en-US')+'k'};
+      var rate=b.burn_5m!=null?b.burn_5m/5:null;
+      var sUsed=b.five_billed||0,sAllow=sUsed+(b.session_to_spend||0);
+      var sNum='+'+kf(sUsed)+(b.session_to_spend>0
+        ?' · <span class="good">~'+kf(b.session_to_spend)+' left</span>'
+        :' · <span class="bad">0 left</span>')+
+        (rate>0?' · +'+kf(rate)+'/min':'')+
+        (b.five_reset_in_sec!=null?' · refills '+ago(b.five_reset_in_sec):'');
+      var wNum=(b.weekly_left_tokens!=null
+        ?(b.week!=null&&b.week>=0.99?'<span class="bad">~'+kf(b.weekly_left_tokens)+' left</span>':'<span class="good">~'+kf(b.weekly_left_tokens)+' left</span>')
+        :'—')+
+        (b.week!=null?' · '+Math.round(b.week*100)+'% used':'')+
+        (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
+      document.getElementById('bars').innerHTML=
+        bar('session',sAllow>0?sUsed/sAllow:null,sNum)+
+        bar('week',b.week,wNum);
       var refill=b.five_reset_in_sec!=null?'refills in '+ago(b.five_reset_in_sec):'';
       document.getElementById('stats').innerHTML=
         stat('Available now',hum(b.session_to_spend),refill)+
