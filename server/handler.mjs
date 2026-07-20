@@ -579,7 +579,8 @@ ${CHART_JS}
   // right pane: every emit as a CLI log line, oldest→newest, pinned to the bottom
   // like a tail -f unless the user has scrolled up
   function renderTerm(){
-    var el=document.getElementById('term'),ev=(window.__ev||[]).slice().reverse();
+    // epoch-0 rows are backfill bookkeeping, not live emits — keep them out of the tail
+    var el=document.getElementById('term'),ev=(window.__ev||[]).filter(function(e){return new Date(e.ts).getTime()>0}).slice().reverse();
     if(!ev.length){el.innerHTML='<div class="ln d">no emits yet</div>';return}
     var pinned=el.scrollHeight-el.scrollTop-el.clientHeight<40;
     el.innerHTML=ev.map(function(e){
