@@ -627,6 +627,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .bar .num .good{color:var(--green);font-weight:700}
 .bar .num .bad{color:var(--red);font-weight:700}
 .klabel{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);font-family:var(--mono)}
+.warns{margin-top:12px;display:flex;flex-direction:column;gap:7px;font-family:var(--mono);font-size:12.5px}
+.warn{display:flex;gap:9px;align-items:center;padding:8px 13px;border-radius:9px;line-height:1.5}
+.warn b{font-weight:700}
+.warn.red{background:#fdeeee;color:#b02f2f}
+.warn.amber{background:#fdf6e7;color:#8f660e}
+.warn.ok{background:#eaf7ef;color:#178a4e}
 .trio{display:grid;grid-template-columns:1.25fr 1fr 1fr;margin-top:20px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .trio>div{padding:18px 22px;border-right:1px solid var(--line)}
 .trio>div:last-child{border-right:none}
@@ -724,6 +730,8 @@ table{font-size:12px}
 
  <div class="bars" id="bars"></div>
 
+ <div class="warns" id="warns"></div>
+
  <div class="trio">
   <div>
    <div class="klabel">NET / MIN</div>
@@ -807,12 +815,13 @@ if(location.search)history.replaceState(null,'',location.pathname);
   var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
   var FIVE_H=5*3600,WEEK=7*86400;
 
-  function renderAll(){
+  // verdict + bars + trio, repainted every SECOND. Between polls the numbers drift
+  // deterministically at the known rates (standing moves at net/min, week drains at
+  // burn/min) and snap to truth on each poll — the card's odometer, here.
+  function renderBudget(){
     var b=window.__b;if(!b)return;
-    var ev=window.__ev||[];
-    var t=Date.now()/1000;
+    var drift=window.__bAt?(Date.now()-window.__bAt)/1000:0;
 
-    // verdict + statusline bars (CLI stat picks — that selection is the spec)
     var vd=document.getElementById('verdict');
     vd.textContent=b.verdict==='ok'?'✓ ok':b.verdict;
     vd.className='badge'+(b.verdict==='ok'?'':' '+esc(b.verdict));
@@ -840,23 +849,27 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var refuel=(b.five_billed||0)/300;
     // prefer the statusline's OWN net (shipped via the anchor) — derivation is fallback only
     var prog=b.net_per_min!=null?b.net_per_min:refuel-burnMin;
-    var banked=b.session_to_spend>0;
+    // live drift: standing moves at net/min, week reserve drains at burn/min
+    var standing=(b.session_to_spend||0)-(b.session_over||0)+prog*drift/60;
+    var toSpend=Math.max(0,standing),over=Math.max(0,-standing);
+    var weekLeft=Math.max(0,(b.weekly_left_tokens||0)-Math.max(0,burnMin)*drift/60);
+    var bank=b.week_bank!=null?b.week_bank-Math.max(0,burnMin)*drift/60:null;
+    var banked=toSpend>0;
     var progStr=(banked?'+':'−')+kf(Math.abs(prog))+'/min';
-    var sNum=(banked?'+'+kf(b.session_to_spend):'<span class="bad">−'+kf(b.session_over||0)+'</span>')+
+    var sNum=(banked?'+'+kf(toSpend):'<span class="bad">−'+kf(over)+'</span>')+
       (Math.abs(prog)>=500?' · <span class="'+(banked?'good':'bad')+'">'+progStr+'</span>':'');
-    var bank=b.week_bank;
-    var wNum=(b.weekly_left_tokens!=null?kf(b.weekly_left_tokens)+' left':'—')+
+    var wNum=(b.weekly_left_tokens!=null?kf(weekLeft)+' left':'—')+
       (bank!=null?(bank>=0?' · <span class="good">+'+kf(bank)+' banked</span>':' · <span class="bad">−'+kf(-bank)+' over</span>'):'')+
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
     // session spec: standing vs realMax (green), over vs room-to-lockout (red)
     var realMax=(b.five_billed||0)+(b.session_to_spend||0)-(b.session_over||0);
     var fiveCap=b.quota>0?(b.five_billed||0)/b.quota:null;
     var overRoom=fiveCap&&fiveCap>realMax?fiveCap-realMax:Math.max(realMax,1);
-    var sSpec={green:realMax>0?(b.session_to_spend||0)/realMax:0,red:(b.session_over||0)/overRoom,col:'green'};
+    var sSpec={green:realMax>0?toSpend/realMax:0,red:over/overRoom,col:'green'};
     // week spec: fuel left, pace tick from the shipped bank ((left − bank) ÷ cap), CLI colors
     var weekCap=(b.week_billed||0)+(b.weekly_left_tokens||0);
-    var leftFrac=weekCap>0?(b.weekly_left_tokens||0)/weekCap:0;
-    var wTick=weekCap>0&&b.week_bank!=null?Math.min(1,Math.max(0,((b.weekly_left_tokens||0)-b.week_bank)/weekCap)):null;
+    var leftFrac=weekCap>0?weekLeft/weekCap:0;
+    var wTick=weekCap>0&&bank!=null?Math.min(1,Math.max(0,(weekLeft-bank)/weekCap)):null;
     var wRatio=wTick!=null&&wTick>0.02?leftFrac/wTick:1;
     var wCol=(leftFrac<0.1||wRatio<0.5)?'red':wRatio<0.85?'amber':'green';
     document.getElementById('bars').innerHTML=bar('session',sSpec,sNum)+bar('week',{green:leftFrac,tick:wTick,col:wCol},wNum)+
@@ -872,18 +885,25 @@ if(location.search)history.replaceState(null,'',location.pathname);
     netSub.textContent='refill − burn';
     // WEEK LEFT: the weekly reserve, with the pace bank as context
     var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
-    remV.textContent=hum(b.weekly_left_tokens);remV.style.color='var(--ink)';
+    remV.textContent=hum(weekLeft);remV.style.color='var(--ink)';
     remSub.textContent=(bank!=null?(bank>=0?'+'+hum(bank)+' ahead of pace':hum(-bank)+' over pace'):'—')+
       (b.week_reset_in_sec!=null?' · resets '+ago(b.week_reset_in_sec):'');
     // THIS SESSION: the signed rolling standing — what you can spend right now
     var runV=document.getElementById('runV'),runSub=document.getElementById('runSub');
     if(banked){
-      runV.textContent='+'+hum(b.session_to_spend);runV.style.color='var(--ink)';
+      runV.textContent='+'+hum(toSpend);runV.style.color='var(--ink)';
       runSub.textContent='available · refills over 5h';
     }else{
-      runV.textContent=b.session_over>0?'−'+hum(b.session_over):'0';runV.style.color='var(--red)';
+      runV.textContent=over>0?'−'+hum(over):'0';runV.style.color='var(--red)';
       runSub.textContent='over · refills over 5h';
     }
+  }
+
+  function renderAll(){
+    var b=window.__b;if(!b)return;
+    var ev=window.__ev||[];
+    var t=Date.now()/1000;
+    renderBudget();
     var h1=ev.filter(function(e){var ts=new Date(e.ts).getTime()/1000;return ts>t-3600});
     var h1b=h1.reduce(function(a,e){return a+e.billed},0),h1t=h1.reduce(function(a,e){return a+(e.turns||0)},0);
     window.__perTurn=h1t>0?hum(h1b/h1t)+' /turn · '+h1t+' turns/1h':'';
@@ -980,6 +1000,26 @@ if(location.search)history.replaceState(null,'',location.pathname);
         (a.ctx?' · ctx'+hum(a.ctx):'')+'</span></div>';
     }).join(''):'<div class="empty">nothing burning in the last hour</div>';
 
+    // WARNINGS — the left pane's deterministic alert list. Fixed rules, fixed
+    // vocabulary; only numbers change. Empty = one green all-clear line.
+    var warns=[];
+    if(b.verdict!=='ok')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
+    if(b.session_to_spend!=null&&b.session_to_spend<=0)warns.push({s:'red',t:'session over by <b>'+hum(b.session_over||0)+'</b> · ease off'});
+    (b.top_burners||[]).filter(function(a){return a.ctx>120e3}).sort(function(x,y){return y.ctx-x.ctx}).slice(0,3).forEach(function(a){
+      var red=a.ctx>250e3;
+      warns.push({s:red?'red':'amber',t:'ctx <b>'+hum(a.ctx)+'</b> · '+esc((a.name||a.project||'').slice(0,32))+' · '+(red?'<b>/fenix now</b>':'/clear soon')});
+    });
+    var werrs=h1.reduce(function(a,e){return a+(e.errors||0)},0);
+    if(werrs>0)warns.push({s:'amber',t:'<b>'+werrs+'</b> token error'+(werrs===1?'':'s')+' · last hour'});
+    var wheld=(window.__ops||[]).filter(function(o){return /held|OVER|pause/i.test((o.op||'')+' '+(o.d||''))&&o.ts>t-1800}).sort(function(x,y){return y.ts-x.ts})[0];
+    if(wheld)warns.push({s:'amber',t:'🛡 gate held spend · '+ago(Math.max(0,t-wheld.ts))+' ago'});
+    var wBurn=b.burn_5m!=null?b.burn_5m/5:0,wRefill=(b.five_billed||0)/300;
+    if(wBurn>=5e5&&wBurn>2*wRefill)warns.push({s:'amber',t:'burn <b>'+hum(wBurn)+'/min</b> · refill '+hum(wRefill)+'/min'});
+    if(b.anchor_age_sec!=null&&b.anchor_age_sec>90)warns.push({s:'amber',t:'anchor <b>'+b.anchor_age_sec+'s</b> old'});
+    document.getElementById('warns').innerHTML=(warns.length?warns:[{s:'ok',t:'all clear'}]).map(function(w){
+      return '<div class="warn '+w.s+'">'+w.t+'</div>';
+    }).join('');
+
     // deterministic advisory: worst live session by ctx, with the numbers that justify
     // the action (every turn re-bills ~ctx) and the action itself, thresholded:
     // >250k ctx → run /fenix NOW · 120-250k → consider /clear soon
@@ -1071,7 +1111,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
   }
 
   function tick(){
-    fetch('/api/u/${h}/budget').then(function(r){return r.json()}).then(function(j){window.__b=j;renderAll();}).catch(function(){});
+    fetch('/api/u/${h}/budget').then(function(r){return r.json()}).then(function(j){window.__b=j;window.__bAt=Date.now();renderAll();}).catch(function(){});
     fetch('/api/u/${h}/feed?n=200').then(function(r){return r.json()}).then(function(j){
       window.__ev=(j.events||[]).filter(function(e){return e.billed>0&&e.surface!=='directive'});
       renderAll();renderTerm();
@@ -1099,6 +1139,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     c48.addEventListener('mouseleave',function(){tip.style.display='none'});
   })();
   tick();setInterval(tick,10000);
+  setInterval(renderBudget,1000); // liveness: drift the bars + tiles every second, snap on poll
 })();
 </script>
 </body></html>`;
