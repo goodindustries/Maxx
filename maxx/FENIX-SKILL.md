@@ -1,0 +1,55 @@
+---
+name: fenix
+description: "Burn down, rise with context — write a handoff of what's in motion, clear the session, auto-resume in the next one. Use when the user types /fenix, says 'fenix', or wants to clear context without losing the thread (high ctx%, context bloat, fresh start)."
+trigger: /fenix
+---
+
+# /fenix — the maxx rebirth loop
+
+Context is the scarcest resource after tokens. Fenix trades a bloated session for a
+fresh one WITHOUT losing the thread: you write the handoff, the human clears, the
+next session in this directory auto-inherits the handoff (a SessionStart hook injects
+it, read=consume — it fires exactly once).
+
+## What to do
+
+1. **Write `.fenix/handoff.md`** (create the dir; add `.fenix/` to `.gitignore` if
+   this is a repo and it isn't ignored yet). Be concrete — the next session has NONE
+   of your context. Sections:
+
+   ```markdown
+   # fenix handoff — <one-line mission>
+   Written: <ISO time> · branch: <git branch> · by session: <what this session was doing>
+
+   ## In motion (do this first)
+   - <the exact next action, with file:line / command / URL — resumable in one step>
+
+   ## Just landed (verified)
+   - <what shipped this session, with commit SHAs and PROOF (test output, curl, screenshot)>
+
+   ## Decisions made (don't re-litigate)
+   - <decision> — <why>
+
+   ## Gotchas / traps discovered
+   - <the things that cost time — exact error + fix>
+
+   ## State of the world
+   - deploys: <what's live where> · tests: <green?> · tree: <clean/dirty>
+   ```
+
+2. **Truth check** — every "Just landed" claim needs evidence you actually have.
+   Unverified work goes under "In motion", never "landed".
+
+3. **Tell the human** (exactly this shape):
+   - `handoff written → .fenix/handoff.md`
+   - `now hit /clear — the next session here rises with the handoff automatically`
+   - `unattended instead: claude -p "$(cat .fenix/handoff.md)"`
+
+4. Do NOT delete or edit the handoff after writing it — `fenix.mjs --wake` consumes
+   it on next session start. `node ~/.claude/skills/maxx/fenix.mjs --status` shows
+   pending/consumed.
+
+## When to suggest fenix proactively
+
+ctx% high on the statusline (≥70%), the session is looping, or a long task is about
+to start that deserves a clean context. One line: "ctx heavy — /fenix?"

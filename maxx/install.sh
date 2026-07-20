@@ -41,6 +41,9 @@ place "$SRC/agents.mjs"   "$SKILL/agents.mjs"
 place "$SRC/emit.mjs"     "$SKILL/emit.mjs"
 place "$SRC/watch.mjs"    "$SKILL/watch.mjs"
 place "$SRC/gate.mjs"     "$SKILL/gate.mjs"
+place "$SRC/fenix.mjs"    "$SKILL/fenix.mjs"
+mkdir -p "$CLAUDE/skills/fenix"
+place "$SRC/FENIX-SKILL.md" "$CLAUDE/skills/fenix/SKILL.md"
 
 # wire the statusLine (node render.mjs) into settings.json. render.mjs also refreshes the rolling-token
 # window.json on a cadence, so no Stop hook is needed. (Older installs added a brain.mjs Stop hook — we
@@ -65,6 +68,12 @@ d.hooks.PreToolUse = (d.hooks.PreToolUse || []).filter((h) => !JSON.stringify(h)
 d.hooks.PreToolUse.push({
   matcher: "Agent|Task|Workflow|ScheduleWakeup|CronCreate",
   hooks: [{ type: "command", command: `node ${process.env.SKILLDIR}/gate.mjs`, timeout: 10 }],
+});
+// fenix rebirth: on session start, inject (and consume) a pending .fenix/handoff.md
+// from the cwd — the other half of /fenix (write handoff → /clear → rise here).
+d.hooks.SessionStart = (d.hooks.SessionStart || []).filter((h) => !JSON.stringify(h).includes("fenix.mjs"));
+d.hooks.SessionStart.push({
+  hooks: [{ type: "command", command: `node ${process.env.SKILLDIR}/fenix.mjs --wake`, timeout: 10 }],
 });
 mkdirSync(dirname(p), { recursive: true });
 writeFileSync(p, JSON.stringify(d, null, 2));
