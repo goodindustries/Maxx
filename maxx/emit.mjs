@@ -55,7 +55,7 @@ function parseArgs(argv) {
     else if (a === "--watch" || a === "watch") { out.watch = true; out.send = true; }
     else if (a === "--since") out.since = argv[++i];
     else if (a === "--dir") out.dir = argv[++i];
-    else if (a === "--signup" || a === "signup") out.signup = argv[++i];
+    else if (a === "--signup" || a === "signup") { const n = argv[i + 1]; out.signup = n && !n.startsWith("-") ? argv[++i] : true; }
     else if (a === "--install-agent") out.installAgent = true;
   }
   return out;
@@ -176,11 +176,27 @@ const installId = cfg.installId || hostname();
 const base = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://api.meetmaxx.co").replace(/\/$/, "");
 const surface = cfg.surface || `laptop:${installId.slice(0, 8)}`;
 
+// The signed-in Claude account — Claude Code only works logged in, so this identity is always
+// there to key off. Stamped on signup + every envelope; timelines are per account, never global.
+function claudeAccount() {
+  try {
+    const oa = JSON.parse(readFileSync(path.join(HOME, ".claude.json"), "utf8")).oauthAccount || {};
+    return { uuid: oa.accountUuid || null, email: oa.emailAddress || null };
+  } catch { return { uuid: null, email: null }; }
+}
+
 // --signup: claim a handle on the tally server, persist handle/secret/logsUrl.
+// `--signup` with no handle derives one from the Claude login (email local part) — zero-input onboarding.
 if (args.signup) {
+  const acct = claudeAccount();
+  if (args.signup === true) {
+    const local = (acct.email || "").split("@")[0].toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^[-_]+/, "");
+    if (local.length < 3) { console.error("can't derive a handle (no Claude login found) — run --signup <handle>."); process.exit(1); }
+    args.signup = local;
+  }
   const res = await fetch(`${base}/api/signup`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ handle: args.signup }),
+    body: JSON.stringify({ handle: args.signup, account: acct.uuid, email: acct.email }),
     signal: AbortSignal.timeout(15000),
   });
   const out = await res.json().catch(() => ({}));
@@ -297,6 +313,7 @@ async function runOnce({ quiet = false } = {}) {
 
   const envelope = {
     v: 1, surface, install_id: installId, handle,
+    account: claudeAccount().uuid,       // which Claude account this burn counted against
     emitted_at: iso(nowSec), since: sinceSec ? iso(sinceSec) : null,
     cursor: String(Math.round(maxTs)),
     totals: { billed: totalBilled, output: totalOutput, sessions: sessions.length },

@@ -328,6 +328,9 @@ function main() {
   // don't block on an interactive TTY: `node render.mjs --status` from a shell has no piped JSON,
   // so reading fd 0 would hang forever. Only slurp stdin when it's actually a pipe.
   if (!process.stdin.isTTY) { try { rawIn = readFileSync(0, "utf8"); p = JSON.parse(rawIn); } catch {} }
+  // raw stdin snapshot — ground truth for debugging what Claude Code actually reports (rl.json and
+  // status.json are post-merge; when a wall time looks wrong this is the only unlaundered record).
+  try { if (rawIn.trim()) writeFileSync(path.join(HOME, ".maxx", ".laststdin.json"), rawIn); } catch {}
   // `--status`/`--session` with no stdin (a user or agent calling us directly) → read the last
   // snapshot the live statusline wrote. Nothing fresh to compute without Claude Code's JSON.
   if ((wantStatus || wantSession) && !rawIn.trim()) {
@@ -350,6 +353,13 @@ function main() {
   const cache = total > 0 ? (cu.cache_read_input_tokens || 0) / total : 0;
 
   const rl = p.rate_limits || {};
+  // Cross-account pollution guard: a session launched under a PREVIOUS login keeps reporting that
+  // account's walls (seen live: five_hour resets_at a day in the past next to a 97% week from the
+  // retired account). Any wall whose reset is already behind us marks the whole payload as a stale
+  // snapshot from another login — drop it entirely; one bad wall poisons both. 60s grace for the
+  // legit moment right at a reset boundary.
+  const nowSec_ = Date.now() / 1000;
+  if ((rl.five_hour && rl.five_hour.resets_at < nowSec_ - 60) || (rl.seven_day && rl.seven_day.resets_at < nowSec_ - 60)) { delete rl.five_hour; delete rl.seven_day; }
   // stdin sometimes arrives without rate_limits (or with five_hour only). Zeroing out then is
   // catastrophic for the week row: elapsed→0 pins the pace tick to the far right and the fill
   // unpins from /usage — a self-contradicting gauge. Fall back to the recently cached %s and
@@ -523,10 +533,15 @@ function main() {
   // anchor noise (unit changes, stale caps) can never bend the bar away from /usage.
   const w7 = haveWeek ? week : (cap7s ? Math.min(1, used7 / cap7s) : 0);
   const qcol = col(q5), wcol = col(w7);
-  // how far into each window you are (the pace line): elapsed = 1 - timeLeft/window.
+  // how far into each window you are (the pace line): elapsed = time-in / window-span. The span
+  // start clamps to the account epoch — a just-switched account did NOT start its window resets−7d
+  // ago, and the unclamped math read "51% elapsed, 50pts behind" on an account 90 minutes old.
   const nowS = Date.now() / 1000;
-  const e5 = haveQuota ? Math.max(0, Math.min(1, 1 - (rl.five_hour.resets_at - nowS) / (5 * 3600))) : 0;
-  const e7 = haveWeek ? Math.max(0, Math.min(1, 1 - (rl.seven_day.resets_at - nowS) / (7 * 24 * 3600))) : 0;
+  const acctS = ((win && win.accountSince) || 0) / 1000;
+  const spanOf = (resetAt, winSec) => { const start = Math.max(resetAt - winSec, acctS); return { start, span: Math.max(1, resetAt - start) }; };
+  const elapsedOf = (resetAt, winSec) => { const { start, span } = spanOf(resetAt, winSec); return Math.max(0, Math.min(1, (nowS - start) / span)); };
+  const e5 = haveQuota ? elapsedOf(rl.five_hour.resets_at, 5 * 3600) : 0;
+  const e7 = haveWeek ? elapsedOf(rl.seven_day.resets_at, 7 * 24 * 3600) : 0;
   // cache reuse as a plain %, colored by the same heat thresholds (low reuse = burning
   // fresh tokens). A number, not a mood word, so it can't read as "all's well" next to
   // an off-pace line.
@@ -543,8 +558,8 @@ function main() {
   const wr = resetIn(haveWeek ? rl.seven_day.resets_at : 0);
 
   // pace per wall: session (5h) and weekly (7d) — will either hit its cap before it resets?
-  const p5 = haveQuota ? paceOf(rl.five_hour, 5 * 3600, quota) : { ok: false, hot: false };
-  const p7 = haveWeek ? paceOf(rl.seven_day, 7 * 24 * 3600, week) : { ok: false, hot: false };
+  const p5 = haveQuota ? paceOf(rl.five_hour, spanOf(rl.five_hour.resets_at, 5 * 3600).span, quota) : { ok: false, hot: false };
+  const p7 = haveWeek ? paceOf(rl.seven_day, spanOf(rl.seven_day.resets_at, 7 * 24 * 3600).span, week) : { ok: false, hot: false };
 
   // ── derived, machine-readable: every number the bars compute — time left, tokens burned, and
   //    needPerMin — as plain fields, so an agent can read ~/.maxx/status.json (or
@@ -564,8 +579,8 @@ function main() {
     return { usedPct: Math.round(usedFrac * 1000) / 10, used, cap, headroom, resetAt: resetAt || 0,
              secLeft, minLeft: Math.round(minLeft), resetIn: resetIn(resetAt), needPerMin, pacePerMin };
   }
-  const sStat = windowStat(used5, realMax, q5, haveQuota ? rl.five_hour.resets_at : 0, 5 * 3600);
-  const wStat = windowStat(used7, cap7s, w7, haveWeek ? rl.seven_day.resets_at : 0, 7 * 24 * 3600);
+  const sStat = windowStat(used5, realMax, q5, haveQuota ? rl.five_hour.resets_at : 0, haveQuota ? spanOf(rl.five_hour.resets_at, 5 * 3600).span : 5 * 3600);
+  const wStat = windowStat(used7, cap7s, w7, haveWeek ? rl.seven_day.resets_at : 0, haveWeek ? spanOf(rl.seven_day.resets_at, 7 * 24 * 3600).span : 7 * 24 * 3600);
   // pace gap (points): elapsed − used. + = behind even-burn (under-using), − = ahead. Cap-independent.
   sStat.elapsedPct = Math.round(e5 * 100); sStat.behindPts = Math.round((e5 - q5) * 100);
   wStat.elapsedPct = Math.round(e7 * 100); wStat.behindPts = Math.round((e7 - w7) * 100);

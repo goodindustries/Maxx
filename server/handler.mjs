@@ -91,7 +91,10 @@ const TOOLS = [
 
 // meetmaxx.co favicon — served from api.meetmaxx.co too, and advertised in serverInfo.
 const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="hsl(265 60% 94%)"/><text x="32" y="47" text-anchor="middle" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="44" font-weight="700" fill="hsl(264 66% 54%)">m</text></svg>`;
-const ICON_URL = "https://meetmaxx.co/favicon.svg";
+
+// Browser callers (the meetmaxx.co signup form) live on a different origin than the API — open
+// CORS is safe here: auth is the bearer/`?k=` secret, never cookies, and only usage metadata moves.
+const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, OPTIONS" };
 
 const json = (status, obj) => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(obj) });
 const rpcOk = (id, result) => json(200, { jsonrpc: "2.0", id, result });
@@ -196,7 +199,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     }
   }
 
+  // route() does the work; handle() wraps every response with CORS (and answers preflights) so the
+  // web signup form can call the API cross-origin.
   async function handle(req) {
+    if ((req.method || "GET") === "OPTIONS") return { status: 204, headers: { ...CORS }, body: "" };
+    const r = await route(req);
+    return { ...r, headers: { ...CORS, ...(r.headers || {}) } };
+  }
+
+  async function route(req) {
     const { method = "GET", headers = {}, body = "" } = req;
     let url;
     try { url = new URL(req.url, "http://x"); } catch { return json(400, { error: "bad url" }); }
@@ -217,6 +228,10 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         return json(409, { error: `handle "${h}" is taken` });
       const secret = randomBytes(18).toString("base64url");
       await store.setSecret(h, secret);
+      // Optional Claude-account binding: Claude only works logged in, so the account uuid is the one
+      // identity every surface can key off. Emits carry it too; stored here so a handle is findable
+      // by account later (multi-machine join, per-account timelines).
+      if (b.account) { const s = await store.load(h); s.account = String(b.account).slice(0, 64); s.account_email = String(b.email || "").slice(0, 128); await store.save(h, s); }
       const base = `https://${headers["x-forwarded-host"] || headers.host || "api.meetmaxx.co"}`;
       return json(200, {
         ok: true, handle: h, secret,
@@ -348,14 +363,20 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     if (p === "/mcp" && method === "POST") {
       let rpc; try { rpc = JSON.parse(body || "{}"); } catch { return rpcErr(null, -32700, "parse error"); }
       const { id = null, method: rm, params = {} } = rpc;
-      if (rm === "initialize")
+      if (rm === "initialize") {
+        // Icon MUST be same-origin with the server URL — MCP clients (claude.ai included) reject
+        // cross-origin icons, which is why the connector page showed no logo while the icon pointed
+        // at meetmaxx.co from an api.meetmaxx.co server. Echo a known protocolVersion back too:
+        // icons/websiteUrl only render on 2025+ revisions.
+        const base = `https://${headers["x-forwarded-host"] || headers.host || "api.meetmaxx.co"}`;
+        const KNOWN = ["2024-11-05", "2025-03-26", "2025-06-18"];
         return rpcOk(id, {
-          protocolVersion: "2024-11-05",
+          protocolVersion: KNOWN.includes(params.protocolVersion) ? params.protocolVersion : "2025-06-18",
           capabilities: { tools: {} },
           serverInfo: {
             name: "Maxx", version: "1", title: "Maxx",
             websiteUrl: "https://meetmaxx.co",
-            icons: [{ src: ICON_URL, mimeType: "image/svg+xml", sizes: ["any"] }],
+            icons: [{ src: `${base}/favicon.svg`, mimeType: "image/svg+xml", sizes: ["any"] }],
           },
           // Server-level directive injected wherever the Maxx connector is enabled —
           // the closest MCP gets to a mandatory gate (still advisory; a PreToolUse
@@ -368,6 +389,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             "If verdict is \"ok\", session_to_spend is roughly how many tokens you may safely use this window. " +
             "This is a hard budget gate, not a suggestion — check it first, every run.",
         });
+      }
       if (rm === "notifications/initialized" || rm === "notifications/cancelled")
         return { status: 202, headers: {}, body: "" };
       if (rm === "ping") return rpcOk(id, {});
