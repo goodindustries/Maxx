@@ -107,7 +107,14 @@ export function computeBudget(store, now) {
   const anchorAge = a ? now - a.ts : Infinity;
   const fresh = anchorAge <= ANCHOR_TRUST_SEC;
 
-  const five = windowedBilled(store.events, now, FIVE_H);
+  // The 5h limit is ALSO a fixed window (zeroes at five_reset), not a rolling sum — a
+  // rolling 5h right after a wall reset still carries the pre-wall burn and shows a
+  // fresh window as ~full (dash said "+146,460k · 0 left" while the statusline was at
+  // 8.5M). Window start = five_reset − 5h when the anchor's reset is still ahead of us;
+  // stale/absent reset falls back to rolling (and the verdict is stale then anyway).
+  const fr = a?.five_reset || 0;
+  const fiveLo = fr > now ? fr - FIVE_H : undefined;
+  const five = windowedBilled(store.events, now, FIVE_H, fiveLo);
   const wr = a?.week_reset || 0;
   const week = windowedBilled(store.events, now, WEEK, wr ? weekLoFor(wr, now) : undefined);
 
@@ -119,7 +126,8 @@ export function computeBudget(store, now) {
   // instead of the real availability.
   if (a) {
     if (a.five_pct > 0.005) {
-      const fiveAtAnchor = windowedBilled(store.events, a.ts, FIVE_H);
+      // same fixed window the anchor's % described
+      const fiveAtAnchor = windowedBilled(store.events, a.ts, FIVE_H, fr > a.ts ? fr - FIVE_H : undefined);
       fiveCap = Math.round(fiveAtAnchor / a.five_pct);
     }
     if (a.week_pct > 0.005) {
