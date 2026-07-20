@@ -19,9 +19,12 @@ cannot resurrect a thread that was cleared bare. Handoffs are PER-DIRECTORY
 
 ## What to do
 
-1. **Write `.fenix/handoff.md`** (create the dir; add `.fenix/` to `.gitignore` if
-   this is a repo and it isn't ignored yet). Be concrete — the next session has NONE
-   of your context. Sections:
+1. **Write `.fenix/handoff.md` — FIRST, in ONE Write call.** The Write tool creates
+   the directory itself: no separate mkdir, no preamble commands, nothing before the
+   save. A fenix run can die mid-turn (token wall, /clear arriving early) — observed
+   in the wild: an empty `.fenix/` dir and a lost thread. The handoff IS the mission;
+   land it before anything else. (Then, if a repo: add `.fenix/` to `.gitignore`.)
+   Be concrete — the next session has NONE of your context. Sections:
 
    ```markdown
    # fenix handoff — <one-line mission>
