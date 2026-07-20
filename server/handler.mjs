@@ -99,7 +99,7 @@ const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers
 // ---- live card page (GET /u/{handle}) ------------------------------------------------------
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 const humanN = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
-function renderCard(h, s, b) {
+function renderCard(h, s, b, setup = null) {
   // hero = RAW lifetime (the number a human recognizes); weighted units stay on the weekly row.
   const rawOf = (e) => e.raw || e.billed || 0;
   const lifetime = s.events.reduce((a, e) => a + rawOf(e), 0);
@@ -129,12 +129,37 @@ function renderCard(h, s, b) {
   const [px, py] = (pts[peakI] || "0,0").split(",");
   const avail = b.session_to_spend, weekLeft = b.weekly_left_tokens;
   const refillMin = b.five_reset_in_sec != null ? Math.round(b.five_reset_in_sec / 60) : null;
-  // no fresh reset time (stale anchor) → drop the clause entirely, never render "refills in ?"
-  const refillTxt = refillMin != null ? ` · window refills in ${Math.floor(refillMin / 60)}h ${refillMin % 60}m` : "";
-  // hover data: dense per-day series + ISO day labels for the tooltip
-  const dayLabels = series.map((_, i) => new Date(new Date(first + "T00:00:00Z").getTime() + i * 86400000).toISOString().slice(0, 10));
+  // honesty: a stale anchor means "last known", not "available right now"; tiny anchors (<5%)
+  // mean the cap estimate is still calibrating (integer-% reports → big relative error).
+  const refillTxt = !b.fresh
+    ? ` · last anchored ${b.anchor_age_sec != null ? Math.round(b.anchor_age_sec / 3600) + "h" : "?"} ago — stale`
+    : refillMin != null ? ` · window refills in ${Math.floor(refillMin / 60)}h ${refillMin % 60}m` : "";
+  const calibTxt = b.week != null && b.week < 0.05 ? " · calibrating" : "";
+  // badge: "live" only when data actually flows; a retired handle says so
+  const lastEvt = s.events.reduce((a, e) => (e.ts > a ? e.ts : a), 0);
+  const idleDays = lastEvt ? (Date.now() / 1000 - lastEvt) / 86400 : Infinity;
+  const badge = idleDays < 2 ? "✓ Verified usage · live" : `✓ Verified usage · idle ${Math.round(idleDays)}d`;
+  // hover data: dense per-day series + human day labels ("Jul 2") for the tooltip
+  const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const humanDay = (t) => { const d = new Date(t); return `${MO[d.getUTCMonth()]} ${d.getUTCDate()}`; };
+  const dayLabels = series.map((_, i) => humanDay(new Date(first + "T00:00:00Z").getTime() + i * 86400000));
+  // where it burns: lifetime split by surface class (public — classes and magnitudes only)
+  const bySurf = new Map();
+  for (const e of s.events) { const k = String(e.surface || "unknown").split(":")[0]; bySurf.set(k, (bySurf.get(k) || 0) + rawOf(e)); }
+  const surfSplit = [...bySurf.entries()].sort((a, b2) => b2[1] - a[1])
+    .map(([k, v]) => `${k} ${lifetime ? Math.round(v / lifetime * 100) : 0}% (${humanN(v)})`).join(" · ");
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
   const url = `https://meetmaxx.co/u/${h}`;
+  // owner-only setup panel (present when the page was opened with ?k=<secret>)
+  const agoTxt = (sec) => sec == null ? "never" : sec < 90 ? `${sec}s ago` : sec < 5400 ? `${Math.round(sec / 60)}m ago` : sec < 172800 ? `${Math.round(sec / 3600)}h ago` : `${Math.round(sec / 86400)}d ago`;
+  const setupRow = (ok, label, ago, fix) =>
+    `<li><span>${ok ? "✅" : "❌"} <b>${label}</b> <span class="sub">· ${agoTxt(ago)}</span></span>${ok ? "" : `<span class="fix">${fix}</span>`}</li>`;
+  const setupHtml = !setup ? "" : `
+ <div class="setup"><h3>Setup check <span class="sub">— only you can see this (opened with your secret)</span></h3><ul>
+  ${setupRow(setup.cli.ok, "Claude CLI shipping", setup.cli.ago, `run: <code>curl -fsSL https://meetmaxx.co/install | MAXX_HANDLE=${h} MAXX_SECRET=&lt;your-secret&gt; bash</code>`)}
+  ${setupRow(setup.connector.ok, "claude.ai connector", setup.connector.ago, `add the connector at <a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener">claude.ai → Connectors</a> (name Maxx, your mcp URL)`)}
+  ${setupRow(setup.anchor.ok, "Anchor fresh (/usage)", setup.anchor.ago, `open a Claude Code session on the linked machine — the statusline ships the authoritative %`)}
+ </ul></div>`;
   const desc = `${humanN(lifetime)} lifetime Claude tokens · live tally, anchored to Anthropic /usage · verified by Maxx`;
   const shareTxt = `${humanN(lifetime)} lifetime Claude tokens, verified by @meetmaxx`;
   return `<!doctype html>
@@ -181,6 +206,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .share .primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .tip{position:absolute;pointer-events:none;display:none;background:var(--ink);color:#fff;font-family:var(--mono);font-size:12.5px;padding:6px 10px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-130%);z-index:2}
 .guide{position:absolute;top:0;bottom:24px;width:1px;background:var(--accent);opacity:.4;display:none;pointer-events:none}
+.setup{margin-top:16px;border:1px solid #dfe5ff;background:#f7f8ff;border-radius:12px;padding:14px 18px}
+.setup h3{font-size:14px;font-weight:700;color:var(--ink)}
+.setup ul{list-style:none;margin-top:8px;font-size:14.5px}
+.setup li{display:flex;justify-content:space-between;gap:14px;padding:5px 0;flex-wrap:wrap}
+.setup .fix{color:var(--ink-2);font-size:13px}
+.setup code{font-family:var(--mono);font-size:12px;background:#eef1f6;padding:2px 6px;border-radius:6px}
 .feed{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
 .feed h3{font-size:13px;color:var(--ink-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
 .feed h3 .dot{width:7px;height:7px;border-radius:50%;background:#2fbf71;animation:pulse 2s infinite}
@@ -193,23 +224,25 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 <div class="card">
  <div class="top">
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h}</span></div>
-  <div class="badge">✓ Verified usage · live</div>
+  <div class="badge">${badge}</div>
  </div>
  <div class="hero"><div class="n">${fmtN(lifetime)}</div><div class="l">lifetime tokens</div></div>
  <div class="chart" id="chart">
   <svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block">
    <path d="${area}" fill="#635bff" opacity=".12"/>
    <path d="${line}" fill="none" stroke="#635bff" stroke-width="2"/>
+   ${pts.map((pt) => { const [cx, cy] = pt.split(","); return `<circle cx="${cx}" cy="${cy}" r="2.5" fill="#635bff" stroke="#fff" stroke-width="1"/>`; }).join("")}
    <circle cx="${px}" cy="${py}" r="4" fill="#635bff" stroke="#fff" stroke-width="2"/>
   </svg>
   <div class="guide" id="guide"></div><div class="tip" id="tip"></div>
   ${peakDay ? `<div class="peak" style="left:${(peakI / (n - 1) * 100).toFixed(1)}%;top:-6px;transform:translateX(-${peakI > n * 0.7 ? 105 : 0}%)">peak ${humanN(Math.max(...series))} · ${peakDay}</div>` : ""}
-  <div class="cap"><span>${first || ""}</span><span>daily tokens · all machines &amp; cloud · this Claude account</span><span>today</span></div>
+  <div class="cap"><span>${first ? humanDay(new Date(first+"T00:00:00Z").getTime()) : ""}</span><span>daily tokens · all machines &amp; cloud · this Claude account</span><span>today</span></div>
  </div>
  <div class="rows">
   <div class="r"><span class="k">Available right now</span><span class="v"><span id="avail">${avail != null ? humanN(avail) : "—"}</span> <span class="sub">${refillTxt}</span></span></div>
-  <div class="r"><span class="k">Weekly limit remaining</span><span class="v">${weekLeft != null ? humanN(weekLeft) : "—"} <span class="sub">· ${b.week != null ? Math.round(b.week * 100) + "% used ·" : ""} quota units${b.week_reset_in_sec != null ? " · resets in " + Math.round(b.week_reset_in_sec / 3600) + "h" : ""}</span></span></div>
+  <div class="r"><span class="k">Weekly limit remaining</span><span class="v">${weekLeft != null ? humanN(weekLeft) : "—"} <span class="sub">· ${b.week != null ? Math.round(b.week * 100) + "% used ·" : ""} quota units${b.week_reset_in_sec != null ? " · resets in " + Math.round(b.week_reset_in_sec / 3600) + "h" : ""}${calibTxt}</span></span></div>
  </div>
+${setupHtml}
  <div class="feed"><h3><span class="dot"></span> live feed</h3><ul id="feed"><li><span class="sub">listening…</span></li></ul></div>
  <div class="foot">
   <span>⩗ Verified by Maxx — counted from session logs, anchored to Anthropic /usage · <span id="stamp">${stamp}</span></span>
@@ -400,16 +433,35 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       // names here — those stay behind auth; the public card leaks no content, only magnitudes.
       if (mc[2]) {
         const t = now();
-        const feed = s.events.slice(-12).reverse().map((e) => ({
-          ago_sec: Math.max(0, Math.round(t - e.ts)),
-          surface: String(e.surface || "").split(":")[0] || "unknown",
-          tokens: e.raw || e.billed || 0,
-        }));
+        // real burn only: zero-ts / zero-token / directive rows are bookkeeping, not usage
+        // (legacy events surfaced as "cloud · 20655d ago +0" — epoch-0 timestamps).
+        const feed = s.events
+          .filter((e) => e.ts > 0 && (e.raw || e.billed) > 0 && e.surface !== "directive")
+          .slice(-12).reverse().map((e) => ({
+            ago_sec: Math.max(0, Math.round(t - e.ts)),
+            surface: String(e.surface || "").split(":")[0] || "unknown",
+            tokens: e.raw || e.billed || 0,
+          }));
         const lifetime = s.events.reduce((a, e) => a + (e.raw || e.billed || 0), 0);
         return { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
           body: JSON.stringify({ lifetime, available: budget.session_to_spend, burn_5m: budget.burn_5m, feed }) };
       }
-      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }, body: renderCard(h, s, budget) };
+      // owner view: /u/{h}?k={secret} adds the private setup-check panel — "is my install right?"
+      // Three signals, each with its fix: CLI shipping (laptop events), connector connected (authed
+      // mcp ping), anchor fresh (an interactive session saw /usage recently).
+      let setup = null;
+      const tok = tokenOf(headers, url);
+      if (tok && (await authed(h, tok))) {
+        const t = now();
+        const lastOf = (pfx) => s.events.reduce((a, e) => (String(e.surface || "").startsWith(pfx) && e.ts > a ? e.ts : a), 0);
+        const lastLaptop = lastOf("laptop"), lastCloud = Math.max(s.mcp_seen || 0, lastOf("cloud"));
+        setup = {
+          cli: { ok: t - lastLaptop < 1800, ago: lastLaptop ? Math.round(t - lastLaptop) : null },
+          connector: { ok: t - lastCloud < 7 * 86400, ago: lastCloud ? Math.round(t - lastCloud) : null },
+          anchor: { ok: budget.fresh, ago: budget.anchor_age_sec },
+        };
+      }
+      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": setup ? "no-store" : "public, max-age=60" }, body: renderCard(h, s, budget, setup) };
     }
 
     // ---- signup: claim a handle, mint its secret (first come, first served) ----
@@ -558,6 +610,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     if (p === "/mcp" && method === "POST") {
       let rpc; try { rpc = JSON.parse(body || "{}"); } catch { return rpcErr(null, -32700, "parse error"); }
       const { id = null, method: rm, params = {} } = rpc;
+      // Setup-check heartbeat: claude.ai pings initialize the moment the connector is added, and
+      // every session opens with one — so an AUTHED mcp hit is proof "the connector looks correct".
+      // Stamped only when the token matches (an unauthenticated ping proves nothing).
+      {
+        const hh = url.searchParams.get("handle");
+        if (hh && (rm === "initialize" || rm === "tools/call") && (await authed(hh, tokenOf(headers, url)))) {
+          try { const sh = await store.load(hh); sh.mcp_seen = now(); await store.save(hh, sh); } catch {}
+        }
+      }
       if (rm === "initialize") {
         // Icon MUST be same-origin with the server URL — MCP clients (claude.ai included) reject
         // cross-origin icons, which is why the connector page showed no logo while the icon pointed

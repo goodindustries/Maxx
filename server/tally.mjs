@@ -148,7 +148,7 @@ export function computeBudget(store, now) {
 
   let verdict = "ok";
   if (!a || !fresh) verdict = "stale";
-  else if ((weekPct != null && weekPct >= 0.99) || spendAfterReserve === 0) verdict = "over";
+  else if ((weekPct != null && weekPct >= 0.99) || (quota != null && quota >= 0.99) || spendAfterReserve === 0) verdict = "over";
 
   const surfaces = {};
   for (const e of store.events) {

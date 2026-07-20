@@ -92,11 +92,19 @@ JS
 )
   case "$LINKED" in
     LINKED:*)
+      H="${LINKED#LINKED:}"
       echo ""
-      echo "maxx: linked to @${LINKED#LINKED:} — this machine now ships to your tally."
+      echo "maxx: linked to @$H — this machine now ships to your tally."
       node "$SKILL/emit.mjs" --install-agent || true
       node "$SKILL/emit.mjs" --send >/dev/null 2>&1 || true
-      echo "  binge-watch your tokens → https://meetmaxx.co/u/${LINKED#LINKED:}"
+      echo ""
+      echo "  one more paste — claude.ai → Settings → Connectors → Add custom connector → name Maxx:"
+      echo "    https://api.meetmaxx.co/mcp?handle=$H&k=$MAXX_SECRET"
+      echo ""
+      echo "  check your setup (private link — has your secret):"
+      echo "    https://meetmaxx.co/u/$H?k=$MAXX_SECRET"
+      echo ""
+      echo "  binge-watch your tokens → https://meetmaxx.co/u/$H"
       ;;
     KEPT:*)
       echo ""
