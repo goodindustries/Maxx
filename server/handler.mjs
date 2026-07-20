@@ -425,7 +425,7 @@ function renderDash(h, s) {
 *{box-sizing:border-box;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
 .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;width:1720px;max-width:100%;align-items:stretch}
-@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+@media(max-width:1400px){.wrap{grid-template-columns:1fr}}
 .card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
 .ranges{margin-top:20px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
 .ranges button{border:1px solid var(--line);background:var(--card);color:var(--ink-2);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans)}
