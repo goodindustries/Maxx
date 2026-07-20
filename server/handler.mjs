@@ -881,15 +881,16 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // burn) can read +banking while the chart's recent minutes are clearly burning —
     // that mismatch is the bug. Anchor net is fallback only when live burn is absent.
     var prog=b.burn_5m!=null?refuel-burnMin:(b.net_per_min!=null?b.net_per_min:0);
+    var up=prog>=0; // net RATE sign follows the net itself (banking vs burning), NOT the standing
     // live drift: standing moves at net/min, week reserve drains at burn/min
     var standing=(b.session_to_spend||0)-(b.session_over||0)+prog*drift/60;
     var toSpend=Math.max(0,standing),over=Math.max(0,-standing);
     var weekLeft=Math.max(0,(b.weekly_left_tokens||0)-Math.max(0,burnMin)*drift/60);
     var bank=b.week_bank!=null?b.week_bank-Math.max(0,burnMin)*drift/60:null;
     var banked=toSpend>0;
-    var progStr=(banked?'+':'−')+kf(Math.abs(prog))+'/min';
+    var progStr=(up?'+':'−')+kf(Math.abs(prog))+'/min';
     var sNum=(banked?'+'+kf(toSpend):'<span class="bad">−'+kf(over)+'</span>')+
-      (Math.abs(prog)>=500?' · <span class="'+(banked?'good':'bad')+'">'+progStr+'</span>':'');
+      (Math.abs(prog)>=500?' · <span class="'+(up?'good':'bad')+'">'+progStr+'</span>':'');
     var wNum=(b.weekly_left_tokens!=null?kf(weekLeft)+' left':'—')+
       (bank!=null?(bank>=0?' · <span class="good">+'+kf(bank)+' banked</span>':' · <span class="bad">−'+kf(-bank)+' over</span>'):'')+
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
@@ -911,10 +912,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // REMAINING = the rolling-session standing, AT PACE = where that net rate lands you.
     var netV=document.getElementById('netV'),netU=document.getElementById('netU'),netSub=document.getElementById('netSub');
     var nh=hum(Math.abs(prog));
-    if(Math.abs(prog)<1000){netV.textContent='0';netU.textContent='/min';}
-    else{netV.textContent=(banked?'+':'−')+nh.slice(0,-1);netU.textContent=nh.slice(-1)+'/min';}
-    netV.style.color=banked?'var(--green)':'var(--red)';
-    netSub.textContent='refill − burn';
+    if(Math.abs(prog)<1000){netV.textContent='0';netU.textContent='/min';netV.style.color='var(--ink)';}
+    else{netV.textContent=(up?'+':'−')+nh.slice(0,-1);netU.textContent=nh.slice(-1)+'/min';netV.style.color=up?'var(--green)':'var(--red)';}
+    netSub.textContent=up?'banking · refill > burn':'burning · burn > refill';
     // WEEK LEFT: the weekly reserve, with the pace bank as context
     var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
     remV.textContent=hum(weekLeft);remV.style.color='var(--ink)';
