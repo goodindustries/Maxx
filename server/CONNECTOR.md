@@ -96,9 +96,11 @@ Behind the tunnel — the server itself:
   matching `secret`. Continuous ship via launchd agent `co.meetmaxx.emit`
   (`emit.mjs --watch`, logs `~/.maxx/emit.log`).
 - **Redeploy after a code change:** push to `maxx-budget`, then on lucky
-  `git -C /home/agent/maxxbudget pull && (restart the maxx-tally job)`.
-- **Not yet durable across host reboot** (queue:false daemon, no boot unit) — fine
-  "for now"; add a boot service later. Secret is a rotatable metadata token.
+  `git -C /home/agent/maxxbudget pull && systemctl --user restart maxx-tally`.
+- **Durable:** systemd user unit `maxx-tally.service` supervises the server
+  (auto-restarts, survives reboot) — do NOT kill the pid or start a lucky job
+  for it; the unit respawns in seconds and a second copy just hits EADDRINUSE.
+  Secret is a rotatable metadata token.
 
 ---
 
