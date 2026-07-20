@@ -640,12 +640,15 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .trio .big .v{font-size:42px;font-weight:800;line-height:1;letter-spacing:-.02em;color:var(--ink)}
 .trio .big .u{font-size:19px;font-weight:600;color:#8a93a5}
 .trio .sub{font-family:var(--mono);font-size:13.5px;color:#8a93a5;margin-top:7px}
-.chart48{position:relative;height:150px;margin-top:12px}
-.chart48 .avgline{position:absolute;left:0;right:0;border-top:1.5px dashed #c7c3f2;z-index:2}
-.chart48 .avglab{position:absolute;left:0;font-family:var(--mono);font-size:11px;color:#8a86d6;background:#fff;padding:0 4px;z-index:3}
-.chart48 .cols{position:absolute;inset:0;display:flex;align-items:flex-end;gap:3px}
-.chart48 .cols div{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(180deg,#c9c5f4,#a7a1ec);transition:height .6s ease}
-.chart48 .cols div.live{background:linear-gradient(180deg,#7c74ee,#5b52e8)}
+.chart48{position:relative;height:170px;margin-top:12px}
+.chart48 .zero{position:absolute;left:0;right:0;top:42px;border-top:1.5px solid #d4d7e2;z-index:1}
+.chart48 .refill{position:absolute;left:0;right:0;background:linear-gradient(0deg,#dbeafe,#3b82f6);border-radius:3px 3px 0 0;opacity:.85;z-index:0}
+.chart48 .refillab{position:absolute;right:0;font-family:var(--mono);font-size:11px;color:#1d4ed8;background:#fff;padding:0 4px;z-index:3}
+.chart48 .avgline{position:absolute;left:0;right:0;border-top:1.5px dashed #e8b58a;z-index:2}
+.chart48 .avglab{position:absolute;left:0;font-family:var(--mono);font-size:11px;color:#c2703a;background:#fff;padding:0 4px;z-index:3}
+.chart48 .cols{position:absolute;left:0;right:0;top:42px;bottom:0;display:flex;align-items:flex-start;gap:3px}
+.chart48 .cols div{flex:1;border-radius:0 0 3px 3px;background:linear-gradient(180deg,#fcd9bd,#f0873c);transition:height .6s ease}
+.chart48 .cols div.live{background:linear-gradient(180deg,#f59e5b,#ea580c)}
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
 .tip48{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:12px;font-weight:500;padding:8px 12px;border-radius:9px;white-space:nowrap;transform:translate(-50%,-110%);top:36px;z-index:4;line-height:1.6}
 .tip48 .pr{color:#fbbf24}
@@ -756,6 +759,9 @@ table{font-size:12px}
    <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="chartMeta"></span>
   </div>
   <div class="chart48" id="chart48">
+   <div class="zero"></div>
+   <div class="refill" id="refillband" style="display:none"></div>
+   <div class="refillab" id="refillab" style="display:none">refill ↑</div>
    <div class="avgline" id="avgline" style="display:none"></div>
    <div class="avglab" id="avglab" style="display:none">avg</div>
    <div class="cols" id="cols"></div>
@@ -917,17 +923,25 @@ if(location.search)history.replaceState(null,'',location.pathname);
     });
     var mx=Math.max.apply(null,buckets.concat([1]));
     var avg=buckets.reduce(function(a,v){return a+v},0)/48;
-    var H=150;
-    // sqrt scale: one spiky minute must not flatten the other 47 into unreadable nubs —
-    // the peak still tops out, ordinary minutes keep visible shape (labeled √ in the meta)
-    var sc=function(v){return Math.max(3,Math.sqrt(v/mx)*H)};
+    // diverging around the zero line at 42px: usage hangs DOWN (orange), the refill
+    // rate points UP (blue band — one live value, the tank's current +/min; per-minute
+    // refill history isn't in the feed, so we draw only what's true now). Shared √ scale.
+    var BL=42,H2=128;
+    var sc=function(v){return Math.max(3,Math.sqrt(v/mx)*H2)};
     document.getElementById('cols').innerHTML=buckets.map(function(v,i){
       return '<div'+(i===47?' class="live"':'')+' style="height:'+sc(v).toFixed(0)+'px"></div>';
     }).join('');
+    var rb=document.getElementById('refillband'),rl=document.getElementById('refillab');
+    var refillNow=(b.five_billed||0)/300;
+    if(refillNow>0){
+      var rh=Math.min(BL-4,Math.max(3,Math.sqrt(refillNow/mx)*H2));
+      rb.style.display='block';rb.style.top=(BL-rh).toFixed(0)+'px';rb.style.height=rh.toFixed(0)+'px';
+      rl.style.display='block';rl.style.top=Math.max(0,BL-rh-15).toFixed(0)+'px';
+    }else{rb.style.display='none';rl.style.display='none';}
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    if(avg>0){var atop=H-sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=Math.max(0,atop-15).toFixed(0)+'px';}
+    if(avg>0){var atop=BL+sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=(atop+2).toFixed(0)+'px';}
     else{al.style.display='none';ab.style.display='none';}
-    document.getElementById('chartMeta').textContent='avg '+hum(avg)+' /min · peak '+hum(mx)+' · √ scale'+(window.__perTurn?' · '+window.__perTurn:'');
+    document.getElementById('chartMeta').textContent='↓ usage · ↑ refill '+hum(refillNow)+'/min · avg '+hum(avg)+' /min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
