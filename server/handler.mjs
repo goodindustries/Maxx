@@ -103,30 +103,44 @@ function renderCard(h, s, b, setup = null) {
   // hero = RAW lifetime (the number a human recognizes); weighted units stay on the weekly row.
   const rawOf = (e) => e.raw || e.billed || 0;
   const lifetime = s.events.reduce((a, e) => a + rawOf(e), 0);
-  // daily buckets (UTC) for the area chart
-  const byDay = new Map();
-  for (const e of s.events) {
-    if (!e.ts) continue;
-    const d = new Date(e.ts * 1000).toISOString().slice(0, 10);
-    byDay.set(d, (byDay.get(d) || 0) + rawOf(e));
-  }
-  const days = [...byDay.keys()].sort();
-  const first = days[0], today = new Date().toISOString().slice(0, 10);
-  // dense series first→today so idle days show as dips, not skipped
-  const series = [];
-  if (first) for (let t = new Date(first + "T00:00:00Z").getTime(); ; t += 86400000) {
-    const d = new Date(t).toISOString().slice(0, 10);
-    series.push(byDay.get(d) || 0);
-    if (d >= today) break;
-  }
-  const peak = Math.max(1, ...series);
-  const W = 1080, H = 150, n = Math.max(2, series.length);
-  const pts = series.map((v, i) => `${(i * W / (n - 1)).toFixed(1)},${(H - (v / peak) * (H - 6)).toFixed(1)}`);
-  const line = "M" + pts.join("L");
-  const area = line + `L${W},${H}L0,${H}Z`;
-  const peakI = series.indexOf(Math.max(...series));
-  const peakDay = days.length ? new Date(new Date(first + "T00:00:00Z").getTime() + peakI * 86400000).toISOString().slice(5, 10).replace("-", "/") : "";
-  const [px, py] = (pts[peakI] || "0,0").split(",");
+  const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const humanDay = (t) => { const d = new Date(t); return `${MO[d.getUTCMonth()]} ${d.getUTCDate()}`; };
+  // ---- range series for the chart toggle: hourly / daily / monthly / all time.
+  // Buckets are computed server-side so the public page embeds aggregates only, never raw events.
+  const evs = s.events.filter((e) => e.ts > 0).map((e) => ({ ts: e.ts * 1000, v: rawOf(e) }));
+  const nowMs = Date.now();
+  const bucketed = (startMs, stepMs, count, fmt) => {
+    const vals = new Array(count).fill(0), labels = [];
+    for (let i = 0; i < count; i++) labels.push(fmt(startMs + i * stepMs));
+    for (const e of evs) { const i = Math.floor((e.ts - startMs) / stepMs); if (i >= 0 && i < count) vals[i] += e.v; }
+    return { labels, vals };
+  };
+  const HOUR = 3600e3, DAY = 86400e3;
+  const hourStart = Math.floor(nowMs / HOUR) * HOUR - 47 * HOUR;
+  const dayStart = Math.floor(nowMs / DAY) * DAY - 29 * DAY;
+  const fmtHour = (t) => `${humanDay(t)} ${String(new Date(t).getUTCHours()).padStart(2, "0")}:00`;
+  // monthly: last 12 calendar months (UTC), irregular steps → bucket by month key
+  const monthly = (() => {
+    const nowD = new Date(nowMs);
+    const keys = [], labels = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth() - i, 1));
+      keys.push(d.toISOString().slice(0, 7));
+      labels.push(`${MO[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}`);
+    }
+    const vals = new Array(12).fill(0);
+    for (const e of evs) { const i = keys.indexOf(new Date(e.ts).toISOString().slice(0, 7)); if (i >= 0) vals[i] += e.v; }
+    return { labels, vals };
+  })();
+  // all time: dense daily since first event so idle days show as dips, not skipped
+  const firstTs = evs.length ? Math.min(...evs.map((e) => e.ts)) : nowMs;
+  const allDays = Math.max(2, Math.floor((Math.floor(nowMs / DAY) * DAY - Math.floor(firstTs / DAY) * DAY) / DAY) + 1);
+  const RANGES = {
+    hourly: { ...bucketed(hourStart, HOUR, 48, fmtHour), sub: "tokens · last 48 hours" },
+    daily: { ...bucketed(dayStart, DAY, 30, humanDay), sub: "tokens · last 30 days" },
+    monthly: { ...monthly, sub: "tokens · last 12 months" },
+    all: { ...bucketed(Math.floor(firstTs / DAY) * DAY, DAY, allDays, humanDay), sub: "lifetime tokens" },
+  };
   const avail = b.session_to_spend, weekLeft = b.weekly_left_tokens;
   const refillMin = b.five_reset_in_sec != null ? Math.round(b.five_reset_in_sec / 60) : null;
   // honesty: a stale anchor means "last known", not "available right now"; tiny anchors (<5%)
@@ -139,10 +153,6 @@ function renderCard(h, s, b, setup = null) {
   const lastEvt = s.events.reduce((a, e) => (e.ts > a ? e.ts : a), 0);
   const idleDays = lastEvt ? (Date.now() / 1000 - lastEvt) / 86400 : Infinity;
   const badge = idleDays < 2 ? "✓ Verified usage · live" : `✓ Verified usage · idle ${Math.round(idleDays)}d`;
-  // hover data: dense per-day series + human day labels ("Jul 2") for the tooltip
-  const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const humanDay = (t) => { const d = new Date(t); return `${MO[d.getUTCMonth()]} ${d.getUTCDate()}`; };
-  const dayLabels = series.map((_, i) => humanDay(new Date(first + "T00:00:00Z").getTime() + i * 86400000));
   // where it burns: lifetime split by surface class (public — classes and magnitudes only)
   const bySurf = new Map();
   for (const e of s.events) { const k = String(e.surface || "unknown").split(":")[0]; bySurf.set(k, (bySurf.get(k) || 0) + rawOf(e)); }
@@ -192,7 +202,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .hero{margin-top:28px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
 .hero .n{font-size:clamp(34px,6vw,76px);font-weight:700;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
 .hero .l{color:var(--ink-2);font-size:16.5px}
-.chart{margin-top:22px;position:relative}
+.ranges{margin-top:18px;display:flex;gap:6px}
+.ranges button{border:1px solid var(--line);background:var(--card);color:var(--ink-2);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+.ranges button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.chart{margin-top:14px;position:relative}
 .chart .cap{display:flex;justify-content:space-between;color:var(--ink-3);font-size:13px;margin-top:6px}
 .peak{position:absolute;font-size:12.5px;color:var(--ink-2);font-weight:600;white-space:nowrap}
 .rows{margin-top:18px;border-top:1px solid var(--line)}
@@ -226,17 +239,19 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h}</span></div>
   <div class="badge">${badge}</div>
  </div>
- <div class="hero"><div class="n">${fmtN(lifetime)}</div><div class="l">lifetime tokens</div></div>
+ <div class="hero"><div class="n" id="hero">${fmtN(lifetime)}</div><div class="l" id="heroSub">lifetime tokens</div></div>
+ <div class="ranges" id="ranges">
+  <button data-r="hourly">Hourly</button><button data-r="daily">Daily</button><button data-r="monthly">Monthly</button><button data-r="all" class="on">All time</button>
+ </div>
  <div class="chart" id="chart">
-  <svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block">
-   <path d="${area}" fill="#635bff" opacity=".12"/>
-   <path d="${line}" fill="none" stroke="#635bff" stroke-width="2"/>
-   ${pts.map((pt) => { const [cx, cy] = pt.split(","); return `<circle cx="${cx}" cy="${cy}" r="2.5" fill="#635bff" stroke="#fff" stroke-width="1"/>`; }).join("")}
-   <circle cx="${px}" cy="${py}" r="4" fill="#635bff" stroke="#fff" stroke-width="2"/>
+  <svg width="100%" viewBox="0 0 1080 150" preserveAspectRatio="none" style="display:block">
+   <path id="cArea" d="" fill="#635bff" opacity=".12"/>
+   <path id="cLine" d="" fill="none" stroke="#635bff" stroke-width="2"/>
+   <g id="cDots"></g>
   </svg>
   <div class="guide" id="guide"></div><div class="tip" id="tip"></div>
-  ${peakDay ? `<div class="peak" style="left:${(peakI / (n - 1) * 100).toFixed(1)}%;top:-6px;transform:translateX(-${peakI > n * 0.7 ? 105 : 0}%)">peak ${humanN(Math.max(...series))} · ${peakDay}</div>` : ""}
-  <div class="cap"><span>${first ? humanDay(new Date(first+"T00:00:00Z").getTime()) : ""}</span><span>daily tokens · all machines &amp; cloud · this Claude account</span><span>today</span></div>
+  <div class="peak" id="peak" style="display:none"></div>
+  <div class="cap"><span id="capL"></span><span>all machines &amp; cloud · this Claude account</span><span id="capR">today</span></div>
  </div>
  <div class="rows">
   <div class="r"><span class="k">Available right now</span><span class="v"><span id="avail">${avail != null ? humanN(avail) : "—"}</span> <span class="sub">${refillTxt}</span></span></div>
@@ -260,38 +275,190 @@ document.getElementById('sh').addEventListener('click',function(){
   else{navigator.clipboard.writeText("${url}");this.textContent="Copied";}
 });
 document.getElementById('cp').addEventListener('click',function(){navigator.clipboard.writeText("${url}");this.textContent="Copied";setTimeout(()=>this.textContent="Copy link",1500);});
-// hover: nearest-day tooltip + guide line over the area chart
+// range toggle + chart: draw the selected series client-side (hourly/daily/monthly/all time)
 (function(){
-  var days=${JSON.stringify(dayLabels)},vals=${JSON.stringify(series.map((v) => Math.round(v)))};
-  var chart=document.getElementById('chart'),tip=document.getElementById('tip'),guide=document.getElementById('guide');
+  var R=${JSON.stringify(Object.fromEntries(Object.entries(RANGES).map(([k, r]) => [k, { labels: r.labels, vals: r.vals.map((v) => Math.round(v)), sub: r.sub }])))};
+  var LIFE=${Math.round(lifetime)};
+  var cur='all',labels=[],vals=[];
   var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
+  var W=1080,H=150;
+  function draw(key){
+    cur=key;var r=R[key];labels=r.labels;vals=r.vals;
+    var n=Math.max(2,vals.length),peak=Math.max.apply(null,[1].concat(vals));
+    var pts=vals.map(function(v,i){return [(i*W/(n-1)),(H-(v/peak)*(H-6))]});
+    var line='M'+pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1)}).join('L');
+    document.getElementById('cLine').setAttribute('d',line);
+    document.getElementById('cArea').setAttribute('d',line+'L'+W+','+H+'L0,'+H+'Z');
+    document.getElementById('cDots').innerHTML=n<=60?pts.map(function(p){
+      return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#635bff" stroke="#fff" stroke-width="1"/>'}).join(''):'';
+    var pi=vals.indexOf(Math.max.apply(null,vals)),pk=document.getElementById('peak');
+    if(vals[pi]>0){pk.style.display='block';pk.style.left=(pi/(n-1)*100).toFixed(1)+'%';pk.style.top='-6px';
+      pk.style.transform='translateX(-'+(pi>n*0.7?105:0)+'%)';pk.textContent='peak '+hum(vals[pi])+' · '+labels[pi];}
+    else pk.style.display='none';
+    document.getElementById('capL').textContent=labels[0]||'';
+    document.getElementById('capR').textContent=key==='hourly'?'now':labels[labels.length-1]||'today';
+    var total=vals.reduce(function(a,v){return a+v},0);
+    document.getElementById('hero').textContent=(key==='all'?LIFE:total).toLocaleString('en-US');
+    document.getElementById('heroSub').textContent=r.sub;
+    var bs=document.querySelectorAll('#ranges button');
+    for(var i=0;i<bs.length;i++)bs[i].className=bs[i].getAttribute('data-r')===key?'on':'';
+  }
+  document.getElementById('ranges').addEventListener('click',function(ev){
+    var k=ev.target.getAttribute&&ev.target.getAttribute('data-r');if(k)draw(k);
+  });
+  draw('all');
+  // hover: nearest-bucket tooltip + guide line
+  var chart=document.getElementById('chart'),tip=document.getElementById('tip'),guide=document.getElementById('guide');
   chart.addEventListener('mousemove',function(ev){
     var r=chart.getBoundingClientRect(),x=ev.clientX-r.left;
-    var i=Math.max(0,Math.min(days.length-1,Math.round(x/r.width*(days.length-1))));
-    var cx=i/(days.length-1)*r.width;
+    var i=Math.max(0,Math.min(labels.length-1,Math.round(x/r.width*(labels.length-1))));
+    var cx=i/(labels.length-1)*r.width;
     tip.style.display='block';tip.style.left=Math.max(60,Math.min(r.width-60,cx))+'px';tip.style.top='34px';
-    tip.textContent=days[i]+' · '+hum(vals[i])+' tokens';
+    tip.textContent=labels[i]+' · '+hum(vals[i])+' tokens';
     guide.style.display='block';guide.style.left=cx+'px';
   });
   chart.addEventListener('mouseleave',function(){tip.style.display='none';guide.style.display='none';});
+  window.__setLife=function(n){LIFE=n;if(cur==='all')document.getElementById('hero').textContent=Math.round(n).toLocaleString('en-US')};
 })();
-// live feed: poll the public counts-only endpoint; tick the hero + availability in place
+// live feed: poll the public counts-only endpoint; one row PER CHANNEL (cloud, machine 1, …),
+// not per turn — tick the hero odometer + availability in place
 (function(){
-  var hero=document.querySelector('.hero .n'),avail=document.getElementById('avail'),feed=document.getElementById('feed');
+  var avail=document.getElementById('avail'),feed=document.getElementById('feed');
   var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
   var ago=function(s){return s<60?s+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
   function tick(){
     fetch('/u/${h}/live.json').then(function(r){return r.json()}).then(function(j){
-      if(j.lifetime)hero.textContent=Math.round(j.lifetime).toLocaleString('en-US');
+      if(j.lifetime&&window.__setLife)window.__setLife(j.lifetime);
       if(j.available!=null&&avail)avail.textContent=hum(j.available);
       if(j.feed&&j.feed.length)feed.innerHTML=j.feed.slice(0,8).map(function(e){
-        return '<li><span>'+e.surface+' · '+ago(e.ago_sec)+' ago</span><b>+'+hum(e.tokens)+'</b></li>';}).join('');
+        return '<li><span>'+e.channel+' · '+ago(e.ago_sec)+' ago</span><b>'+(e.tokens_1h>0?'+'+hum(e.tokens_1h)+' <span class="sub">/1h</span>':'<span class="sub">idle</span>')+'</b></li>';}).join('');
       document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
     }).catch(function(){});
   }
   tick();setInterval(tick,15000);
 })();
 setTimeout(function(){location.reload()},300000);
+</script>
+</body></html>`;
+}
+
+// ---- owner dashboard (GET /u/{handle}/dash?k={secret}) ------------------------------------
+// "What's running right now, and where is the budget going" — top_burners carry session and
+// project NAMES, so this page is owner-only: no valid ?k= → 401, nothing rendered.
+// The shell is static; the data comes from the already-authed /api endpoints (budget + feed),
+// polled every 10s, so the page and the API can never disagree.
+function renderDash(h, tok) {
+  const q = encodeURIComponent(tok);
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${h} — owner dashboard · Maxx</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.card{width:1100px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
+.top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
+.brand .m{color:var(--accent);font-size:23px}
+.who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:6px 14px;font-size:14px;font-weight:600;background:#f0f4ff;color:var(--accent);border:1px solid #dfe5ff}
+.badge.over{background:#fff1f0;color:#c0392b;border-color:#f5c6c2}
+.badge.stale{background:#fff8e6;color:#9a6b00;border-color:#f0e0b0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:22px}
+.stat{border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.stat .k{color:var(--ink-3);font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.stat .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
+.stat .sub{color:var(--ink-3);font-size:12.5px;margin-top:2px}
+h2{font-size:13px;color:var(--ink-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-top:26px;display:flex;align-items:center;gap:8px}
+h2 .dot{width:7px;height:7px;border-radius:50%;background:#2fbf71;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14.5px}
+th{text-align:left;color:var(--ink-3);font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+td.num,th.num{text-align:right}
+td b{font-weight:600}
+.empty{color:var(--ink-3);padding:10px;font-size:14px}
+.foot{margin-top:20px;color:var(--ink-3);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.foot a{color:var(--accent);font-weight:600;text-decoration:none}
+</style></head><body>
+<div class="card">
+ <div class="top">
+  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
+  <div class="badge" id="verdict">loading…</div>
+ </div>
+ <div class="stats" id="stats"></div>
+ <h2><span class="dot"></span> Agents right now <span style="text-transform:none;letter-spacing:0;font-weight:400">— heaviest sessions, last hour</span></h2>
+ <table><thead><tr><th>Session</th><th>Surface</th><th class="num">Tokens 1h</th><th class="num">Rate 5m</th><th class="num">Ctx</th><th class="num">Cost/action</th></tr></thead>
+ <tbody id="agents"><tr><td colspan="6" class="empty">loading…</td></tr></tbody></table>
+ <h2>Channels <span style="text-transform:none;letter-spacing:0;font-weight:400">— per machine / cloud, not per turn</span></h2>
+ <table><thead><tr><th>Channel</th><th>Last update</th><th class="num">+1h</th><th class="num">Billed 5h</th><th style="width:35%"></th></tr></thead>
+ <tbody id="channels"><tr><td colspan="5" class="empty">loading…</td></tr></tbody></table>
+ <div class="foot">
+  <span>Owner-only — session and project names never appear on the public card · <span id="stamp"></span></span>
+  <a href="/u/${h}">public card →</a>
+ </div>
+</div>
+<script>
+(function(){
+  var K='${q}';
+  var esc=function(s){var d=document.createElement('span');d.textContent=s==null?'':String(s);return d.innerHTML};
+  var hum=function(n){return n==null?'—':n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+Math.round(n)};
+  var ago=function(s){return s<60?Math.round(s)+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
+  var stat=function(k,v,sub){return '<div class="stat"><div class="k">'+k+'</div><div class="v">'+v+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>'};
+  function tick(){
+    fetch('/api/u/${h}/budget?k='+K).then(function(r){return r.json()}).then(function(b){
+      var vd=document.getElementById('verdict');
+      vd.textContent=b.verdict==='ok'?'✓ verdict ok':b.verdict;
+      vd.className='badge'+(b.verdict==='ok'?'':' '+esc(b.verdict));
+      var refill=b.five_reset_in_sec!=null?'refills in '+ago(b.five_reset_in_sec):'';
+      document.getElementById('stats').innerHTML=
+        stat('Available now',hum(b.session_to_spend),refill)+
+        stat('Weekly left',hum(b.weekly_left_tokens),b.week!=null?Math.round(b.week*100)+'% used · resets in '+(b.week_reset_in_sec!=null?ago(b.week_reset_in_sec):'?'):'')+
+        stat('Burn 5m',hum(b.burn_5m),b.empties_at?'empties in '+ago(b.empties_at-Date.now()/1000):'')+
+        stat('Reserved',hum(b.reserved_tokens),(b.leases||0)+' lease'+(b.leases===1?'':'s'));
+      var ag=(b.top_burners||[]).filter(function(a){return a.tokens_1h>0});
+      document.getElementById('agents').innerHTML=ag.length?ag.map(function(a){
+        return '<tr><td><b>'+esc(a.name||a.project||(a.session||'').slice(0,8))+'</b>'+(a.project&&a.name?' <span class="mono">'+esc(a.project)+'</span>':'')+'</td>'+
+          '<td class="mono">'+esc(a.surface)+'</td><td class="num">'+hum(a.tokens_1h)+'</td>'+
+          '<td class="num">'+(a.rate_5m>0?'<b>'+hum(a.rate_5m)+'</b>':'idle')+'</td>'+
+          '<td class="num">'+(a.ctx?Math.round(a.ctx)+'%':'—')+'</td>'+
+          '<td class="num">'+(a.cost_per_action?hum(a.cost_per_action):'—')+'</td></tr>';
+      }).join(''):'<tr><td colspan="6" class="empty">nothing burning in the last hour</td></tr>';
+      window.__sf=b.surfaces||[];renderChannels();
+      document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
+    }).catch(function(){});
+    fetch('/api/u/${h}/feed?n=100&k='+K).then(function(r){return r.json()}).then(function(j){
+      window.__ev=(j.events||[]).filter(function(e){return e.billed>0&&e.surface!=='directive'});
+      renderChannels();
+    }).catch(function(){});
+  }
+  // channels = budget.surfaces (billed this 5h window) merged with the feed (last-seen + 1h burn),
+  // keyed by full surface id — one row per machine / cloud routine, never per turn
+  function renderChannels(){
+    var sf=window.__sf||[],ev=window.__ev||[],t=Date.now()/1000;
+    var by={};
+    sf.forEach(function(s){by[s.surface]={surface:s.surface,b5:s.billed_5h,last:0,h1:0}});
+    ev.forEach(function(e){
+      var c=by[e.surface]||(by[e.surface]={surface:e.surface,b5:0,last:0,h1:0});
+      var ts=new Date(e.ts).getTime()/1000;
+      if(ts>c.last)c.last=ts;
+      if(ts>t-3600)c.h1+=e.billed;
+    });
+    var rows=Object.keys(by).map(function(k){return by[k]}).sort(function(a,b2){return b2.b5-a.b5});
+    var max=Math.max.apply(null,[1].concat(rows.map(function(c){return c.b5})));
+    document.getElementById('channels').innerHTML=rows.length?rows.map(function(c){
+      return '<tr><td class="mono">'+esc(c.surface)+'</td>'+
+        '<td>'+(c.last?ago(Math.max(0,t-c.last))+' ago':'—')+'</td>'+
+        '<td class="num">'+(c.h1>0?'<b>+'+hum(c.h1)+'</b>':'idle')+'</td>'+
+        '<td class="num">'+hum(c.b5)+'</td>'+
+        '<td><div style="height:8px;border-radius:4px;background:#635bff;opacity:.7;width:'+Math.max(2,Math.round(c.b5/max*100))+'%"></div></td></tr>';
+    }).join(''):'<tr><td colspan="5" class="empty">no channels yet</td></tr>';
+  }
+  tick();setInterval(tick,10000);
+})();
 </script>
 </body></html>`;
 }
@@ -435,13 +602,24 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         const t = now();
         // real burn only: zero-ts / zero-token / directive rows are bookkeeping, not usage
         // (legacy events surfaced as "cloud · 20655d ago +0" — epoch-0 timestamps).
-        const feed = s.events
-          .filter((e) => e.ts > 0 && (e.raw || e.billed) > 0 && e.surface !== "directive")
-          .slice(-12).reverse().map((e) => ({
-            ago_sec: Math.max(0, Math.round(t - e.ts)),
-            surface: String(e.surface || "").split(":")[0] || "unknown",
-            tokens: e.raw || e.billed || 0,
-          }));
+        // One row PER CHANNEL (a stable surface id = one machine / one cloud routine), not per
+        // turn. Labels are anonymized by first-seen order ("machine 1", "cloud 1") — real surface
+        // ids stay behind auth; the public card leaks no content, only magnitudes.
+        const real = s.events.filter((e) => e.ts > 0 && (e.raw || e.billed) > 0 && e.surface !== "directive");
+        const chans = new Map(); // surface → rollup, insertion order = first-seen order
+        let mi = 0, ci = 0;
+        for (const e of real) {
+          let c = chans.get(e.surface);
+          if (!c) {
+            const cls = String(e.surface || "").split(":")[0];
+            c = { channel: cls === "cloud" ? `cloud ${++ci}` : `machine ${++mi}`, last: 0, h1: 0 };
+            chans.set(e.surface, c);
+          }
+          if (e.ts > c.last) c.last = e.ts;
+          if (e.ts > t - 3600) c.h1 += e.raw || e.billed;
+        }
+        const feed = [...chans.values()].sort((a, b2) => b2.last - a.last)
+          .map((c) => ({ channel: c.channel, ago_sec: Math.max(0, Math.round(t - c.last)), tokens_1h: c.h1 }));
         const lifetime = s.events.reduce((a, e) => a + (e.raw || e.billed || 0), 0);
         return { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
           body: JSON.stringify({ lifetime, available: budget.session_to_spend, burn_5m: budget.burn_5m, feed }) };
@@ -462,6 +640,17 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         };
       }
       return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": setup ? "no-store" : "public, max-age=60" }, body: renderCard(h, s, budget, setup) };
+    }
+
+    // ---- owner dashboard: GET /u/{handle}/dash?k={secret}. Session/project NAMES render here,
+    // so unlike the public card this is auth-required — no valid secret, no page.
+    const md = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/dash\/?$/);
+    if (md && method === "GET") {
+      const h = md[1];
+      const tok = tokenOf(headers, url);
+      if (!tok || !(await authed(h, tok)))
+        return { status: 401, headers: { "content-type": "text/html; charset=utf-8" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">Owner only — open <b>/u/${h}/dash?k=&lt;your-secret&gt;</b>. Public card: <a href="/u/${h}">/u/${h}</a>.</p>` };
+      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderDash(h, tok) };
     }
 
     // ---- signup: claim a handle, mint its secret (first come, first served) ----
