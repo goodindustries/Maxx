@@ -815,11 +815,21 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var vd=document.getElementById('verdict');
     vd.textContent=b.verdict==='ok'?'✓ ok':b.verdict;
     vd.className='badge'+(b.verdict==='ok'?'':' '+esc(b.verdict));
-    var bar=function(lab,pct,num){
-      var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
-      return '<div class="bar'+(w>=90?' hot':'')+'"><span class="lab">'+lab+'</span>'+
-        '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
-        '<span class="num"><span style="color:#8a93a5">'+(pct!=null?Math.round(w)+'%':'—')+'</span> · '+num+'</span></div>';
+    // Bars mirror the CLI's geometry, not just its numbers. SESSION = the netBar:
+    // green grows from the LEFT = banked standing (fraction of realMax), red grows
+    // from the RIGHT = over, scaled to the hard 5h wall (full red = lockout, not
+    // "past pace"). WEEK = the fuel tank: fill = what's LEFT, draining right→left,
+    // with the ╎ even-pace tick — fill short of the tick = burning too fast.
+    var GRAD={green:'linear-gradient(90deg,#9be3b0,#4fbe7e 55%,#159a52)',amber:'linear-gradient(90deg,#f4d9a6,#e0a93e 55%,#c98a12)',red:'linear-gradient(90deg,#f2b8b5,#e06661 55%,#d23b3b)'};
+    var bar=function(lab,spec,num){
+      var g=Math.max(0,Math.min(100,(spec.green||0)*100));
+      var r=Math.max(0,Math.min(100,(spec.red||0)*100));
+      var tick=spec.tick!=null?Math.max(0,Math.min(100,spec.tick*100)):null;
+      return '<div class="bar"><span class="lab">'+lab+'</span><span class="track">'+
+        (g>=0.5?'<span class="fill" style="width:'+g.toFixed(1)+'%;background:'+GRAD[spec.col||'green']+'"></span>':'')+
+        (r>=0.5?'<span class="fill" style="left:auto;right:0;width:'+r.toFixed(1)+'%;background:linear-gradient(270deg,#f2b8b5,#d23b3b)"></span>':'')+
+        (tick!=null?'<span style="position:absolute;left:'+tick.toFixed(1)+'%;top:0;bottom:0;width:2px;background:#152036;z-index:2"></span>':'')+
+        '</span><span class="num">'+num+'</span></div>';
     };
     // CLI statusline semantics (render.mjs meterContent), mirrored exactly:
     // session number = signed STANDING (available to spend: + banked / − over), NOT used.
@@ -837,7 +847,19 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var wNum=(b.weekly_left_tokens!=null?kf(b.weekly_left_tokens)+' left':'—')+
       (bank!=null?(bank>=0?' · <span class="good">+'+kf(bank)+' banked</span>':' · <span class="bad">−'+kf(-bank)+' over</span>'):'')+
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
-    document.getElementById('bars').innerHTML=bar('session',b.quota,sNum)+bar('week',b.week,wNum);
+    // session spec: standing vs realMax (green), over vs room-to-lockout (red)
+    var realMax=(b.five_billed||0)+(b.session_to_spend||0)-(b.session_over||0);
+    var fiveCap=b.quota>0?(b.five_billed||0)/b.quota:null;
+    var overRoom=fiveCap&&fiveCap>realMax?fiveCap-realMax:Math.max(realMax,1);
+    var sSpec={green:realMax>0?(b.session_to_spend||0)/realMax:0,red:(b.session_over||0)/overRoom,col:'green'};
+    // week spec: fuel left, pace tick from the shipped bank ((left − bank) ÷ cap), CLI colors
+    var weekCap=(b.week_billed||0)+(b.weekly_left_tokens||0);
+    var leftFrac=weekCap>0?(b.weekly_left_tokens||0)/weekCap:0;
+    var wTick=weekCap>0&&b.week_bank!=null?Math.min(1,Math.max(0,((b.weekly_left_tokens||0)-b.week_bank)/weekCap)):null;
+    var wRatio=wTick!=null&&wTick>0.02?leftFrac/wTick:1;
+    var wCol=(leftFrac<0.1||wRatio<0.5)?'red':wRatio<0.85?'amber':'green';
+    document.getElementById('bars').innerHTML=bar('session',sSpec,sNum)+bar('week',{green:leftFrac,tick:wTick,col:wCol},wNum)+
+      '<div style="font-size:11.5px;color:#a3abba">bar = fuel left · grows back as usage ages out · <span style="color:#152036">╎</span> even-pace mark</div>';
 
     // trio mirrors the statusline: NET/MIN = refuel − burn (the CLI's +xxk/min),
     // REMAINING = the rolling-session standing, AT PACE = where that net rate lands you.

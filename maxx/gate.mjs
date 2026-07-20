@@ -233,14 +233,21 @@ if (b.week != null && b.week * 100 >= pol.weeklyStop) {
 }
 // 3. spree: pacing off, wall already checked
 if (pol.mode === "spree") allow("spree");
-// 4. paced (+ optional margin): stop at session_safe × (1 + margin)
+// 4. paced (+ optional margin): the CLI roll-session governor is law — session_to_spend
+// rides the statusline anchor and is what the bar shows. Deny only when the standing is
+// gone (and past any margin slack). The session_safe × margin comparison against the
+// FIXED-window spend is the old-server fallback only: it disagrees with the rolling
+// standing (fixed spend never decays), which blocked agents while the bar said banked.
 const safe = b.session_safe;
-if (safe != null) {
+if (b.session_to_spend != null) {
+  const slack = Math.round((safe || 0) * (pol.margin / 100));
+  if (b.session_to_spend <= 0 && (b.session_over || 0) >= slack)
+    deny(`roll-session standing gone (over by ${b.session_over || 0}` +
+         `${pol.margin ? `, past the ${pol.margin}% margin (${slack})` : ""}). Tokens again: ${b.tokens_again || "next 5h window"}`);
+} else if (safe != null) {
   const allowed = Math.round(safe * (1 + pol.margin / 100));
   if ((b.five_billed || 0) >= allowed)
     deny(`window spend ${b.five_billed} ≥ paced allowance ${allowed}` +
          `${pol.margin ? ` (share ${safe} + ${pol.margin}% margin)` : ""}. Tokens again: ${b.tokens_again || "next 5h window"}`);
-} else if (b.session_to_spend === 0) {
-  deny(`session_to_spend=0. Tokens again: ${b.tokens_again || "next 5h window"}`);   // old-server fallback
 }
 allow("under budget");
