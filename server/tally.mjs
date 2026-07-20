@@ -129,7 +129,10 @@ export function computeBudget(store, now) {
   // 8.5M). Window start = five_reset − 5h when the anchor's reset is still ahead of us;
   // stale/absent reset falls back to rolling (and the verdict is stale then anyway).
   const fr = a?.five_reset || 0;
-  const fiveLo = fr > now ? fr - FIVE_H : undefined;
+  // fr ahead → current window began at fr−5h. fr already PASSED (wall reset since the
+  // last anchor, no fresh one yet) → the new window began AT fr: count only events
+  // after it, never the pre-reset burn. No usable fr → rolling fallback.
+  const fiveLo = fr > now ? fr - FIVE_H : fr && now - fr < FIVE_H ? fr : undefined;
   let five = windowedBilled(store.events, now, FIVE_H, fiveLo);
   const wr = a?.week_reset || 0;
   let week = windowedBilled(store.events, now, WEEK, wr ? weekLoFor(wr, now) : undefined);
@@ -163,14 +166,18 @@ export function computeBudget(store, now) {
   let slSpend = null;
   if (a && fresh && a.sl) {
     const since = windowedBilled(store.events, now, WEEK, a.ts);
-    if (a.sl.five_cap > 0) { fiveCap = a.sl.five_cap; five = a.sl.five_used + since; }
+    // 5h-window fields are only valid while the window the anchor described is still
+    // current (fr ahead of now) — after a wall reset they describe a dead window and
+    // the fixed-window sum above (events since fr) is the truth until the next anchor.
+    const windowCurrent = fr > now;
+    if (windowCurrent && a.sl.five_cap > 0) { fiveCap = a.sl.five_cap; five = a.sl.five_used + since; }
     weekCap = a.sl.week_cap;
     week = a.sl.week_used + since;
     quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
     weekPct = Math.min(1, week / weekCap);
     // the CLI's roll-session toSpend is the governor's allowance — pass it through
     // (minus since-anchor burn) so the gate agrees with the bar, not a second pacer
-    slSpend = Math.max(0, a.sl.to_spend - since);
+    if (windowCurrent) slSpend = Math.max(0, a.sl.to_spend - since);
   }
 
   const weeklyLeft = weekCap != null ? Math.max(0, weekCap - week) : null;

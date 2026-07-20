@@ -40,11 +40,21 @@ test("statusline passthrough: sl numbers become the ruler, extrapolated since an
   assert.equal(b.session_to_spend, 28e6);
 });
 
-test("five window falls back to rolling when the anchored reset already passed", () => {
+test("wall reset since last anchor: only post-reset burn counts, sl session fields ignored", () => {
   const s = emptyStore();
-  s.events.push({ surface: "laptop:a", root: "r1", ts: T - 2 * H, billed: 5e6 });
-  s.anchors.push({ ts: T - 6 * H, five_pct: 0.5, week_pct: 0.2, five_reset: T - H, week_reset: T + 3 * 86400 });
+  s.events.push(
+    { surface: "laptop:a", root: "r1", ts: T - 2 * H, billed: 50e6 },  // pre-reset (dead window)
+    { surface: "laptop:a", root: "r2", ts: T - 600, billed: 3e6 },     // post-reset (new window)
+  );
+  // anchor 30m old (still FRESH) but its five_reset passed 20m ago
+  s.anchors.push({
+    ts: T - 1800, five_pct: 0.9, week_pct: 0.2, five_reset: T - 1200, week_reset: T + 3 * 86400,
+    sl: { five_used: 70e6, five_cap: 80e6, to_spend: 0, week_used: 120e6, week_cap: 1300e6 },
+  });
   const b = computeBudget(s, T);
-  assert.equal(b.five_billed, 5e6); // rolling 5h still sees it
-  assert.equal(b.verdict, "stale"); // and an anchor that old is not trusted anyway
+  assert.equal(b.five_billed, 3e6, "new window counts from the known reset, not the dead window");
+  // sl to_spend=0 described the DEAD window — must not gate the fresh one to zero
+  assert.ok(b.session_to_spend > 0, `fresh window has allowance, got ${b.session_to_spend}`);
+  // week fields still ride the anchor (weekly window survives 5h resets)
+  assert.equal(b.week_billed, 120e6 + 3e6);
 });
