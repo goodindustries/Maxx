@@ -313,8 +313,9 @@
 </section>
 
 <section class="wrap" id="connector">
-  <h2>Track every machine &amp; cloud session</h2>
-  <p class="lead">Claim a handle, get your personal connector URL. Add it once at claude.ai → Settings → Connectors and every session — laptop, desktop, cloud routine — reports to <em>your</em> tally and reads <em>your</em> live budget. One handle per Claude account: every account keeps its own timeline.</p>
+  <h2>Cross-platform. One tally.</h2>
+  <p class="lead">Token utilization tracked across everything that burns your quota: macOS &amp; Linux machines, Claude Code cloud routines, claude.ai sessions — any agent carrying your connector. Claim a handle, get your personal connector URL, add it once at claude.ai → Settings → Connectors: every surface reports to <em>your</em> tally and reads <em>your</em> live budget before it spends. One handle per Claude account: every account keeps its own timeline.</p>
+  <p class="hint">Your own dashboards can subscribe too: webhooks push <code>refill</code> / <code>over</code> / <code>week-90</code> / <code>runaway</code> transitions (<code>POST /api/u/&lt;you&gt;/webhooks</code>), and <code>GET /api/u/&lt;you&gt;/budget</code> serves live availability, burn rate and top burners for polling.</p>
   <div class="install" style="display:flex;width:100%;max-width:560px">
     <code style="flex:1;padding-right:0"><span class="p">@</span><input id="sg-handle" placeholder="your-handle" maxlength="32" autocomplete="off" spellcheck="false" style="background:none;border:0;outline:0;color:inherit;font:inherit;width:100%"></code>
     <button id="sg-go">Get my URL</button>
@@ -365,7 +366,7 @@
 <section class="wrap">
   <div class="privacy">
     <h2>Your stuff stays yours</h2>
-    <p class="lead" style="margin:0 auto">We might launch some sharing of metadata (opt-in) for using in better algorithm-ing, but for now no data leaves the box. MIT.</p>
+    <p class="lead" style="margin:0 auto">Local by default — nothing leaves the box until you claim a handle. The connector ships usage <em>metadata</em> only: token counts, timestamps, model names. Never a prompt, never a message, never code. The emitter can't leak content because it never reads it. MIT.</p>
   </div>
 </section>
 

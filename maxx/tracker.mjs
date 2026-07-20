@@ -11,7 +11,7 @@
  * Fully on-box: reads only usage/token metadata, sends nothing anywhere, never
  * emits prompt or message content.
  */
-import { createReadStream, realpathSync, readFileSync } from "node:fs";
+import { createReadStream, realpathSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
@@ -35,8 +35,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "session") out.cmd = "session";
+    else if (a === "turn") out.cmd = "turn";
     else if (a === "raw") out.raw = true;
-    else if (a === "--json" || a === "json") { if (out.cmd === "session") out.raw = true; else out.cmd = "json"; }
+    else if (a === "--json" || a === "json") { if (out.cmd === "session" || out.cmd === "turn") out.raw = true; else out.cmd = "json"; }
     else if (a === "--dir") out.dir = argv[++i];
     else rest.push(a);
   }
@@ -213,6 +214,86 @@ function sessionWindow() {
   return { used, cap, left, pct, resetInMins, burn5: Math.round(burn5), needPerMin, nowPerMin, behind };
 }
 
+// ─── last turn — the per-turn receipt (`maxx turn`) ───────────────────────────
+// "What did that just cost?" — sums every usage block since the last real user
+// prompt in the CURRENT session (newest root .jsonl for this cwd's project, falling
+// back to the newest anywhere), plus any subagent burn timestamped inside the turn.
+async function newestRoot(dir) {
+  let best = null;
+  async function walk(d) {
+    let es; try { es = await readdir(d, { withFileTypes: true }); } catch { return; }
+    for (const e of es) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile() && e.name.endsWith(".jsonl") && !full.includes(`${path.sep}subagents${path.sep}`)) {
+        let mt; try { mt = statSync(full).mtimeMs; } catch { continue; }
+        if (!best || mt > best.mtime) best = { file: full, mtime: mt };
+      }
+    }
+  }
+  await walk(dir);
+  return best && best.file;
+}
+
+async function lastTurn(allDir) {
+  // prefer the project dir Claude Code uses for this cwd (path with / → -)
+  const projDir = path.join(allDir, process.cwd().replace(/[\\/.]/g, "-"));
+  const root = (await newestRoot(projDir)) || (await newestRoot(allDir));
+  if (!root) return null;
+  // one streaming pass: remember each usage block's seq, and the seq of the last
+  // REAL user prompt (external, not a tool_result wrapper) — the turn boundary.
+  const rl = createInterface({ input: createReadStream(root, { encoding: "utf8" }), crlfDelay: Infinity });
+  const usages = []; // { seq, u, ts, model }
+  let seq = 0, lastUser = -1, lastUserTs = null;
+  const seen = new Set();
+  for await (const line of rl) {
+    if (!line || line[0] !== "{") continue;
+    let r; try { r = JSON.parse(line); } catch { continue; }
+    seq++;
+    if (r.type === "user" && !r.isSidechain && r.userType === "external") {
+      const c = r.message && r.message.content;
+      const toolResult = Array.isArray(c) && c.some((b) => b && b.type === "tool_result");
+      if (!toolResult) { lastUser = seq; lastUserTs = r.timestamp; continue; }
+    }
+    const u = r.message && r.message.usage;
+    if (!u) continue;
+    const id = r.requestId || r.uuid;
+    if (id) { if (seen.has(id)) continue; seen.add(id); }
+    usages.push({ seq, u, ts: r.timestamp });
+  }
+  if (lastUser < 0) return null;
+  const inTurn = usages.filter((x) => x.seq > lastUser);
+  const sum = { total: 0, output: 0, cacheRead: 0, input: 0, cacheCreate: 0, calls: 0 };
+  const add = (u) => {
+    const t = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
+    if (!t) return;
+    sum.total += t; sum.output += u.output_tokens || 0; sum.cacheRead += u.cache_read_input_tokens || 0;
+    sum.input += u.input_tokens || 0; sum.cacheCreate += u.cache_creation_input_tokens || 0; sum.calls++;
+  };
+  for (const x of inTurn) add(x.u);
+  // subagent burn inside the turn window: <projectDir>/<sessionId>/subagents/*.jsonl
+  let agentTokens = 0, agentCalls = 0;
+  const turnStart = lastUserTs ? new Date(lastUserTs).getTime() : 0;
+  const subDir = path.join(path.dirname(root), path.basename(root, ".jsonl"), "subagents");
+  try {
+    for (const f of await findSessionFiles(subDir)) {
+      if (statSync(f).mtimeMs < turnStart) continue; // untouched since the turn began
+      const srl = createInterface({ input: createReadStream(f, { encoding: "utf8" }), crlfDelay: Infinity });
+      for await (const line of srl) {
+        if (!line || line[0] !== "{") continue;
+        let r; try { r = JSON.parse(line); } catch { continue; }
+        const u = r.message && r.message.usage;
+        if (!u || !r.timestamp || new Date(r.timestamp).getTime() < turnStart) continue;
+        const id = r.requestId || r.uuid;
+        if (id) { if (seen.has(id)) continue; seen.add(id); }
+        const t = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
+        if (t) { agentTokens += t; agentCalls++; }
+      }
+    }
+  } catch {}
+  return { file: root, since: lastUserTs, ...sum, agentTokens, agentCalls, grand: sum.total + agentTokens };
+}
+
 // ─── build the public stats payload ───────────────────────────────────────────
 function buildStats(acc) {
   const t = acc.totals;
@@ -366,6 +447,15 @@ if (isMainModule()) {
         w(outStr.replace(/\n+$/, ""));
       } catch {
         w(a.raw ? "{}" : "  session: no pacing data yet — open Claude Code so the statusline seeds ~/.maxx/status.json.");
+      }
+    } else if (a.cmd === "turn") {
+      const t = await lastTurn(a.dir);
+      if (!t) w("  turn: no session log found for this directory.");
+      else if (a.raw) w(JSON.stringify(t, null, 2));
+      else {
+        const agents = t.agentTokens ? `  ·  +${human(t.agentTokens)} subagents (${t.agentCalls} calls)` : "";
+        w(`  ⚡ last turn  ${fmt(t.grand)} tokens  ·  ${t.calls} api calls${agents}`);
+        w(`     output ${human(t.output)} · cache-read ${human(t.cacheRead)} · input ${human(t.input)} · cache-write ${human(t.cacheCreate)}`);
       }
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));
