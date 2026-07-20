@@ -351,18 +351,19 @@ ${CHART_JS}
     var bar=function(lab,pct,num){
       var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
       return '<div class="bar"><span class="lab">'+lab+'</span>'+
-        '<span class="track"><span class="fill" style="width:'+w.toFixed(1)+'%"></span></span>'+
+        '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
         '<span class="num">'+num+'</span></div>';
     };
-    var stale=!d.fresh?' · stale (anchored '+(d.anchor_age_sec!=null?ago(d.anchor_age_sec):'?')+' ago)':'';
+    var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale · no recent anchor'):'';
     var calib=d.week!=null&&d.week<0.05?' · calibrating':'';
+    var gcls=d.fresh?'good':'',bcls=d.fresh?'bad':'';
     var sUsed=d.five_billed||0,sAllow=sUsed+(d.available||0);
     var sNum='+'+kf(sUsed)+(d.available>0
-      ?' · <span class="good">~'+kf(d.available)+' left</span>'
-      :' · <span class="bad">0 left</span>')+
+      ?' · <span class="'+gcls+'">~'+kf(d.available)+' left</span>'
+      :' · <span class="'+bcls+'">0 left</span>')+
       (d.five_reset_in_sec!=null?' · refills '+ago(d.five_reset_in_sec):'')+stale;
     var wNum=(d.weekly_left!=null
-      ?(d.week!=null&&d.week>=0.99?'<span class="bad">~'+kf(d.weekly_left)+' left</span>':'<span class="good">~'+kf(d.weekly_left)+' left</span>')
+      ?(d.week!=null&&d.week>=0.99?'<span class="'+bcls+'">~'+kf(d.weekly_left)+' left</span>':'<span class="'+gcls+'">~'+kf(d.weekly_left)+' left</span>')
       :'—')+
       (d.week!=null?' · '+Math.round(d.week*100)+'% used':'')+
       (d.week_reset_in_sec!=null?' · '+ago(d.week_reset_in_sec):'')+calib;
@@ -670,7 +671,7 @@ ${CHART_JS}
       var bar=function(lab,pct,num){
         var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
         return '<div class="bar"><span class="lab">'+lab+'</span>'+
-          '<span class="track"><span class="fill" style="width:'+w.toFixed(1)+'%"></span></span>'+
+          '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
           '<span class="num">'+num+'</span></div>';
       };
       // statusline number style: thousands + k (12,106k); left-amounts are estimates → ~
