@@ -599,13 +599,15 @@ ${CHART_JS}
     if(pinned)el.scrollTop=el.scrollHeight;
   }
   // channels = budget.surfaces (billed this 5h window) merged with the feed (last-seen + 1h burn),
-  // keyed by full surface id — one row per machine / cloud routine, never per turn
+  // keyed by surface × project — two CC instances on one machine are distinct channels
   function renderChannels(){
     var sf=window.__sf||[],ev=window.__ev||[],t=Date.now()/1000;
+    var keyOf=function(surface,project){return project?surface+' · '+project:surface};
     var by={};
     sf.forEach(function(s){by[s.surface]={surface:s.surface,b5:s.billed_5h,last:0,h1:0}});
     ev.forEach(function(e){
-      var c=by[e.surface]||(by[e.surface]={surface:e.surface,b5:0,last:0,h1:0});
+      var k=keyOf(e.surface,e.project);
+      var c=by[k]||(by[k]={surface:k,b5:0,last:0,h1:0});
       var ts=new Date(e.ts).getTime()/1000;
       if(ts>c.last)c.last=ts;
       if(ts>t-3600)c.h1+=e.billed;

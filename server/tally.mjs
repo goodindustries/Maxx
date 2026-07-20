@@ -158,9 +158,16 @@ export function computeBudget(store, now) {
   if (!a || !fresh) verdict = "stale";
   else if ((weekPct != null && weekPct >= 0.99) || (quota != null && quota >= 0.99) || spendAfterReserve === 0) verdict = "over";
 
+  // Channel = surface × project: two CC instances on one laptop (different project
+  // dirs) are distinct channels, not one blob. Events without a project (cloud
+  // routines — already unique per surface — and legacy rows) stay surface-only.
+  // Owner-facing (authed budget/dash); the public card never sees these keys.
   const surfaces = {};
   for (const e of store.events) {
-    if (e.ts > now - FIVE_H) surfaces[e.surface] = (surfaces[e.surface] || 0) + e.billed;
+    if (e.ts > now - FIVE_H) {
+      const key = e.project ? `${e.surface} · ${e.project}` : e.surface;
+      surfaces[key] = (surfaces[key] || 0) + e.billed;
+    }
   }
 
   // lifetime odometer: the whole store, backfill included (weighted units)
