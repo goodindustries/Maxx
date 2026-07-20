@@ -114,12 +114,15 @@ export function computeBudget(store, now) {
   // Anchor the caps: cap = tokens-in-window ÷ observed-pct, measured at anchor time.
   // Use the anchor's own windowed sums so cap reflects the same window the % described.
   let fiveCap = null, weekCap = null, quota = null, weekPct = null;
+  // floors at >0.005 so a 1% wall reading calibrates: right after an account switch that's the
+  // only anchor there is, and refusing it left session_to_spend null — cloud gates saw "unknown"
+  // instead of the real availability.
   if (a) {
-    if (a.five_pct > 0.01) {
+    if (a.five_pct > 0.005) {
       const fiveAtAnchor = windowedBilled(store.events, a.ts, FIVE_H);
       fiveCap = Math.round(fiveAtAnchor / a.five_pct);
     }
-    if (a.week_pct > 0.01) {
+    if (a.week_pct > 0.005) {
       const weekAtAnchor = windowedBilled(store.events, a.ts, WEEK, wr ? weekLoFor(wr, a.ts) : undefined);
       weekCap = Math.round(weekAtAnchor / a.week_pct);
     }
