@@ -821,47 +821,49 @@ if(location.search)history.replaceState(null,'',location.pathname);
         '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
         '<span class="num"><span style="color:#8a93a5">'+(pct!=null?Math.round(w)+'%':'—')+'</span> · '+num+'</span></div>';
     };
-    var rate=b.burn_5m!=null?b.burn_5m/5:0;
-    var sNum='+'+kf(b.five_billed||0)+(rate>0?' · <span class="good">+'+kf(rate)+'/min</span>':'')+
-      (b.session_to_spend>0?' · ~'+kf(b.session_to_spend)+' left':' · <span class="bad">0 left</span>');
-    var wNum=(b.weekly_left_tokens!=null?'~'+kf(b.weekly_left_tokens)+' left':'—')+
-      (b.session_over>0?' · <span class="bad">-'+kf(b.session_over)+' over</span>':'')+
+    // CLI statusline semantics (render.mjs meterContent), mirrored exactly:
+    // session number = signed STANDING (available to spend: + banked / − over), NOT used.
+    // rate = refuel − live burn (tank refills at rolling-5h-burn ÷ 300); its sign and
+    // color follow the STANDING, never the raw rate. week = left · even-pace bank · reset.
+    var burnMin=b.burn_5m!=null?b.burn_5m/5:0;
+    var refuel=(b.five_billed||0)/300;
+    var prog=refuel-burnMin;
+    var banked=b.session_to_spend>0;
+    var progStr=(banked?'+':'−')+kf(Math.abs(prog))+'/min';
+    var sNum=(banked?'+'+kf(b.session_to_spend):'<span class="bad">−'+kf(b.session_over||0)+'</span>')+
+      (Math.abs(prog)>=500?' · <span class="'+(banked?'good':'bad')+'">'+progStr+'</span>':'');
+    var cap7=b.week>0?(b.week_billed||0)/b.week:0;
+    var e7=b.week_reset_in_sec!=null?Math.max(0,1-b.week_reset_in_sec/604800):0;
+    var bank=cap7>0?cap7*e7-(b.week_billed||0):null;
+    var wNum=(b.weekly_left_tokens!=null?kf(b.weekly_left_tokens)+' left':'—')+
+      (bank!=null?(bank>=0?' · <span class="good">+'+kf(bank)+' banked</span>':' · <span class="bad">−'+kf(-bank)+' over</span>'):'')+
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
     document.getElementById('bars').innerHTML=bar('session',b.quota,sNum)+bar('week',b.week,wNum);
 
-    // trio: NET/MIN (burn minus even-pace) / REMAINING / AT PACE (where you land)
-    var perSec=(b.burn_5m||0)/300,perMin=perSec*60;
-    var minsLeft=b.five_reset_in_sec!=null?b.five_reset_in_sec/60:null;
-    // even = what you could burn per minute from now and land at 0 exactly at reset
-    var even=(minsLeft>0&&b.session_to_spend>0)?b.session_to_spend/minsLeft:0;
-    var net=perMin-even;
+    // trio mirrors the statusline: NET/MIN = refuel − burn (the CLI's +xxk/min),
+    // REMAINING = the rolling-session standing, AT PACE = where that net rate lands you.
     var netV=document.getElementById('netV'),netU=document.getElementById('netU'),netSub=document.getElementById('netSub');
-    var nh=hum(Math.abs(net));
-    netV.textContent=(net>0?'+':net<0?'−':'')+nh.slice(0,-1);
-    netU.textContent=nh.slice(-1)+'/min';
-    netV.style.color=net>0?'var(--red)':net<0?'var(--green)':'var(--ink)';
-    netSub.textContent='burn '+hum(perMin)+' − even '+hum(even)+' /min';
+    var nh=hum(Math.abs(prog));
+    if(Math.abs(prog)<1000){netV.textContent='0';netU.textContent='/min';}
+    else{netV.textContent=(banked?'+':'−')+nh.slice(0,-1);netU.textContent=nh.slice(-1)+'/min';}
+    netV.style.color=banked?'var(--green)':'var(--red)';
+    netSub.textContent='refuel '+hum(refuel)+' − burn '+hum(burnMin)+' /min';
     var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
-    if(b.session_to_spend>0){
+    if(banked){
       remV.textContent=hum(b.session_to_spend);remV.style.color='var(--ink)';
-      remSub.textContent='this window · week ~'+hum(b.weekly_left_tokens||0)+' left';
+      remSub.textContent='rolling session · week '+hum(b.weekly_left_tokens||0)+' left';
     }else{
-      remV.textContent=b.session_over>0?'-'+hum(b.session_over):'0';remV.style.color='var(--red)';
-      remSub.textContent=(b.session_over>0?'over · ':'')+'week ~'+hum(b.weekly_left_tokens||0)+' left';
+      remV.textContent=b.session_over>0?'−'+hum(b.session_over):'0';remV.style.color='var(--red)';
+      remSub.textContent=(b.session_over>0?'over · ':'')+'week '+hum(b.weekly_left_tokens||0)+' left';
     }
     var runV=document.getElementById('runV'),runSub=document.getElementById('runSub');
-    if(b.session_to_spend<=0){runV.textContent='0 left';runV.style.color='var(--red)';runSub.textContent=b.five_reset_in_sec!=null?'window refills in '+dur(b.five_reset_in_sec):'';}
-    else if(perSec<=1){runV.textContent='holds';runV.style.color='var(--green)';runSub.textContent='no burn · resets in '+(minsLeft!=null?dur(minsLeft*60):'—');}
-    else if(net>0){
-      var sec=b.session_to_spend/perSec;
+    if(!banked){runV.textContent='over';runV.style.color='var(--red)';runSub.textContent='ease off — tank refuels at '+hum(refuel)+'/min';}
+    else if(prog>=0){runV.textContent='banking';runV.style.color='var(--green)';runSub.textContent='+'+hum(prog)+'/min recovering';}
+    else{
+      var sec=b.session_to_spend/(-prog/60);
       runV.textContent=dur(sec);
-      runV.style.color=sec>1200?'var(--amber)':'var(--red)';
-      runSub.textContent='runs out at '+clockAt(sec);
-    }else{
-      var landing=b.session_to_spend-perMin*(minsLeft||0);
-      runV.textContent='+'+hum(Math.max(0,landing));
-      runV.style.color='var(--green)';
-      runSub.textContent='left at reset ('+(minsLeft!=null?dur(minsLeft*60):'—')+')';
+      runV.style.color=sec>3600?'var(--green)':sec>1200?'var(--amber)':'var(--red)';
+      runSub.textContent='runs out at '+clockAt(sec)+' at this net';
     }
     var h1=ev.filter(function(e){var ts=new Date(e.ts).getTime()/1000;return ts>t-3600});
     var h1b=h1.reduce(function(a,e){return a+e.billed},0),h1t=h1.reduce(function(a,e){return a+(e.turns||0)},0);
