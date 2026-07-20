@@ -48,9 +48,17 @@ it, read=consume — it fires exactly once).
      /clear — the next session here rises automatically.`
    - **Unattended / human says "rise":** run
      `node ~/.claude/skills/maxx/fenix.mjs --rise` — consumes the handoff and
-     spawns a detached headless `claude -p` continuation (fresh process = fresh
-     context; log lands in `.fenix/rise-<ts>.log`). Then END your turn — the
-     continuation owns the work now; doing more here defeats the rebirth.
+     spawns a detached headless continuation (fresh process = fresh context; log
+     in `.fenix/rise-<ts>.log`). Then END your turn — the continuation owns the
+     work now; doing more here defeats the rebirth.
+
+   `--rise` is a CHAIN, not a fork: every risen generation carries the standing
+   order to fenix again when its context passes ~70% or it must stop mid-mission —
+   so the loop sustains itself until `.fenix/DONE.md` appears. Brakes built in:
+   generation cap (`.fenix/generation`, default 5, `MAXX_RISE_MAX_GEN` overrides)
+   and the budget wall — at the 5h wall the rise self-schedules for right after
+   the window refills (detached sleeper, no crontab). Child permission flags
+   default to `--permission-mode acceptEdits`; `MAXX_RISE_FLAGS` overrides.
 
 4. Do NOT delete or edit the handoff after writing it — `fenix.mjs --wake` consumes
    it on next session start. `node ~/.claude/skills/maxx/fenix.mjs --status` shows

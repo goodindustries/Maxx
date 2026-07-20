@@ -189,16 +189,21 @@ function claudeAccount() {
 // `--signup` with no handle derives one from the Claude login (email local part) — zero-input onboarding.
 if (args.signup) {
   const acct = claudeAccount();
-  if (args.signup === true) {
+  const derived = args.signup === true;
+  if (derived) {
     const local = (acct.email || "").split("@")[0].toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^[-_]+/, "");
     if (local.length < 3) { console.error("can't derive a handle (no Claude login found) — run --signup <handle>."); process.exit(1); }
     args.signup = local;
   }
-  const res = await fetch(`${base}/api/signup`, {
+  const claim = (handle) => fetch(`${base}/api/signup`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ handle: args.signup, account: acct.uuid, email: acct.email }),
+    body: JSON.stringify({ handle, account: acct.uuid, email: acct.email }),
     signal: AbortSignal.timeout(15000),
   });
+  let res = await claim(args.signup);
+  // derived name taken → one silent retry with a stable account-uuid suffix (zero-input path
+  // must not dead-end on a common email local part); an EXPLICIT name failing stays an error.
+  if (res.status === 409 && derived && acct.uuid) res = await claim(`${args.signup}-${acct.uuid.slice(0, 4)}`);
   const out = await res.json().catch(() => ({}));
   if (!res.ok) { console.error(`signup failed (${res.status}): ${out.error || "?"}`); process.exit(1); }
   mkdirSync(path.dirname(CONFIG), { recursive: true });

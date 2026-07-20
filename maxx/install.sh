@@ -122,8 +122,22 @@ JS
       ;;
   esac
 else
-  echo ""
-  echo "Optional — central budget tally (cloud + all machines, one number):"
-  echo "  node $SKILL/emit.mjs --signup                 # derives your handle from your Claude login"
-  echo "  node $SKILL/emit.mjs --install-agent          # live-ship usage at login"
+  # Zero-decision onboarding: no env link and no existing handle → claim one automatically
+  # from the Claude login (email local part; -uuid suffix if taken). Picking a name is the
+  # OPTIONAL step, not the gate — the fastest path to "binge-watch your tokens" is one paste.
+  EXISTING=$(node -e 'try{const c=require(process.env.HOME+"/.maxx/config.json");process.stdout.write(c.handle&&c.handle!=="unknown"?c.handle:"")}catch{}' 2>/dev/null || true)
+  if [ -n "$EXISTING" ]; then
+    echo ""
+    echo "maxx: already linked to @$EXISTING · card → https://meetmaxx.co/u/$EXISTING"
+  elif node "$SKILL/emit.mjs" --signup; then
+    node "$SKILL/emit.mjs" --install-agent || true
+    node "$SKILL/emit.mjs" --send >/dev/null 2>&1 || true
+    NEWH=$(node -e 'try{process.stdout.write(require(process.env.HOME+"/.maxx/config.json").handle||"")}catch{}' 2>/dev/null || true)
+    [ -n "$NEWH" ] && echo "  binge-watch your tokens → https://meetmaxx.co/u/$NEWH   (want a different name? node $SKILL/emit.mjs --signup <handle>)"
+  else
+    echo ""
+    echo "Optional — central budget tally (cloud + all machines, one number):"
+    echo "  node $SKILL/emit.mjs --signup                 # derives your handle from your Claude login"
+    echo "  node $SKILL/emit.mjs --install-agent          # live-ship usage at login"
+  fi
 fi
