@@ -818,7 +818,31 @@ if(location.search)history.replaceState(null,'',location.pathname);
   var ago=function(s){return s<60?Math.round(s)+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
   var dur=function(sec){sec=Math.max(0,Math.round(sec));var hh=Math.floor(sec/3600),mn=Math.floor(sec%3600/60);return hh>0?hh+'h '+mn+'m':mn>0?mn+'m':sec+'s'};
   var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
-  var FIVE_H=5*3600,WEEK=7*86400;
+  var FIVE_H=5*3600,WEEK=7*86400,CTX_WALL=250e3;
+
+  // Context trajectory from the feed — the useful signal in the emitter lane. Each
+  // batch carries ctx; grouping by session and sloping the recent tail gives ctx
+  // GROWTH per turn and turns-to-wall (/fenix at 250k). A /clear drops ctx → the
+  // tail slope resets, so a freshly-cleared session reads as holding, not climbing.
+  // Also returns prev-ctx per batch so the tail can annotate growth inline.
+  function ctxTrends(){
+    var ev=(window.__ev||[]).slice().sort(function(a,b){return new Date(a.ts)-new Date(b.ts)});
+    var g={},prev={};
+    ev.forEach(function(e){
+      var k=e.name||((e.project||e.surface||'?')+'');
+      var gr=g[k]||(g[k]={name:e.name,project:e.project,s:[]});
+      prev[e.ts+'|'+k]=gr.s.length?gr.s[gr.s.length-1].ctx:null;
+      gr.s.push({ctx:e.ctx||0,turns:e.turns||0});
+    });
+    var sessions=Object.keys(g).map(function(k){
+      var s=g[k].s,last=s[s.length-1],tail=s.slice(-6),f=tail[0];
+      var dctx=last.ctx-f.ctx,dt=0;for(var i=1;i<tail.length;i++)dt+=tail[i].turns;
+      var vel=dt>0?dctx/dt:0,ttw=vel>0?(CTX_WALL-last.ctx)/vel:Infinity;
+      return {name:g[k].name,project:g[k].project,ctx:last.ctx,vel:vel,ttw:ttw};
+    }).filter(function(x){return x.ctx>0});
+    return {sessions:sessions,prev:prev};
+  }
+  var keyOfEv=function(e){return e.name||((e.project||e.surface||'?')+'')};
 
   // verdict + bars + trio, repainted every SECOND. Between polls the numbers drift
   // deterministically at the known rates (standing moves at net/min, week drains at
@@ -907,6 +931,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
   function renderAll(){
     var b=window.__b;if(!b)return;
     var ev=window.__ev||[];
+    var ct=ctxTrends();window.__ctxS=ct.sessions;window.__ctxPrev=ct.prev;
     var t=Date.now()/1000;
     renderBudget();
     var h1=ev.filter(function(e){var ts=new Date(e.ts).getTime()/1000;return ts>t-3600});
@@ -1019,9 +1044,17 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var warns=[];
     if(b.verdict!=='ok')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
     if(b.session_to_spend!=null&&b.session_to_spend<=0)warns.push({s:'red',t:'session over by <b>'+hum(b.session_over||0)+'</b> · ease off'});
-    (b.top_burners||[]).filter(function(a){return a.ctx>120e3}).sort(function(x,y){return y.ctx-x.ctx}).slice(0,3).forEach(function(a){
-      var red=a.ctx>250e3;
-      warns.push({s:red?'red':'amber',t:'ctx <b>'+hum(a.ctx)+'</b> · '+esc((a.name||a.project||'').slice(0,32))+' · '+(red?'<b>/fenix now</b>':'/clear soon')});
+    // context warnings are TRAJECTORY-based, not size-based: a session holding at
+    // 105k is fine (no warn); one climbing shows +k/turn and turns-to-wall. Most
+    // urgent (soonest wall) first. window.__ctxS is set at the top of renderAll.
+    (window.__ctxS||[]).filter(function(x){return x.ctx>120e3||x.ttw<25}).sort(function(a,b2){return a.ttw-b2.ttw}).slice(0,3).forEach(function(x){
+      var nm=esc((x.name||x.project||'').slice(0,28));
+      var climb=x.vel>0?' · +'+hum(x.vel)+'/turn':'';
+      var ttw=isFinite(x.ttw)?' · ~'+Math.round(x.ttw)+' turns to wall':'';
+      if(x.ctx>CTX_WALL)warns.push({s:'red',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+' · past wall · <b>/fenix now</b>'});
+      else if(x.vel>0&&x.ttw<15)warns.push({s:'red',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+climb+ttw+' · <b>/fenix soon</b>'});
+      else if(x.vel>0&&x.ctx>120e3)warns.push({s:'amber',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+climb+ttw});
+      else if(x.ctx>200e3)warns.push({s:'amber',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+' · holding steady'});
     });
     var werrs=h1.reduce(function(a,e){return a+(e.errors||0)},0);
     if(werrs>0)warns.push({s:'amber',t:'<b>'+werrs+'</b> token error'+(werrs===1?'':'s')+' · last hour'});
@@ -1039,14 +1072,14 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // >250k ctx → run /fenix NOW · 120-250k → consider /clear soon
     var ins=document.getElementById('insight');
     var lines=[];
-    var fat=(b.top_burners||[]).filter(function(a){return a.ctx>120e3}).sort(function(x,y){return y.ctx-x.ctx})[0];
-    if(fat){
-      var sev=fat.ctx>250e3;
-      var perTurn=fat.cost_per_action||Math.round(fat.ctx/8);
-      var tn=h1.filter(function(e){return (e.name||'')===(fat.name||'')}).reduce(function(a,e){return a+(e.turns||0)},0);
-      lines.push((sev?'⚠ ':'· ')+'<b>'+esc((fat.name||fat.project||'').slice(0,40))+'</b> ctx '+hum(fat.ctx)+
-        ' · ~'+hum(perTurn)+'/turn · '+tn+' turns/1h ≈ '+hum(perTurn*Math.max(1,tn))+'/h → '+
-        (sev?'<b>run /fenix or /clear NOW</b>':'consider /clear soon'));
+    // the single most-urgent context session, as a headline over the tail (the
+    // full trajectory list lives in the left-pane warnings). Climbing sessions only.
+    var urgent=(window.__ctxS||[]).filter(function(x){return x.ctx>150e3&&(x.vel>0||x.ctx>CTX_WALL)}).sort(function(a,b2){return a.ttw-b2.ttw})[0];
+    if(urgent){
+      var sev=urgent.ctx>CTX_WALL||(urgent.vel>0&&urgent.ttw<15);
+      lines.push((sev?'⚠ ':'· ')+'<b>'+esc((urgent.name||urgent.project||'').slice(0,40))+'</b> ctx '+hum(urgent.ctx)+
+        (urgent.vel>0?' · +'+hum(urgent.vel)+'/turn'+(isFinite(urgent.ttw)?' · ~'+Math.round(urgent.ttw)+' turns to wall':''):'')+
+        ' → '+(sev?'<b>/fenix now</b>':'/clear soon'));
     }
     var errs=h1.reduce(function(a,e){return a+(e.errors||0)},0);
     if(errs>0)lines.push('⚠ <b>'+errs+' token error'+(errs===1?'':'s')+'</b> last hour (rate-limit / API) — the wall is pushing back');
@@ -1103,12 +1136,17 @@ if(location.search)history.replaceState(null,'',location.pathname);
       if(e.turns)extra.push(e.turns+'t');
       if(e.tool_calls)extra.push(e.tool_calls+'tc');
       var cxCls=e.ctx>250e3?'cx hot':e.ctx>120e3?'cx warn':'cx';
+      // ctx delta from this session's previous batch — growth per batch, right in
+      // the lane. ▲ grew (amber), ▼ dropped = a /clear or /fenix reset (green).
+      var pc=(window.__ctxPrev||{})[e.ts+'|'+keyOfEv(e)];
+      var dc=pc!=null?e.ctx-pc:0;
+      var dStr=Math.abs(dc)>=1000?' <span style="color:'+(dc>0?'#e0a13a':'#4ade80')+'">'+(dc>0?'▲':'▼')+hum(Math.abs(dc))+'</span>':'';
       items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> '+
         '<span class="chip" style="color:'+chipCol(proj)+'">'+esc(proj)+'</span> '+
         '<span class="v">+'+hum(e.billed)+'</span>'+
         (who?' <span class="p">'+esc(who)+'</span>':'')+
         (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+
-        (e.ctx?' <span class="'+cxCls+'">ctx'+hum(e.ctx)+'</span>':'')+
+        (e.ctx?' <span class="'+cxCls+'">ctx'+hum(e.ctx)+'</span>'+dStr:'')+
         (e.errors>0?' <span class="cx hot">⚠'+e.errors+'err</span>':'')+'</div>'});
     });
     (window.__ops||[]).forEach(function(o){
