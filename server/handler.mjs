@@ -827,14 +827,13 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // color follow the STANDING, never the raw rate. week = left · even-pace bank · reset.
     var burnMin=b.burn_5m!=null?b.burn_5m/5:0;
     var refuel=(b.five_billed||0)/300;
-    var prog=refuel-burnMin;
+    // prefer the statusline's OWN net (shipped via the anchor) — derivation is fallback only
+    var prog=b.net_per_min!=null?b.net_per_min:refuel-burnMin;
     var banked=b.session_to_spend>0;
     var progStr=(banked?'+':'−')+kf(Math.abs(prog))+'/min';
     var sNum=(banked?'+'+kf(b.session_to_spend):'<span class="bad">−'+kf(b.session_over||0)+'</span>')+
       (Math.abs(prog)>=500?' · <span class="'+(banked?'good':'bad')+'">'+progStr+'</span>':'');
-    var cap7=b.week>0?(b.week_billed||0)/b.week:0;
-    var e7=b.week_reset_in_sec!=null?Math.max(0,1-b.week_reset_in_sec/604800):0;
-    var bank=cap7>0?cap7*e7-(b.week_billed||0):null;
+    var bank=b.week_bank;
     var wNum=(b.weekly_left_tokens!=null?kf(b.weekly_left_tokens)+' left':'—')+
       (bank!=null?(bank>=0?' · <span class="good">+'+kf(bank)+' banked</span>':' · <span class="bad">−'+kf(-bank)+' over</span>'):'')+
       (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
@@ -847,7 +846,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     if(Math.abs(prog)<1000){netV.textContent='0';netU.textContent='/min';}
     else{netV.textContent=(banked?'+':'−')+nh.slice(0,-1);netU.textContent=nh.slice(-1)+'/min';}
     netV.style.color=banked?'var(--green)':'var(--red)';
-    netSub.textContent='refuel '+hum(refuel)+' − burn '+hum(burnMin)+' /min';
+    netSub.textContent=b.net_per_min!=null?'refuel − burn · from the statusline':'refuel '+hum(refuel)+' − burn '+hum(burnMin)+' /min';
     var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
     if(banked){
       remV.textContent=hum(b.session_to_spend);remV.style.color='var(--ink)';
@@ -1518,6 +1517,21 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const n = Math.min(300, Math.max(1, Number(url.searchParams.get("n")) || 100));
       const s = await store.load(h);
       return json(200, { ops: (s.ops || []).slice(-n).reverse() });
+    }
+
+    // Client-side maxx events (fenix, skills, local tooling) land in the same ops
+    // ring the server-side actions use, so the dash tail shows them. Mutation auth.
+    m = p.match(/^\/api\/u\/([^/]+)\/op$/);
+    if (m && method === "POST") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await mutAuthed(h, headers, url))) return json(401, { error: "unauthorized" });
+      let r; try { r = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      const op = String(r.op || "").slice(0, 40).replace(/[^\w:.-]/g, "");
+      if (!op) return json(400, { error: "op required" });
+      const s = await store.load(h);
+      logOp(s, op, String(r.d || ""), now());
+      await store.save(h, s);
+      return json(200, { ok: true });
     }
 
     // Recent emit events (newest first) — the "who's emitting" feed for `maxx watch`.

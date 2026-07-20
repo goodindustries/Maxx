@@ -91,6 +91,9 @@ export function applyEnvelope(store, env) {
         over: Number(env.anchor.sl.over) || 0,
         week_used: Number(env.anchor.sl.week_used) || 0,
         week_cap: Number(env.anchor.sl.week_cap),
+        // signed stats — Number() keeps negatives; null when the emitter predates them
+        bank: Number.isFinite(Number(env.anchor.sl.bank)) && env.anchor.sl.bank != null ? Number(env.anchor.sl.bank) : null,
+        net_per_min: Number.isFinite(Number(env.anchor.sl.net_per_min)) && env.anchor.sl.net_per_min != null ? Number(env.anchor.sl.net_per_min) : null,
       } : null,
     });
   }
@@ -165,9 +168,12 @@ export function computeBudget(store, now) {
   // Between anchors we extrapolate with server-billed-since-anchor; anchors ship every
   // interactive turn, so the drift window is small (and the % anchor path above remains
   // the fallback for old emitters / stale sl).
-  let slSpend = null, slOver = 0;
+  let slSpend = null, slOver = 0, slBank = null, slNet = null;
   if (a && fresh && a.sl) {
     const since = windowedBilled(store.events, now, WEEK, a.ts);
+    // weekly even-pace bank: spend-since-anchor eats it, elapsed-time creep refills it
+    if (a.sl.bank != null) slBank = Math.round(a.sl.bank - since + (a.sl.week_cap * anchorAge) / (7 * 24 * 3600));
+    if (a.sl.net_per_min != null) slNet = a.sl.net_per_min;
     // 5h-window fields are only valid while the window the anchor described is still
     // current (fr ahead of now) — after a wall reset they describe a dead window and
     // the fixed-window sum above (events since fr) is the truth until the next anchor.
@@ -260,6 +266,7 @@ export function computeBudget(store, now) {
         : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
     weekly_left_tokens: weeklyLeft, session_to_spend: spendAfterReserve,
     session_over: slOver,
+    week_bank: slBank, net_per_min: slNet,
     session_safe: sessionSafe,
     reserved_tokens: reservedTokens, leases: activeLeases.length,
     burn_5m: burn5m, empties_at: emptiesAt,

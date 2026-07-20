@@ -335,6 +335,7 @@ async function runOnce({ quiet = false } = {}) {
         five_used: st.session?.rawUsed ?? null, five_cap: st.session?.rawCap ?? null,
         to_spend: st.session?.toSpend ?? null, over: st.session?.over ?? null,
         week_used: st.weekly.used ?? null, week_cap: st.weekly.cap,
+        bank: st.session?.bank ?? null, net_per_min: st.netPerMin ?? null,
         at: iso(st.ts / 1000),
       };
     }

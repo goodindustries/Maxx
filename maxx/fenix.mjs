@@ -23,6 +23,22 @@ const DIR = path.join(process.cwd(), ".fenix");
 const HANDOFF = path.join(DIR, "handoff.md");
 const MAX_AGE_H = 48; // a stale handoff is history, not context — never auto-inject old state
 
+// Every fenix moment is a maxx event the owner wants in the dash tail — post it to the
+// tally's ops ring. Best-effort with a hard timeout: fenix must never hang or fail on network.
+async function postOp(op, d) {
+  try {
+    const cfg = JSON.parse(readFileSync(path.join(process.env.HOME || "", ".maxx", "config.json"), "utf8"));
+    if (!cfg.handle || !cfg.secret) return;
+    const base = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://api.meetmaxx.co").replace(/\/$/, "");
+    await fetch(`${base}/api/u/${cfg.handle}/op`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${cfg.secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ op, d }),
+      signal: AbortSignal.timeout(1500),
+    });
+  } catch {}
+}
+
 const arg = process.argv[2] || "--wake";
 
 if (arg === "--wake") {
@@ -43,6 +59,7 @@ if (arg === "--wake") {
       `(written ${Math.round(ageH * 60)}m ago, now consumed). Resume it; verify claims against the ` +
       `working tree before trusting them.\n\n${body}\n`
     );
+    await postOp("fenix:rise", `${path.basename(process.cwd())} · handoff consumed (${Math.round(ageH * 60)}m old)`);
   } catch {
     if (src === "clear")
       process.stdout.write("fenix: no handoff in this directory — nothing carried over. Sequence is /fenix BEFORE /clear (handoffs are per-directory, written to .fenix/handoff.md; fenix cannot resurrect an already-wiped thread).\n");
@@ -78,6 +95,7 @@ if (arg === "--rise") {
       { cwd: process.cwd(), detached: true, stdio: "ignore" });
     sleeper.unref();
     console.log(`fenix: at the wall — rise scheduled in ${Math.round(delaySec / 60)}m (when the window refills). sleeper pid ${sleeper.pid}`);
+    await postOp("fenix:delayed", `${path.basename(process.cwd())} · at the wall, rise in ${Math.round(delaySec / 60)}m`);
     process.exit(0);
   }
   const body = readFileSync(HANDOFF, "utf8");
@@ -97,6 +115,7 @@ if (arg === "--rise") {
   const child = spawn("claude", ["-p", prompt, ...flags], { cwd: process.cwd(), detached: true, stdio: ["ignore", fd, fd] });
   child.unref();
   console.log(`fenix: risen — generation ${gen + 1}/${maxGen} · pid ${child.pid} · log ${log}`);
+  await postOp("fenix:risen", `${path.basename(process.cwd())} · generation ${gen + 1}/${maxGen}`);
   process.exit(0);
 }
 

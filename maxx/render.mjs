@@ -613,6 +613,7 @@ function main() {
     session: sStat, weekly: wStat,
     sessionsLeftInWeek: Math.round(sessionsLeft * 10) / 10, // 5h windows remaining until the weekly resets
     burn5m: burn5 != null ? Math.round(burn5) : null,       // gross tokens spent in the last 5 min (≥ 0)
+    netPerMin: refuelPerMin - burn60,                       // the bar's ±/min: refuel − live burn
   };
   try { writeFileSync(path.join(HOME, ".maxx", "status.json"), JSON.stringify(status)); } catch {}
   if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
