@@ -322,6 +322,17 @@ async function runOnce({ quiet = false } = {}) {
       five_reset: rl.fiveResetAt ?? null, week_reset: rl.weekResetAt ?? null,
       observed_at: iso(rl.ts / 1000),
     };
+    // Statusline passthrough: ship the bar's OWN computed numbers (its units) so every
+    // surface shows what the CLI shows, instead of re-deriving from the coarse integer %.
+    const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
+    if (st && st.ts && (Date.now() - st.ts) / 1000 < ANCHOR_MAX_AGE_SEC && st.weekly?.cap > 0) {
+      anchor.sl = {
+        five_used: st.session?.rawUsed ?? null, five_cap: st.session?.rawCap ?? null,
+        to_spend: st.session?.toSpend ?? null,
+        week_used: st.weekly.used ?? null, week_cap: st.weekly.cap,
+        at: iso(st.ts / 1000),
+      };
+    }
   }
 
   const sessions = [...roots.values()]

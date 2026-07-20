@@ -370,9 +370,19 @@ ${CHART_JS}
       bar('session',sAllow>0?sUsed/sAllow:null,sNum)+bar('week',d.week,wNum);
   }
   renderBars(${bars0});
+  // odometer: creep the hero at the REAL burn rate between polls (burn_5m/300 tok/s),
+  // snap up to server truth on each poll. Moving = actually burning; idle = honest still.
+  var odo={cur:null,rate:0};
+  setInterval(function(){
+    if(odo.cur!=null&&odo.rate>0&&window.__setLife){odo.cur+=odo.rate/8;window.__setLife(odo.cur);}
+  },125);
   function tick(){
     fetch('/u/${h}/live.json').then(function(r){return r.json()}).then(function(j){
-      if(j.lifetime&&window.__setLife)window.__setLife(j.lifetime);
+      if(j.lifetime&&window.__setLife){
+        odo.cur=odo.cur==null?j.lifetime:Math.max(odo.cur,j.lifetime);
+        odo.rate=(j.burn_5m||0)/300;
+        window.__setLife(odo.cur);
+      }
       if(j.five_billed!=null)renderBars(j);
       if(j.feed&&j.feed.length)feed.innerHTML=j.feed.slice(0,8).map(function(e){
         return '<li><span>'+e.channel+' · '+ago(e.ago_sec)+' ago</span><b>'+(e.tokens_1h>0?'+'+hum(e.tokens_1h)+' <span class="sub">/1h</span>':'<span class="sub">idle</span>')+'</b></li>';}).join('');

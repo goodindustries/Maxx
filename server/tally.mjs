@@ -82,6 +82,14 @@ export function applyEnvelope(store, env) {
       week_pct: env.anchor.week_pct,
       five_reset: env.anchor.five_reset,
       week_reset: env.anchor.week_reset,
+      // statusline passthrough (its units) — number-sanitized, everything optional
+      sl: env.anchor.sl && Number(env.anchor.sl.week_cap) > 0 ? {
+        five_used: Number(env.anchor.sl.five_used) || 0,
+        five_cap: Number(env.anchor.sl.five_cap) || 0,
+        to_spend: Number(env.anchor.sl.to_spend) || 0,
+        week_used: Number(env.anchor.sl.week_used) || 0,
+        week_cap: Number(env.anchor.sl.week_cap),
+      } : null,
     });
   }
   return { accepted, deduped };
@@ -122,9 +130,9 @@ export function computeBudget(store, now) {
   // stale/absent reset falls back to rolling (and the verdict is stale then anyway).
   const fr = a?.five_reset || 0;
   const fiveLo = fr > now ? fr - FIVE_H : undefined;
-  const five = windowedBilled(store.events, now, FIVE_H, fiveLo);
+  let five = windowedBilled(store.events, now, FIVE_H, fiveLo);
   const wr = a?.week_reset || 0;
-  const week = windowedBilled(store.events, now, WEEK, wr ? weekLoFor(wr, now) : undefined);
+  let week = windowedBilled(store.events, now, WEEK, wr ? weekLoFor(wr, now) : undefined);
 
   // Anchor the caps: cap = tokens-in-window ÷ observed-pct, measured at anchor time.
   // Use the anchor's own windowed sums so cap reflects the same window the % described.
@@ -145,6 +153,20 @@ export function computeBudget(store, now) {
     // Live utilization = current windowed sum ÷ anchored cap (extrapolated forward).
     quota = fiveCap ? Math.min(1, five / fiveCap) : a.five_pct;
     weekPct = weekCap ? Math.min(1, week / weekCap) : a.week_pct;
+  }
+
+  // Statusline passthrough: when the anchor carries the CLI bar's own computed numbers
+  // (sl — ITS units), those become the ruler and every surface posts what the CLI posts.
+  // Between anchors we extrapolate with server-billed-since-anchor; anchors ship every
+  // interactive turn, so the drift window is small (and the % anchor path above remains
+  // the fallback for old emitters / stale sl).
+  if (a && fresh && a.sl) {
+    const since = windowedBilled(store.events, now, WEEK, a.ts);
+    if (a.sl.five_cap > 0) { fiveCap = a.sl.five_cap; five = a.sl.five_used + since; }
+    weekCap = a.sl.week_cap;
+    week = a.sl.week_used + since;
+    quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
+    weekPct = Math.min(1, week / weekCap);
   }
 
   const weeklyLeft = weekCap != null ? Math.max(0, weekCap - week) : null;
