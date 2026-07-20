@@ -141,7 +141,10 @@ function renderCard(h, s, b) {
 <meta property="og:description" content="${desc}">
 <meta property="og:url" content="${url}">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="Maxx">
 <meta property="og:image" content="https://meetmaxx.co/og-card.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="Maxx — verified Claude token usage, every machine and cloud session">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${h} — verified Claude token usage">

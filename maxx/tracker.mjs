@@ -405,6 +405,11 @@ function pretty(s) {
     }
   }
   L.push("");
+  // sign the card — a small thank-you keyed to the user's claimed handle
+  try {
+    const h = JSON.parse(readFileSync(path.join(CONFIG_DIR, "config.json"), "utf8")).handle;
+    if (h && h !== "unknown") { L.push(`  thanks for using /maxx, @${h}! · meetmaxx.co/u/${h}`); L.push(""); }
+  } catch {}
   return L.join("\n");
 }
 
