@@ -243,8 +243,9 @@ async function lastTurn(allDir) {
   // one streaming pass: remember each usage block's seq, and the seq of the last
   // REAL user prompt (external, not a tool_result wrapper) — the turn boundary.
   const rl = createInterface({ input: createReadStream(root, { encoding: "utf8" }), crlfDelay: Infinity });
-  const usages = []; // { seq, u, ts, model }
-  let seq = 0, lastUser = -1, lastUserTs = null;
+  const usages = []; // { seq, u, ts }
+  const prompts = []; // { seq, ts } — every real user prompt (turn boundary)
+  let seq = 0;
   const seen = new Set();
   for await (const line of rl) {
     if (!line || line[0] !== "{") continue;
@@ -253,7 +254,7 @@ async function lastTurn(allDir) {
     if (r.type === "user" && !r.isSidechain && r.userType === "external") {
       const c = r.message && r.message.content;
       const toolResult = Array.isArray(c) && c.some((b) => b && b.type === "tool_result");
-      if (!toolResult) { lastUser = seq; lastUserTs = r.timestamp; continue; }
+      if (!toolResult) { prompts.push({ seq, ts: r.timestamp }); continue; }
     }
     const u = r.message && r.message.usage;
     if (!u) continue;
@@ -261,8 +262,17 @@ async function lastTurn(allDir) {
     if (id) { if (seen.has(id)) continue; seen.add(id); }
     usages.push({ seq, u, ts: r.timestamp });
   }
-  if (lastUser < 0) return null;
-  const inTurn = usages.filter((x) => x.seq > lastUser);
+  if (!prompts.length) return null;
+  // "last turn" = the last COMPLETED turn: walk prompt boundaries backwards and take the first
+  // slice with usage in it. Asking `/maxx turn` right after a big turn must report THAT turn, not
+  // the still-empty slice after the /maxx prompt itself.
+  let inTurn = [], lastUserTs = null, turnEndTs = null;
+  for (let k = prompts.length - 1; k >= 0; k--) {
+    const lo = prompts[k].seq, hi = k + 1 < prompts.length ? prompts[k + 1].seq : Infinity;
+    const slice = usages.filter((x) => x.seq > lo && x.seq < hi);
+    if (slice.length) { inTurn = slice; lastUserTs = prompts[k].ts; turnEndTs = hi === Infinity ? null : prompts[k + 1].ts; break; }
+  }
+  if (!inTurn.length) return null;
   const sum = { total: 0, output: 0, cacheRead: 0, input: 0, cacheCreate: 0, calls: 0 };
   const add = (u) => {
     const t = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
@@ -274,6 +284,7 @@ async function lastTurn(allDir) {
   // subagent burn inside the turn window: <projectDir>/<sessionId>/subagents/*.jsonl
   let agentTokens = 0, agentCalls = 0;
   const turnStart = lastUserTs ? new Date(lastUserTs).getTime() : 0;
+  const turnEnd = turnEndTs ? new Date(turnEndTs).getTime() : Infinity;
   const subDir = path.join(path.dirname(root), path.basename(root, ".jsonl"), "subagents");
   try {
     for (const f of await findSessionFiles(subDir)) {
@@ -283,7 +294,9 @@ async function lastTurn(allDir) {
         if (!line || line[0] !== "{") continue;
         let r; try { r = JSON.parse(line); } catch { continue; }
         const u = r.message && r.message.usage;
-        if (!u || !r.timestamp || new Date(r.timestamp).getTime() < turnStart) continue;
+        if (!u || !r.timestamp) continue;
+        const t_ = new Date(r.timestamp).getTime();
+        if (t_ < turnStart || t_ > turnEnd) continue;
         const id = r.requestId || r.uuid;
         if (id) { if (seen.has(id)) continue; seen.add(id); }
         const t = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
