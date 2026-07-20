@@ -170,7 +170,7 @@ const CHART_JS = `
     document.getElementById('capL').textContent=labels[0]||'';
     document.getElementById('capR').textContent=key==='hourly'?'now':labels[labels.length-1]||'today';
     var total=vals.reduce(function(a,v){return a+v},0);
-    onDraw(key,total,r.sub);
+    onDraw(key,total,r.sub,total/Math.max(1,vals.length),vals[pi]||0);
     var bs=document.querySelectorAll('#ranges button');
     for(var i=0;i<bs.length;i++)bs[i].className=bs[i].getAttribute('data-r')===key?'on':'';
   }
@@ -269,6 +269,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .brand .m{color:var(--accent);font-size:24px;font-weight:700}
 .who{font-family:var(--mono);font-size:17px;color:var(--ink-25);font-weight:400}
 .badge{display:inline-flex;align-items:center;gap:7px;background:#ecebfb;color:var(--accent);border-radius:999px;padding:9px 16px;font-size:15px;font-weight:600}
+.livepill{display:inline-flex;align-items:center;gap:8px;background:#eaf7ef;color:#178a4e;font-weight:600;font-size:13.5px;padding:8px 14px;border-radius:999px}
+.livepill .ldot{width:8px;height:8px;border-radius:50%;background:#2fb768;animation:pulse 1.6s ease-in-out infinite}
+.klabel{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);font-family:var(--mono)}
+.cmeta{font-family:var(--mono);font-size:13px;color:#8a93a5;margin-left:auto}
 .hero{margin-top:24px;display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
 .hero .n{font-size:clamp(38px,7vw,84px);font-weight:800;letter-spacing:-.03em;line-height:.92;font-variant-numeric:tabular-nums}
 .hero .l{color:var(--ink-25);font-size:20px;padding-bottom:8px}
@@ -282,13 +286,16 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .bars{margin-top:20px;background:#f0f0fa;border-radius:14px;padding:18px 20px;font-family:var(--mono);font-size:14.5px;display:flex;flex-direction:column;gap:14px}
 .bar{display:grid;grid-template-columns:64px minmax(120px,1fr) auto;gap:15px;align-items:center}
 .bar .lab{color:#8a93a5}
-.bar .track{height:16px;background:#e3e2f4;border-radius:5px;position:relative;overflow:hidden;border-right:5px solid #d23b3b}
+.bar .track{height:16px;background:#e3e2f4;border-radius:5px;position:relative;overflow:hidden}
+.bar.hot .track{border-right:5px solid #d23b3b}
+.bar.hot .fill{background:linear-gradient(90deg,#f2b8b5,#d23b3b)}
 .bar .fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#9be3b0,#4fbe7e 55%,#159a52);border-radius:5px}
 .bar .num{color:var(--ink-2);white-space:nowrap}
 .bar .num b{color:var(--ink);font-weight:700}
 .bar .num .good{color:var(--green);font-weight:700}
 .bar .num .bad{color:var(--red);font-weight:700}
 .foot{margin-top:24px;display:flex;justify-content:space-between;align-items:baseline;color:var(--ink-3);font-size:14.5px;gap:10px;flex-wrap:wrap}
+.foot .lt{font-family:var(--mono);font-size:13px}
 .foot a{color:var(--accent);font-weight:600;text-decoration:none}
 .share{display:flex;gap:14px}
 .share button,.share a{border:1px solid #e2e4ec;background:#fff;color:var(--ink-2);border-radius:12px;padding:12px 24px;font-size:16px;font-weight:600;cursor:pointer;text-decoration:none;font-family:var(--sans)}
@@ -303,7 +310,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .setup .fix{color:var(--ink-2);font-size:13.5px}
 .setup code{font-family:var(--mono);font-size:12.5px;background:#e9ebf3;padding:2px 6px;border-radius:6px}
 .feed{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
-.feed h3{font-size:13.5px;color:var(--ink-3);font-weight:700;letter-spacing:.08em;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.feed h3{font-size:12px;color:var(--ink-3);font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;gap:10px;font-family:var(--mono)}
 .feed h3 .dot{width:10px;height:10px;border-radius:50%;background:#2fb768;animation:pulse 1.8s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.82)}}
 .feed ul{list-style:none;margin-top:10px;font-family:var(--mono);font-size:15.5px;color:var(--ink-2)}
@@ -322,10 +329,13 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 <div class="card">
  <div class="top">
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h}</span></div>
-  <div class="badge">${badge}</div>
+  <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+   <span class="badge">${badge}</span>
+   <span class="livepill"><span class="ldot"></span> live</span>
+  </span>
  </div>
  <div class="hero"><div class="n" id="hero">${fmtN(lifetime)}</div><div class="l" id="heroSub">lifetime tokens</div></div>
- <div class="ranges" id="ranges">${RANGE_PILLS}</div>
+ <div class="ranges" id="ranges">${RANGE_PILLS}<span class="cmeta" id="cMeta"></span></div>
  <div class="chart" id="chart">${chartHtml(1000, 260)}
   <div class="cap"><span id="capL"></span><span>all machines &amp; cloud · this Claude account</span><span id="capR">today</span></div>
  </div>
@@ -333,7 +343,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 ${setupHtml}
  <div class="feed"><h3><span class="dot"></span> live feed</h3><ul id="feed"><li><span class="sub">listening…</span></li></ul></div>
  <div class="foot">
-  <span>⩗ Verified by Maxx — counted from session logs, anchored to Anthropic /usage · <span id="stamp">${stamp}</span></span>
+  <span class="lt">⌵ Verified by Maxx — counted from session logs, anchored to Anthropic /usage · <span id="stamp">${stamp}</span></span>
   <a href="https://meetmaxx.co">See your usage at meetmaxx.co →</a>
  </div>
 </div>
@@ -352,9 +362,11 @@ document.getElementById('cp').addEventListener('click',function(){navigator.clip
 (function(){
   var R=${rangesJson};
   var LIFE=${Math.round(lifetime)};
-  function onDraw(key,total,sub){
+  function onDraw(key,total,sub,avg,pk){
     document.getElementById('hero').textContent=(key==='all'?LIFE:total).toLocaleString('en-US');
     document.getElementById('heroSub').textContent=sub;
+    var hm=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':''+Math.round(n)};
+    document.getElementById('cMeta').textContent=avg>0?'avg '+hm(avg)+' · peak '+hm(pk):'';
   }
 ${CHART_JS}
   window.__setLife=function(n){LIFE=n;if(cur==='all')document.getElementById('hero').textContent=Math.round(n).toLocaleString('en-US')};
@@ -369,9 +381,9 @@ ${CHART_JS}
   function renderBars(d){
     var bar=function(lab,pct,num){
       var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
-      return '<div class="bar"><span class="lab">'+lab+'</span>'+
+      return '<div class="bar'+(w>=90?' hot':'')+'"><span class="lab">'+lab+'</span>'+
         '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
-        '<span class="num">'+num+'</span></div>';
+        '<span class="num"><span style="color:#8a93a5">'+(pct!=null?Math.round(w)+'%':'—')+'</span> · '+num+'</span></div>';
     };
     // same stats, same order, same semantics as the CLI statusline — that pick is the spec
     var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale · no recent anchor'):'';
@@ -597,7 +609,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .bars{margin-top:20px;background:#f0f0fa;border-radius:14px;padding:15px 18px;font-family:var(--mono);font-size:13.5px;display:flex;flex-direction:column;gap:12px}
 .bar{display:grid;grid-template-columns:60px minmax(100px,1fr) auto;gap:14px;align-items:center}
 .bar .lab{color:#8a93a5}
-.bar .track{height:15px;background:#e3e2f4;border-radius:5px;position:relative;overflow:hidden;border-right:5px solid #d23b3b}
+.bar .track{height:15px;background:#e3e2f4;border-radius:5px;position:relative;overflow:hidden}
+.bar.hot .track{border-right:5px solid #d23b3b}
+.bar.hot .fill{background:linear-gradient(90deg,#f2b8b5,#d23b3b)}
 .bar .fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#9be3b0,#4fbe7e 55%,#159a52);border-radius:5px}
 .bar .num{color:var(--ink-2);white-space:nowrap}
 .bar .num b{color:var(--ink);font-weight:700}
@@ -617,6 +631,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .chart48 .cols{position:absolute;inset:0;display:flex;align-items:flex-end;gap:3px}
 .chart48 .cols div{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(180deg,#c9c5f4,#a7a1ec);transition:height .6s ease}
 .chart48 .cols div.live{background:linear-gradient(180deg,#7c74ee,#5b52e8)}
+.chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
+.tip48{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:12px;font-weight:500;padding:8px 12px;border-radius:9px;white-space:nowrap;transform:translate(-50%,-110%);top:36px;z-index:4;line-height:1.6}
+.tip48 .pr{color:#fbbf24}
 .axis48{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:#a3abba;margin-top:7px}
 .pace{display:flex;flex-direction:column;gap:15px;margin-top:22px;background:#f6f6fb;border-radius:16px;padding:18px 20px}
 .gauge{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:15px}
@@ -668,6 +685,12 @@ td b{font-weight:700}
 .term .p{color:#e2e8f0}
 .term .d{color:#8ea3c0}
 .term .o{color:#fbbf24;font-weight:600}
+.term .chip{display:inline-block;padding:0 6px;border-radius:4px;background:#16213a;font-weight:600}
+.term .cx{color:#8ea3c0}
+.term .cx.warn{color:#fbbf24;font-weight:600}
+.term .cx.hot{color:#fb7185;font-weight:700}
+.term .insight{padding:10px 20px;border-bottom:1px solid #1c2740;font-family:var(--mono);font-size:12px;color:#fbbf24;background:#131b30;display:none}
+.term .insight b{color:#fb7185}
 @media(max-width:640px){
 .card{padding:24px 18px}
 .trio{grid-template-columns:1fr}
@@ -719,6 +742,8 @@ table{font-size:12px}
    <div class="avgline" id="avgline" style="display:none"></div>
    <div class="avglab" id="avglab" style="display:none">avg</div>
    <div class="cols" id="cols"></div>
+   <div class="marks" id="marks"></div>
+   <div class="tip48" id="tip48"></div>
   </div>
   <div class="axis48"><span>-48m</span><span>-24m</span><span>now</span></div>
  </div>
@@ -758,6 +783,7 @@ table{font-size:12px}
 </div>
 <div class="term">
  <div class="thead"><span class="dot"></span> activity — live <span style="text-transform:none;letter-spacing:0;font-weight:400">· emits + mcp + directives + auth</span></div>
+ <div class="insight" id="insight"></div>
  <div class="lines" id="term"><div class="ln d">listening…</div></div>
 </div>
 </div>
@@ -783,9 +809,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
     vd.className='badge'+(b.verdict==='ok'?'':' '+esc(b.verdict));
     var bar=function(lab,pct,num){
       var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
-      return '<div class="bar"><span class="lab">'+lab+'</span>'+
+      return '<div class="bar'+(w>=90?' hot':'')+'"><span class="lab">'+lab+'</span>'+
         '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
-        '<span class="num">'+num+'</span></div>';
+        '<span class="num"><span style="color:#8a93a5">'+(pct!=null?Math.round(w)+'%':'—')+'</span> · '+num+'</span></div>';
     };
     var rate=b.burn_5m!=null?b.burn_5m/5:0;
     var sNum='+'+kf(b.five_billed||0)+(rate>0?' · <span class="good">+'+kf(rate)+'/min</span>':'');
@@ -823,13 +849,31 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var mx=Math.max.apply(null,buckets.concat([1]));
     var avg=buckets.reduce(function(a,v){return a+v},0)/48;
     var H=150;
+    // sqrt scale: one spiky minute must not flatten the other 47 into unreadable nubs —
+    // the peak still tops out, ordinary minutes keep visible shape (labeled √ in the meta)
+    var sc=function(v){return Math.max(3,Math.sqrt(v/mx)*H)};
     document.getElementById('cols').innerHTML=buckets.map(function(v,i){
-      return '<div'+(i===47?' class="live"':'')+' style="height:'+Math.max(3,v/mx*H).toFixed(0)+'px"></div>';
+      return '<div'+(i===47?' class="live"':'')+' style="height:'+sc(v).toFixed(0)+'px"></div>';
     }).join('');
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    if(avg>0){var atop=H-avg/mx*H;al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=Math.max(0,atop-15).toFixed(0)+'px';}
+    if(avg>0){var atop=H-sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=Math.max(0,atop-15).toFixed(0)+'px';}
     else{al.style.display='none';ab.style.display='none';}
-    document.getElementById('chartMeta').textContent='avg '+hum(avg)+' /min · peak '+hum(mx);
+    document.getElementById('chartMeta').textContent='avg '+hum(avg)+' /min · peak '+hum(mx)+' · √ scale';
+    // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
+    var opsMin={};
+    (window.__ops||[]).forEach(function(o){
+      var oi=47-Math.floor((t-o.ts)/60);
+      if(oi<0||oi>47)return;
+      var prot=/over|held|pause|stale/i.test(o.op+' '+(o.d||''));
+      var m=opsMin[oi]||(opsMin[oi]={prot:false,items:[]});
+      m.items.push(o.op+(o.d?' · '+o.d:''));
+      if(prot)m.prot=true;
+    });
+    window.__chartMins={buckets:buckets,ops:opsMin,t:t};
+    document.getElementById('marks').innerHTML=Object.keys(opsMin).map(function(i){
+      var m=opsMin[i];
+      return '<span style="left:'+((+i+0.5)/48*100).toFixed(1)+'%;background:'+(m.prot?'#d23b3b':'#e0a13a')+'"></span>';
+    }).join('');
 
     // pace vs even burn: used% vs elapsed% of each fixed window
     var mkG=function(lab,usedPct,resetIn,winSec,leftTok){
@@ -887,6 +931,24 @@ if(location.search)history.replaceState(null,'',location.pathname);
         (a.ctx?' · ctx'+hum(a.ctx):'')+'</span></div>';
     }).join(''):'<div class="empty">nothing burning in the last hour</div>';
 
+    // deterministic advisory: worst live session by ctx, with the numbers that justify
+    // the action (every turn re-bills ~ctx) and the action itself, thresholded:
+    // >250k ctx → run /fenix NOW · 120-250k → consider /clear soon
+    var ins=document.getElementById('insight');
+    var lines=[];
+    var fat=(b.top_burners||[]).filter(function(a){return a.ctx>120e3}).sort(function(x,y){return y.ctx-x.ctx})[0];
+    if(fat){
+      var sev=fat.ctx>250e3;
+      var perTurn=fat.cost_per_action||Math.round(fat.ctx/8);
+      var tn=h1.filter(function(e){return (e.name||'')===(fat.name||'')}).reduce(function(a,e){return a+(e.turns||0)},0);
+      lines.push((sev?'⚠ ':'· ')+'<b>'+esc((fat.name||fat.project||'').slice(0,40))+'</b> ctx '+hum(fat.ctx)+
+        ' · ~'+hum(perTurn)+'/turn · '+tn+' turns/1h ≈ '+hum(perTurn*Math.max(1,tn))+'/h → '+
+        (sev?'<b>run /fenix or /clear NOW</b>':'consider /clear soon'));
+    }
+    var held=(window.__ops||[]).filter(function(o){return /held|OVER|pause/i.test((o.op||'')+' '+(o.d||''))&&o.ts>t-1800}).sort(function(x,y){return y.ts-x.ts})[0];
+    if(held)lines.push('🛡 maxx protected you · '+esc(held.op+(held.d?' · '+held.d:''))+' · '+ago(Math.max(0,t-held.ts))+' ago');
+    if(lines.length){ins.style.display='block';ins.innerHTML=lines.join('<br>');}
+    else ins.style.display='none';
     document.getElementById('lifeF').textContent=hum(b.lifetime_billed);
     document.getElementById('stamp').textContent=new Date().toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     renderChannels();
@@ -923,18 +985,25 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var tl=function(ts){var d=new Date(ts);
       return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0')};
     var items=[];
+    // channel identity = PROJECT (colored chip), not the repeated machine id; ctx is
+    // colored as the cost signal it is (every turn re-bills ~ctx)
+    var chipCols=['#7dd3fc','#4ade80','#f0abfc','#fbbf24','#a5b4fc','#fb7185'];
+    var chipCol=function(k){var n=0;for(var i=0;i<k.length;i++)n+=k.charCodeAt(i);return chipCols[n%chipCols.length]};
     (window.__ev||[]).forEach(function(e){
       var ms=new Date(e.ts).getTime();
       if(!(ms>0))return;
-      var who=e.name||e.project||'';
+      var proj=e.project||(String(e.surface).indexOf('cloud')===0?String(e.surface).slice(6):'?');
+      var who=e.name||'';
       var extra=[];
       if(e.turns)extra.push(e.turns+'t');
       if(e.tool_calls)extra.push(e.tool_calls+'tc');
-      if(e.ctx)extra.push('ctx'+hum(e.ctx));
-      items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> <span class="s">'+esc(e.surface)+'</span> '+
+      var cxCls=e.ctx>250e3?'cx hot':e.ctx>120e3?'cx warn':'cx';
+      items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> '+
+        '<span class="chip" style="color:'+chipCol(proj)+'">'+esc(proj)+'</span> '+
         '<span class="v">+'+hum(e.billed)+'</span>'+
         (who?' <span class="p">'+esc(who)+'</span>':'')+
-        (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+'</div>'});
+        (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+
+        (e.ctx?' <span class="'+cxCls+'">ctx'+hum(e.ctx)+'</span>':'')+'</div>'});
     });
     (window.__ops||[]).forEach(function(o){
       var ms=o.ts*1000;
@@ -956,9 +1025,27 @@ if(location.search)history.replaceState(null,'',location.pathname);
       renderAll();renderTerm();
     }).catch(function(){});
     fetch('/api/u/${h}/ops?n=100').then(function(r){return r.json()}).then(function(j){
-      window.__ops=j.ops||[];renderTerm();
+      window.__ops=j.ops||[];renderAll();renderTerm();
     }).catch(function(){});
   }
+  // hover: per-minute tokens + what maxx did in that minute
+  (function(){
+    var c48=document.getElementById('chart48'),tip=document.getElementById('tip48');
+    c48.addEventListener('mousemove',function(evt){
+      var st=window.__chartMins;if(!st)return;
+      var r=c48.getBoundingClientRect();
+      var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
+      var ts=new Date((st.t-(47-idx)*60)*1000);
+      var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
+      var html=esc(hh)+' · '+esc(hum(st.buckets[idx]))+' tokens';
+      var m=st.ops[idx];
+      if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
+      tip.style.display='block';
+      tip.style.left=Math.max(80,Math.min(r.width-80,(idx+0.5)/48*r.width))+'px';
+      tip.innerHTML=html;
+    });
+    c48.addEventListener('mouseleave',function(){tip.style.display='none'});
+  })();
   tick();setInterval(tick,10000);
 })();
 </script>
@@ -1382,7 +1469,11 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const peek = url.searchParams.get("peek") === "1";
       const s = await store.load(h);
       const directives = pendingDirectives(s, { session, surface: url.searchParams.get("surface"), peek }, now());
-      if (!peek) await store.save(h, s);
+      if (!peek) {
+        // delivery is the intervention moment — log it so the cockpit can show it
+        if (directives.length) logOp(s, "directive:delivered", `${directives.map((d) => d.action).join(",")} → ${session.slice(0, 8)}`, now());
+        await store.save(h, s);
+      }
       return json(200, { directives });
     }
     // Ops ring (newest first) — everything on the tally besides emits: MCP gate
@@ -1473,9 +1564,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify({ ok: true, ...res }) }] });
           }
           if (name === "maxx_budget") {
-            // ops feed: a cloud agent checking the gate is an event the owner wants to see
-            try { const so = await store.load(h); logOp(so, "mcp:budget", "gate check", now()); await store.save(h, so); } catch {}
-            return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(await budget(h)) }] });
+            // ops feed: a cloud agent checking the gate is an event the owner wants to
+            // see — WITH the outcome, so "maxx held the spend" is visible, not implied
+            const bb = await budget(h);
+            try {
+              const so = await store.load(h);
+              logOp(so, "mcp:budget", bb.verdict === "ok" ? "gate check · ok" : `gate check · ${String(bb.verdict).toUpperCase()} — spend held`, now());
+              await store.save(h, so);
+            } catch {}
+            return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(bb) }] });
           }
           if (name === "maxx_reserve") {
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(await reserve(h, args)) }] });
