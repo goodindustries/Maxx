@@ -207,8 +207,8 @@ function renderCard(h, s, b, setup = null) {
   // bars data (initial paint; live.json tick keeps it current). Stale/calibrating
   // honesty markers ride in the bar text — same semantics the old rows carried.
   const bars0 = JSON.stringify({
-    five_billed: b.five_billed, available: b.session_to_spend, week: b.week,
-    weekly_left: b.weekly_left_tokens, five_reset_in_sec: b.five_reset_in_sec,
+    five_billed: b.five_billed, available: b.session_to_spend, week: b.week, quota: b.quota,
+    weekly_left: b.weekly_left_tokens, session_over: b.session_over, burn_5m: b.burn_5m,
     week_reset_in_sec: b.week_reset_in_sec, fresh: b.fresh, anchor_age_sec: b.anchor_age_sec,
   });
   // badge: "live" only when data actually flows; a retired handle says so
@@ -354,21 +354,17 @@ ${CHART_JS}
         '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
         '<span class="num">'+num+'</span></div>';
     };
+    // same stats, same order, same semantics as the CLI statusline — that pick is the spec
     var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale · no recent anchor'):'';
     var calib=d.week!=null&&d.week<0.05?' · calibrating':'';
     var gcls=d.fresh?'good':'',bcls=d.fresh?'bad':'';
-    var sUsed=d.five_billed||0,sAllow=sUsed+(d.available||0);
-    var sNum='+'+kf(sUsed)+(d.available>0
-      ?' · <span class="'+gcls+'">~'+kf(d.available)+' left</span>'
-      :' · <span class="'+bcls+'">0 left</span>')+
-      (d.five_reset_in_sec!=null?' · refills '+ago(d.five_reset_in_sec):'')+stale;
-    var wNum=(d.weekly_left!=null
-      ?(d.week!=null&&d.week>=0.99?'<span class="'+bcls+'">~'+kf(d.weekly_left)+' left</span>':'<span class="'+gcls+'">~'+kf(d.weekly_left)+' left</span>')
-      :'—')+
-      (d.week!=null?' · '+Math.round(d.week*100)+'% used':'')+
+    var rate=d.burn_5m!=null?d.burn_5m/5:0;
+    var sNum='+'+kf(d.five_billed||0)+(rate>0?' · <span class="'+gcls+'">+'+kf(rate)+'/min</span>':'')+stale;
+    var wNum=(d.weekly_left!=null?'~'+kf(d.weekly_left)+' left':'—')+
+      (d.session_over>0?' · <span class="'+bcls+'">-'+kf(d.session_over)+' over</span>':'')+
       (d.week_reset_in_sec!=null?' · '+ago(d.week_reset_in_sec):'')+calib;
     document.getElementById('bars').innerHTML=
-      bar('session',sAllow>0?sUsed/sAllow:null,sNum)+bar('week',d.week,wNum);
+      bar('session',d.quota,sNum)+bar('week',d.week,wNum);
   }
   renderBars(${bars0});
   // odometer: creep the hero at the REAL burn rate between polls (burn_5m/300 tok/s),
@@ -674,22 +670,15 @@ ${CHART_JS}
           '<span class="track">'+(w>=0.5?'<span class="fill" style="width:'+w.toFixed(1)+'%"></span>':'')+'</span>'+
           '<span class="num">'+num+'</span></div>';
       };
-      // statusline number style: thousands + k (12,106k); left-amounts are estimates → ~
+      // same stats, same order as the CLI statusline — that pick is the spec
       var kf=function(n){return Math.round(n/1000).toLocaleString('en-US')+'k'};
-      var rate=b.burn_5m!=null?b.burn_5m/5:null;
-      var sUsed=b.five_billed||0,sAllow=sUsed+(b.session_to_spend||0);
-      var sNum='+'+kf(sUsed)+(b.session_to_spend>0
-        ?' · <span class="good">~'+kf(b.session_to_spend)+' left</span>'
-        :' · <span class="bad">0 left</span>')+
-        (rate>0?' · +'+kf(rate)+'/min':'')+
-        (b.five_reset_in_sec!=null?' · refills '+ago(b.five_reset_in_sec):'');
-      var wNum=(b.weekly_left_tokens!=null
-        ?(b.week!=null&&b.week>=0.99?'<span class="bad">~'+kf(b.weekly_left_tokens)+' left</span>':'<span class="good">~'+kf(b.weekly_left_tokens)+' left</span>')
-        :'—')+
-        (b.week!=null?' · '+Math.round(b.week*100)+'% used':'')+
+      var rate=b.burn_5m!=null?b.burn_5m/5:0;
+      var sNum='+'+kf(b.five_billed||0)+(rate>0?' · <span class="good">+'+kf(rate)+'/min</span>':'');
+      var wNum=(b.weekly_left_tokens!=null?'~'+kf(b.weekly_left_tokens)+' left':'—')+
+        (b.session_over>0?' · <span class="bad">-'+kf(b.session_over)+' over</span>':'')+
         (b.week_reset_in_sec!=null?' · '+ago(b.week_reset_in_sec):'');
       document.getElementById('bars').innerHTML=
-        bar('session',sAllow>0?sUsed/sAllow:null,sNum)+
+        bar('session',b.quota,sNum)+
         bar('week',b.week,wNum);
       var refill=b.five_reset_in_sec!=null?'refills in '+ago(b.five_reset_in_sec):'';
       document.getElementById('stats').innerHTML=
@@ -968,8 +957,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             lifetime, available: budget.session_to_spend, burn_5m: budget.burn_5m,
             // magnitudes for the card's session/week bars — counts only, same class of
             // data as "available"; never names
-            five_billed: budget.five_billed, week: budget.week,
-            weekly_left: budget.weekly_left_tokens,
+            five_billed: budget.five_billed, week: budget.week, quota: budget.quota,
+            weekly_left: budget.weekly_left_tokens, session_over: budget.session_over,
             five_reset_in_sec: budget.five_reset_in_sec, week_reset_in_sec: budget.week_reset_in_sec,
             fresh: budget.fresh, feed,
           }) };

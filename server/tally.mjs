@@ -87,6 +87,7 @@ export function applyEnvelope(store, env) {
         five_used: Number(env.anchor.sl.five_used) || 0,
         five_cap: Number(env.anchor.sl.five_cap) || 0,
         to_spend: Number(env.anchor.sl.to_spend) || 0,
+        over: Number(env.anchor.sl.over) || 0,
         week_used: Number(env.anchor.sl.week_used) || 0,
         week_cap: Number(env.anchor.sl.week_cap),
       } : null,
@@ -163,7 +164,7 @@ export function computeBudget(store, now) {
   // Between anchors we extrapolate with server-billed-since-anchor; anchors ship every
   // interactive turn, so the drift window is small (and the % anchor path above remains
   // the fallback for old emitters / stale sl).
-  let slSpend = null;
+  let slSpend = null, slOver = 0;
   if (a && fresh && a.sl) {
     const since = windowedBilled(store.events, now, WEEK, a.ts);
     // 5h-window fields are only valid while the window the anchor described is still
@@ -175,9 +176,14 @@ export function computeBudget(store, now) {
     week = a.sl.week_used + since;
     quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
     weekPct = Math.min(1, week / weekCap);
-    // the CLI's roll-session toSpend is the governor's allowance — pass it through
-    // (minus since-anchor burn) so the gate agrees with the bar, not a second pacer
-    if (windowCurrent) slSpend = Math.max(0, a.sl.to_spend - since);
+    // the CLI's roll-session numbers are the governor's — reconstruct its realMax
+    // (five_used + toSpend − over covers both sides of the share) and re-derive
+    // toSpend/over at NOW, so the gate and the bars agree with the CLI exactly
+    if (windowCurrent) {
+      const realMax = a.sl.five_used + a.sl.to_spend - (a.sl.over || 0);
+      slSpend = Math.max(0, realMax - five);
+      slOver = Math.max(0, five - realMax);
+    }
   }
 
   const weeklyLeft = weekCap != null ? Math.max(0, weekCap - week) : null;
@@ -252,6 +258,7 @@ export function computeBudget(store, now) {
         ? `weekly cap — tokens at week_reset (${resetIn(wr) != null ? Math.round(resetIn(wr) / 3600) + "h" : "?"})`
         : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
     weekly_left_tokens: weeklyLeft, session_to_spend: spendAfterReserve,
+    session_over: slOver,
     session_safe: sessionSafe,
     reserved_tokens: reservedTokens, leases: activeLeases.length,
     burn_5m: burn5m, empties_at: emptiesAt,
