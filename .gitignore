@@ -67,3 +67,4 @@ __pycache__/
 maxx-render
 .DS_Store
 .netlify/
+.gstack/

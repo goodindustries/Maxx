@@ -322,11 +322,18 @@
   </div>
   <p class="hint" id="sg-msg">3–32 chars: a-z 0-9 - _ · first come, first served · the URL is shown once — save it.</p>
   <div id="sg-out" style="display:none;margin-top:14px">
+    <p style="font-size:19px;font-weight:700;margin:6px 0 14px">🍿 Binge-watch your tokens → <a id="sg-card" href="#" target="_blank" rel="noopener"></a></p>
+    <p class="hint" style="margin-bottom:4px"><b>① Your machine</b> — paste into your terminal (installs the bar + links this handle, auto-tracking on):</p>
+    <div class="install" style="display:flex;width:100%">
+      <code style="flex:1;overflow-x:auto" id="sg-cli"></code>
+      <button data-copy-id="sg-cli">Copy</button>
+    </div>
+    <p class="hint" style="margin:12px 0 4px"><b>② Your cloud &amp; claude.ai</b> — paste as a custom connector (<a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener">open claude.ai → Connectors</a> → Add custom connector → name <code>Maxx</code>):</p>
     <div class="install" style="display:flex;width:100%">
       <code style="flex:1;overflow-x:auto" id="sg-url"></code>
-      <button id="sg-copy">Copy</button>
+      <button data-copy-id="sg-url" id="sg-copy">Copy</button>
     </div>
-    <p class="hint">claude.ai → Settings → Connectors → <b>Add custom connector</b> → name <code>Maxx</code>, paste the URL. Then on your machine: <code>curl -fsSL https://meetmaxx.co/install | bash</code> — the installer links this handle so your laptop ships to the same tally.</p>
+    <p class="hint" style="margin-top:10px">That's it. The URL is your secret — shown once, save it. Every session on any surface now reports to your tally and reads your live budget.</p>
   </div>
   <p class="hint">Prefer the terminal? After installing: <code>node ~/.claude/skills/maxx/emit.mjs --signup</code> (derives your handle from your Claude login).</p>
   <script>
@@ -342,14 +349,18 @@
           go.disabled=false;go.textContent='Get my URL';
           if(!res.ok){msg.textContent=res.j.error||'signup failed — try another handle';return;}
           urlEl.textContent=res.j.mcp_url;out.style.display='block';
+          var card=document.getElementById('sg-card');card.textContent='meetmaxx.co/u/'+res.j.handle;card.href='https://meetmaxx.co/u/'+res.j.handle;
+          document.getElementById('sg-cli').textContent='curl -fsSL https://meetmaxx.co/install | MAXX_HANDLE='+res.j.handle+' MAXX_SECRET='+res.j.secret+' bash';
           msg.textContent='@'+res.j.handle+' claimed. This URL is your secret — shown once, save it now.';
         })
         .catch(function(){go.disabled=false;go.textContent='Get my URL';msg.textContent='network error — try again';});
     }
     go.addEventListener('click',claim);
     h.addEventListener('keydown',function(e){if(e.key==='Enter')claim();});
-    document.getElementById('sg-copy').addEventListener('click',function(){
-      navigator.clipboard.writeText(urlEl.textContent).then(function(){var b=document.getElementById('sg-copy');b.textContent='Copied';b.className='done';setTimeout(function(){b.textContent='Copy';b.className='';},1500);});
+    document.querySelectorAll('#sg-out [data-copy-id]').forEach(function(b){
+      b.addEventListener('click',function(){
+        navigator.clipboard.writeText(document.getElementById(b.getAttribute('data-copy-id')).textContent).then(function(){b.textContent='Copied';b.className='done';setTimeout(function(){b.textContent='Copy';b.className='';},1500);});
+      });
     });
   })();
   </script>

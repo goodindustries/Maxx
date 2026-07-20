@@ -129,7 +129,10 @@ function renderCard(h, s, b) {
   const [px, py] = (pts[peakI] || "0,0").split(",");
   const avail = b.session_to_spend, weekLeft = b.weekly_left_tokens;
   const refillMin = b.five_reset_in_sec != null ? Math.round(b.five_reset_in_sec / 60) : null;
-  const refillTxt = refillMin != null ? `${Math.floor(refillMin / 60)}h ${refillMin % 60}m` : "?";
+  // no fresh reset time (stale anchor) → drop the clause entirely, never render "refills in ?"
+  const refillTxt = refillMin != null ? ` · window refills in ${Math.floor(refillMin / 60)}h ${refillMin % 60}m` : "";
+  // hover data: dense per-day series + ISO day labels for the tooltip
+  const dayLabels = series.map((_, i) => new Date(new Date(first + "T00:00:00Z").getTime() + i * 86400000).toISOString().slice(0, 10));
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
   const url = `https://meetmaxx.co/u/${h}`;
   const desc = `${humanN(lifetime)} lifetime Claude tokens · live tally, anchored to Anthropic /usage · verified by Maxx`;
@@ -156,7 +159,7 @@ function renderCard(h, s, b) {
 *{box-sizing:border-box;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:14px}
 .card{width:1200px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:46px 60px 40px;display:flex;flex-direction:column}
-.top{display:flex;align-items:center;justify-content:space-between}
+.top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:21px}
 .brand .m{color:var(--accent);font-size:24px}
 .who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
@@ -176,6 +179,16 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .share{display:flex;gap:10px}
 .share button,.share a{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 18px;font-size:14.5px;font-weight:600;cursor:pointer;text-decoration:none;font-family:var(--sans)}
 .share .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.tip{position:absolute;pointer-events:none;display:none;background:var(--ink);color:#fff;font-family:var(--mono);font-size:12.5px;padding:6px 10px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-130%);z-index:2}
+.guide{position:absolute;top:0;bottom:24px;width:1px;background:var(--accent);opacity:.4;display:none;pointer-events:none}
+.feed{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.feed h3{font-size:13px;color:var(--ink-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.feed h3 .dot{width:7px;height:7px;border-radius:50%;background:#2fbf71;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.feed ul{list-style:none;margin-top:8px;font-family:var(--mono);font-size:13.5px;color:var(--ink-2)}
+.feed li{display:flex;justify-content:space-between;padding:4px 0}
+.feed li b{color:var(--ink);font-weight:600}
+@media (max-width:640px){.hero .n{font-size:34px}.badge{font-size:12.5px;padding:5px 12px}.peak{display:none}}
 </style></head><body>
 <div class="card">
  <div class="top">
@@ -183,19 +196,21 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
   <div class="badge">✓ Verified usage · live</div>
  </div>
  <div class="hero"><div class="n">${fmtN(lifetime)}</div><div class="l">lifetime tokens</div></div>
- <div class="chart">
+ <div class="chart" id="chart">
   <svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block">
    <path d="${area}" fill="#635bff" opacity=".12"/>
    <path d="${line}" fill="none" stroke="#635bff" stroke-width="2"/>
    <circle cx="${px}" cy="${py}" r="4" fill="#635bff" stroke="#fff" stroke-width="2"/>
   </svg>
+  <div class="guide" id="guide"></div><div class="tip" id="tip"></div>
   ${peakDay ? `<div class="peak" style="left:${(peakI / (n - 1) * 100).toFixed(1)}%;top:-6px;transform:translateX(-${peakI > n * 0.7 ? 105 : 0}%)">peak ${humanN(Math.max(...series))} · ${peakDay}</div>` : ""}
   <div class="cap"><span>${first || ""}</span><span>daily tokens · all machines &amp; cloud · this Claude account</span><span>today</span></div>
  </div>
  <div class="rows">
-  <div class="r"><span class="k">Available right now</span><span class="v">${avail != null ? humanN(avail) : "—"} <span class="sub">· window refills in ${refillTxt}</span></span></div>
+  <div class="r"><span class="k">Available right now</span><span class="v"><span id="avail">${avail != null ? humanN(avail) : "—"}</span> <span class="sub">${refillTxt}</span></span></div>
   <div class="r"><span class="k">Weekly limit remaining</span><span class="v">${weekLeft != null ? humanN(weekLeft) : "—"} <span class="sub">· ${b.week != null ? Math.round(b.week * 100) + "% used ·" : ""} quota units${b.week_reset_in_sec != null ? " · resets in " + Math.round(b.week_reset_in_sec / 3600) + "h" : ""}</span></span></div>
  </div>
+ <div class="feed"><h3><span class="dot"></span> live feed</h3><ul id="feed"><li><span class="sub">listening…</span></li></ul></div>
  <div class="foot">
   <span>⩗ Verified by Maxx — counted from session logs, anchored to Anthropic /usage · <span id="stamp">${stamp}</span></span>
   <a href="https://meetmaxx.co">See your usage at meetmaxx.co →</a>
@@ -212,7 +227,38 @@ document.getElementById('sh').addEventListener('click',function(){
   else{navigator.clipboard.writeText("${url}");this.textContent="Copied";}
 });
 document.getElementById('cp').addEventListener('click',function(){navigator.clipboard.writeText("${url}");this.textContent="Copied";setTimeout(()=>this.textContent="Copy link",1500);});
-setTimeout(function(){location.reload()},60000);
+// hover: nearest-day tooltip + guide line over the area chart
+(function(){
+  var days=${JSON.stringify(dayLabels)},vals=${JSON.stringify(series.map((v) => Math.round(v)))};
+  var chart=document.getElementById('chart'),tip=document.getElementById('tip'),guide=document.getElementById('guide');
+  var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
+  chart.addEventListener('mousemove',function(ev){
+    var r=chart.getBoundingClientRect(),x=ev.clientX-r.left;
+    var i=Math.max(0,Math.min(days.length-1,Math.round(x/r.width*(days.length-1))));
+    var cx=i/(days.length-1)*r.width;
+    tip.style.display='block';tip.style.left=Math.max(60,Math.min(r.width-60,cx))+'px';tip.style.top='34px';
+    tip.textContent=days[i]+' · '+hum(vals[i])+' tokens';
+    guide.style.display='block';guide.style.left=cx+'px';
+  });
+  chart.addEventListener('mouseleave',function(){tip.style.display='none';guide.style.display='none';});
+})();
+// live feed: poll the public counts-only endpoint; tick the hero + availability in place
+(function(){
+  var hero=document.querySelector('.hero .n'),avail=document.getElementById('avail'),feed=document.getElementById('feed');
+  var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
+  var ago=function(s){return s<60?s+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
+  function tick(){
+    fetch('/u/${h}/live.json').then(function(r){return r.json()}).then(function(j){
+      if(j.lifetime)hero.textContent=Math.round(j.lifetime).toLocaleString('en-US');
+      if(j.available!=null&&avail)avail.textContent=hum(j.available);
+      if(j.feed&&j.feed.length)feed.innerHTML=j.feed.slice(0,8).map(function(e){
+        return '<li><span>'+e.surface+' · '+ago(e.ago_sec)+' ago</span><b>+'+hum(e.tokens)+'</b></li>';}).join('');
+      document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
+    }).catch(function(){});
+  }
+  tick();setInterval(tick,15000);
+})();
+setTimeout(function(){location.reload()},300000);
 </script>
 </body></html>`;
 }
@@ -341,12 +387,28 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     // ---- live public card: GET /u/{handle} — renders from the tally on every hit, so the page a
     // user shares is always current (the old static card went stale the moment it was deployed).
     // meetmaxx.co/u/* rewrites here. Public by design: usage totals only, same as the static card.
-    const mc = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/?$/);
+    const mc = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})(\/live\.json)?\/?$/);
     if (mc && method === "GET") {
       const h = mc[1];
       const s = await store.load(h);
-      if (!s.events.length) return { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co">claim your handle</a>.</p>` };
+      if (!s.events.length) return mc[2]
+        ? json(404, { error: "no data" })
+        : { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co">claim your handle</a>.</p>` };
       const budget = computeBudget(s, now());
+      // live.json — PUBLIC, counts-only poll target for the card's live feed: lifetime odometer,
+      // availability, and the last events as {ago_sec, surface CLASS, tokens}. Never session/project
+      // names here — those stay behind auth; the public card leaks no content, only magnitudes.
+      if (mc[2]) {
+        const t = now();
+        const feed = s.events.slice(-12).reverse().map((e) => ({
+          ago_sec: Math.max(0, Math.round(t - e.ts)),
+          surface: String(e.surface || "").split(":")[0] || "unknown",
+          tokens: e.raw || e.billed || 0,
+        }));
+        const lifetime = s.events.reduce((a, e) => a + (e.raw || e.billed || 0), 0);
+        return { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
+          body: JSON.stringify({ lifetime, available: budget.session_to_spend, burn_5m: budget.burn_5m, feed }) };
+      }
       return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }, body: renderCard(h, s, budget) };
     }
 

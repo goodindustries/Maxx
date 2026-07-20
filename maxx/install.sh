@@ -74,7 +74,39 @@ echo "maxx installed ($MODE)."
 echo "  statusline -> node $SKILL/render.mjs"
 echo "  skill      -> $SKILL   (/maxx)"
 echo "Start a new Claude Code session to see the bar."
-echo ""
-echo "Optional — central budget tally (cloud + all machines, one number):"
-echo "  node $SKILL/emit.mjs --signup <your-handle>   # claim a handle, get your connector URL"
-echo "  node $SKILL/emit.mjs --install-agent          # live-ship usage at login"
+
+# Web-claimed handle → zero-step CLI link. The signup form prints:
+#   curl -fsSL https://meetmaxx.co/install | MAXX_HANDLE=<h> MAXX_SECRET=<k> bash
+# which lands here: write the credentials into ~/.maxx/config.json (merging, never
+# clobbering an EXISTING different handle) and start the live shipper.
+if [ -n "${MAXX_HANDLE:-}" ] && [ -n "${MAXX_SECRET:-}" ]; then
+  LINKED=$(MAXX_HANDLE="$MAXX_HANDLE" MAXX_SECRET="$MAXX_SECRET" node - <<'JS'
+const { readFileSync, writeFileSync } = require("fs");
+const p = process.env.HOME + "/.maxx/config.json";
+let c = {}; try { c = JSON.parse(readFileSync(p, "utf8")); } catch {}
+const h = process.env.MAXX_HANDLE, k = process.env.MAXX_SECRET;
+if (c.handle && c.handle !== "unknown" && c.handle !== h) { console.log("KEPT:" + c.handle); process.exit(0); }
+writeFileSync(p, JSON.stringify({ ...c, handle: h, secret: k, logsUrl: c.logsUrl || "https://api.meetmaxx.co" }, null, 2));
+console.log("LINKED:" + h);
+JS
+)
+  case "$LINKED" in
+    LINKED:*)
+      echo ""
+      echo "maxx: linked to @${LINKED#LINKED:} — this machine now ships to your tally."
+      node "$SKILL/emit.mjs" --install-agent || true
+      node "$SKILL/emit.mjs" --send >/dev/null 2>&1 || true
+      echo "  binge-watch your tokens → https://meetmaxx.co/u/${LINKED#LINKED:}"
+      ;;
+    KEPT:*)
+      echo ""
+      echo "maxx: this machine is already linked to @${LINKED#KEPT:} — NOT overwriting."
+      echo "  to relink: edit ~/.maxx/config.json (handle/secret), then node $SKILL/emit.mjs --install-agent"
+      ;;
+  esac
+else
+  echo ""
+  echo "Optional — central budget tally (cloud + all machines, one number):"
+  echo "  node $SKILL/emit.mjs --signup                 # derives your handle from your Claude login"
+  echo "  node $SKILL/emit.mjs --install-agent          # live-ship usage at login"
+fi
