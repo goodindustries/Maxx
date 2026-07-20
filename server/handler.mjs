@@ -641,14 +641,15 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .trio .big .u{font-size:19px;font-weight:600;color:#8a93a5}
 .trio .sub{font-family:var(--mono);font-size:13.5px;color:#8a93a5;margin-top:7px}
 .chart48{position:relative;height:170px;margin-top:12px}
-.chart48 .zero{position:absolute;left:0;right:0;top:42px;border-top:1.5px solid #d4d7e2;z-index:1}
-.chart48 .refill{position:absolute;left:0;right:0;background:linear-gradient(0deg,rgba(59,130,246,.06),rgba(59,130,246,.22));border-top:2px solid #2563eb;border-radius:2px 2px 0 0;z-index:0}
-.chart48 .refillab{position:absolute;right:0;font-family:var(--mono);font-size:11px;color:#1d4ed8;background:#fff;padding:0 4px;z-index:3}
+.chart48 .zero{position:absolute;left:0;right:0;top:44px;border-top:1.5px solid #d4d7e2;z-index:1}
 .chart48 .avgline{position:absolute;left:0;right:0;border-top:1.5px dashed #e8b58a;z-index:2}
 .chart48 .avglab{position:absolute;left:0;font-family:var(--mono);font-size:11px;color:#c2703a;background:#fff;padding:0 4px;z-index:3}
-.chart48 .cols{position:absolute;left:0;right:0;top:42px;bottom:0;display:flex;align-items:flex-start;gap:3px}
-.chart48 .cols div{flex:1;border-radius:0 0 3px 3px;background:linear-gradient(180deg,#fcd9bd,#f0873c);transition:height .6s ease}
-.chart48 .cols div.live{background:linear-gradient(180deg,#f59e5b,#ea580c)}
+.chart48 .cols{position:absolute;inset:0;display:flex;gap:3px}
+.chart48 .col{position:relative;flex:1}
+.chart48 .col .up{position:absolute;left:0;right:0;bottom:126px;border-radius:2px 2px 0 0;background:linear-gradient(0deg,#bfdbfe,#3b82f6);transition:height .6s ease}
+.chart48 .col .dn{position:absolute;left:0;right:0;top:44px;border-radius:0 0 2px 2px;background:linear-gradient(180deg,#fcd9bd,#f0873c);transition:height .6s ease}
+.chart48 .col.live .up{background:linear-gradient(0deg,#93c5fd,#2563eb)}
+.chart48 .col.live .dn{background:linear-gradient(180deg,#f59e5b,#ea580c)}
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
 .tip48{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:12px;font-weight:500;padding:8px 12px;border-radius:9px;white-space:nowrap;transform:translate(-50%,-110%);top:36px;z-index:4;line-height:1.6}
 .tip48 .pr{color:#fbbf24}
@@ -760,8 +761,6 @@ table{font-size:12px}
   </div>
   <div class="chart48" id="chart48">
    <div class="zero"></div>
-   <div class="refill" id="refillband" style="display:none"></div>
-   <div class="refillab" id="refillab" style="display:none">refill ↑</div>
    <div class="avgline" id="avgline" style="display:none"></div>
    <div class="avglab" id="avglab" style="display:none">avg</div>
    <div class="cols" id="cols"></div>
@@ -923,25 +922,24 @@ if(location.search)history.replaceState(null,'',location.pathname);
     });
     var mx=Math.max.apply(null,buckets.concat([1]));
     var avg=buckets.reduce(function(a,v){return a+v},0)/48;
-    // diverging around the zero line at 42px: usage hangs DOWN (orange), the refill
-    // rate points UP (blue band — one live value, the tank's current +/min; per-minute
-    // refill history isn't in the feed, so we draw only what's true now). Shared √ scale.
-    var BL=42,H2=128;
-    var sc=function(v){return Math.max(3,Math.sqrt(v/mx)*H2)};
-    document.getElementById('cols').innerHTML=buckets.map(function(v,i){
-      return '<div'+(i===47?' class="live"':'')+' style="height:'+sc(v).toFixed(0)+'px"></div>';
-    }).join('');
-    var rb=document.getElementById('refillband'),rl=document.getElementById('refillab');
+    // Double bar around the zero line at 44px. Each minute is one column: usage OUT
+    // hangs DOWN (orange), tokens IN point UP (blue). Refill is the rolling tank's
+    // regen rate (5h burn ÷ 300) — a slow 5h average, so the blue waterline is ~flat;
+    // an orange bar reaching PAST it = net loss that minute. Shared √ scale (blue
+    // capped to the up-zone). Per-minute refill history isn't in the feed → flat.
+    var HD=124,HU=42;
+    var sc=function(v){return Math.max(2,Math.sqrt(v/mx)*HD)};
     var refillNow=(b.five_billed||0)/300;
-    if(refillNow>0){
-      var rh=Math.min(BL-4,Math.max(3,Math.sqrt(refillNow/mx)*H2));
-      rb.style.display='block';rb.style.top=(BL-rh).toFixed(0)+'px';rb.style.height=rh.toFixed(0)+'px';
-      rl.style.display='block';rl.style.top=Math.max(0,BL-rh-15).toFixed(0)+'px';
-    }else{rb.style.display='none';rl.style.display='none';}
+    var hUp=refillNow>0?Math.min(HU,Math.max(2,Math.sqrt(refillNow/mx)*HD)):0;
+    document.getElementById('cols').innerHTML=buckets.map(function(v,i){
+      return '<div class="col'+(i===47?' live':'')+'">'+
+        (hUp>0?'<div class="up" style="height:'+hUp.toFixed(0)+'px"></div>':'')+
+        '<div class="dn" style="height:'+sc(v).toFixed(0)+'px"></div></div>';
+    }).join('');
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    if(avg>0){var atop=BL+sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=(atop+2).toFixed(0)+'px';}
+    if(avg>0){var atop=44+sc(avg);al.style.display='block';al.style.top=atop.toFixed(0)+'px';ab.style.display='block';ab.style.top=(atop+2).toFixed(0)+'px';}
     else{al.style.display='none';ab.style.display='none';}
-    document.getElementById('chartMeta').textContent='↓ usage · ↑ refill '+hum(refillNow)+'/min · avg '+hum(avg)+' /min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    document.getElementById('chartMeta').textContent='↑ in '+hum(refillNow)+'/min · ↓ out · avg out '+hum(avg)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
@@ -952,7 +950,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
       m.items.push(o.op+(o.d?' · '+o.d:''));
       if(prot)m.prot=true;
     });
-    window.__chartMins={buckets:buckets,ops:opsMin,t:t};
+    window.__chartMins={buckets:buckets,ops:opsMin,t:t,refill:refillNow};
     document.getElementById('marks').innerHTML=Object.keys(opsMin).map(function(i){
       var m=opsMin[i];
       return '<span style="left:'+((+i+0.5)/48*100).toFixed(1)+'%;background:'+(m.prot?'#d23b3b':'#e0a13a')+'"></span>';
@@ -1143,7 +1141,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
       var ts=new Date((st.t-(47-idx)*60)*1000);
       var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
-      var html=esc(hh)+' · '+esc(hum(st.buckets[idx]))+' tokens';
+      var html=esc(hh)+' · <span style="color:#f0873c">↓ '+esc(hum(st.buckets[idx]))+' out</span> · <span style="color:#60a5fa">↑ '+esc(hum(st.refill||0))+' in</span>';
       var m=st.ops[idx];
       if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
       tip.style.display='block';
