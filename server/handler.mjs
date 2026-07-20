@@ -96,6 +96,124 @@ const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><re
 // CORS is safe here: auth is the bearer/`?k=` secret, never cookies, and only usage metadata moves.
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, OPTIONS" };
 
+// ---- live card page (GET /u/{handle}) ------------------------------------------------------
+const fmtN = (n) => Math.round(n).toLocaleString("en-US");
+const humanN = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
+function renderCard(h, s, b) {
+  // hero = RAW lifetime (the number a human recognizes); weighted units stay on the weekly row.
+  const rawOf = (e) => e.raw || e.billed || 0;
+  const lifetime = s.events.reduce((a, e) => a + rawOf(e), 0);
+  // daily buckets (UTC) for the area chart
+  const byDay = new Map();
+  for (const e of s.events) {
+    if (!e.ts) continue;
+    const d = new Date(e.ts * 1000).toISOString().slice(0, 10);
+    byDay.set(d, (byDay.get(d) || 0) + rawOf(e));
+  }
+  const days = [...byDay.keys()].sort();
+  const first = days[0], today = new Date().toISOString().slice(0, 10);
+  // dense series first→today so idle days show as dips, not skipped
+  const series = [];
+  if (first) for (let t = new Date(first + "T00:00:00Z").getTime(); ; t += 86400000) {
+    const d = new Date(t).toISOString().slice(0, 10);
+    series.push(byDay.get(d) || 0);
+    if (d >= today) break;
+  }
+  const peak = Math.max(1, ...series);
+  const W = 1080, H = 150, n = Math.max(2, series.length);
+  const pts = series.map((v, i) => `${(i * W / (n - 1)).toFixed(1)},${(H - (v / peak) * (H - 6)).toFixed(1)}`);
+  const line = "M" + pts.join("L");
+  const area = line + `L${W},${H}L0,${H}Z`;
+  const peakI = series.indexOf(Math.max(...series));
+  const peakDay = days.length ? new Date(new Date(first + "T00:00:00Z").getTime() + peakI * 86400000).toISOString().slice(5, 10).replace("-", "/") : "";
+  const [px, py] = (pts[peakI] || "0,0").split(",");
+  const avail = b.session_to_spend, weekLeft = b.weekly_left_tokens;
+  const refillMin = b.five_reset_in_sec != null ? Math.round(b.five_reset_in_sec / 60) : null;
+  const refillTxt = refillMin != null ? `${Math.floor(refillMin / 60)}h ${refillMin % 60}m` : "?";
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  const url = `https://meetmaxx.co/u/${h}`;
+  const desc = `${humanN(lifetime)} lifetime Claude tokens · live tally, anchored to Anthropic /usage · verified by Maxx`;
+  const shareTxt = `${humanN(lifetime)} lifetime Claude tokens, verified by @meetmaxx`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${h} — Verified token usage · Maxx</title>
+<meta property="og:title" content="${h} — verified Claude token usage">
+<meta property="og:description" content="${desc}">
+<meta property="og:url" content="${url}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://meetmaxx.co/og-card.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${h} — verified Claude token usage">
+<meta name="twitter:description" content="${desc}">
+<meta name="twitter:image" content="https://meetmaxx.co/og-card.png">
+<link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:14px}
+.card{width:1200px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:46px 60px 40px;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:21px}
+.brand .m{color:var(--accent);font-size:24px}
+.who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:7px;background:#f0f4ff;color:var(--accent);border:1px solid #dfe5ff;border-radius:999px;padding:7px 16px;font-size:14.5px;font-weight:600}
+.hero{margin-top:28px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+.hero .n{font-size:clamp(34px,6vw,76px);font-weight:700;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+.hero .l{color:var(--ink-2);font-size:16.5px}
+.chart{margin-top:22px;position:relative}
+.chart .cap{display:flex;justify-content:space-between;color:var(--ink-3);font-size:13px;margin-top:6px}
+.peak{position:absolute;font-size:12.5px;color:var(--ink-2);font-weight:600;white-space:nowrap}
+.rows{margin-top:18px;border-top:1px solid var(--line)}
+.r{display:flex;justify-content:space-between;align-items:baseline;padding:12.5px 0;border-bottom:1px solid var(--line);font-size:16px;gap:12px;flex-wrap:wrap}
+.r .k{color:var(--ink-2)}.r .v{font-weight:600;font-variant-numeric:tabular-nums}
+.r .sub{color:var(--ink-3);font-weight:400;font-size:14px}
+.foot{margin-top:22px;display:flex;justify-content:space-between;align-items:baseline;color:var(--ink-3);font-size:13.5px;gap:10px;flex-wrap:wrap}
+.foot a{color:var(--accent);font-weight:600;text-decoration:none}
+.share{display:flex;gap:10px}
+.share button,.share a{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 18px;font-size:14.5px;font-weight:600;cursor:pointer;text-decoration:none;font-family:var(--sans)}
+.share .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+</style></head><body>
+<div class="card">
+ <div class="top">
+  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h}</span></div>
+  <div class="badge">✓ Verified usage · live</div>
+ </div>
+ <div class="hero"><div class="n">${fmtN(lifetime)}</div><div class="l">lifetime tokens</div></div>
+ <div class="chart">
+  <svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block">
+   <path d="${area}" fill="#635bff" opacity=".12"/>
+   <path d="${line}" fill="none" stroke="#635bff" stroke-width="2"/>
+   <circle cx="${px}" cy="${py}" r="4" fill="#635bff" stroke="#fff" stroke-width="2"/>
+  </svg>
+  ${peakDay ? `<div class="peak" style="left:${(peakI / (n - 1) * 100).toFixed(1)}%;top:-6px;transform:translateX(-${peakI > n * 0.7 ? 105 : 0}%)">peak ${humanN(Math.max(...series))} · ${peakDay}</div>` : ""}
+  <div class="cap"><span>${first || ""}</span><span>daily tokens · all machines &amp; cloud · this Claude account</span><span>today</span></div>
+ </div>
+ <div class="rows">
+  <div class="r"><span class="k">Available right now</span><span class="v">${avail != null ? humanN(avail) : "—"} <span class="sub">· window refills in ${refillTxt}</span></span></div>
+  <div class="r"><span class="k">Weekly limit remaining</span><span class="v">${weekLeft != null ? humanN(weekLeft) : "—"} <span class="sub">· ${b.week != null ? Math.round(b.week * 100) + "% used ·" : ""} quota units${b.week_reset_in_sec != null ? " · resets in " + Math.round(b.week_reset_in_sec / 3600) + "h" : ""}</span></span></div>
+ </div>
+ <div class="foot">
+  <span>⩗ Verified by Maxx — counted from session logs, anchored to Anthropic /usage · <span id="stamp">${stamp}</span></span>
+  <a href="https://meetmaxx.co">See your usage at meetmaxx.co →</a>
+ </div>
+</div>
+<div class="share">
+ <button class="primary" id="sh">Share</button>
+ <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTxt)}&url=${encodeURIComponent(url)}" target="_blank" rel="noopener">Post on X</a>
+ <button id="cp">Copy link</button>
+</div>
+<script>
+document.getElementById('sh').addEventListener('click',function(){
+  if(navigator.share)navigator.share({title:document.title,text:"${shareTxt}",url:"${url}"}).catch(function(){});
+  else{navigator.clipboard.writeText("${url}");this.textContent="Copied";}
+});
+document.getElementById('cp').addEventListener('click',function(){navigator.clipboard.writeText("${url}");this.textContent="Copied";setTimeout(()=>this.textContent="Copy link",1500);});
+setTimeout(function(){location.reload()},60000);
+</script>
+</body></html>`;
+}
+
 const json = (status, obj) => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(obj) });
 const rpcOk = (id, result) => json(200, { jsonrpc: "2.0", id, result });
 const rpcErr = (id, code, message) => json(200, { jsonrpc: "2.0", id, error: { code, message } });
@@ -216,6 +334,18 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     if (method === "GET" && (p === "/" || p === "/health")) return json(200, { ok: true, service: "maxx-tally" });
     if (method === "GET" && (p === "/favicon.svg" || p === "/favicon.ico" || p === "/icon"))
       return { status: 200, headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }, body: FAVICON };
+
+    // ---- live public card: GET /u/{handle} — renders from the tally on every hit, so the page a
+    // user shares is always current (the old static card went stale the moment it was deployed).
+    // meetmaxx.co/u/* rewrites here. Public by design: usage totals only, same as the static card.
+    const mc = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/?$/);
+    if (mc && method === "GET") {
+      const h = mc[1];
+      const s = await store.load(h);
+      if (!s.events.length) return { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co">claim your handle</a>.</p>` };
+      const budget = computeBudget(s, now());
+      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }, body: renderCard(h, s, budget) };
+    }
 
     // ---- signup: claim a handle, mint its secret (first come, first served) ----
     if (p === "/api/signup" && method === "POST") {

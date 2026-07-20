@@ -3,6 +3,14 @@
   publish = "site"
   command = ""
 
+# live cards: /u/<handle> renders fresh from the tally server on every hit.
+# force=true so the old static site/u/* snapshots can't shadow the live page.
+[[redirects]]
+  from = "/u/*"
+  to = "https://api.meetmaxx.co/u/:splat"
+  status = 200
+  force = true
+
 # short installer URL: `curl -fsSL https://meetmaxx.co/install | bash`
 # proxies to the repo's install.sh (single source of truth, no duplicated file).
 [[redirects]]
