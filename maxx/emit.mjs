@@ -26,6 +26,7 @@
  *   node maxx/emit.mjs --json        — print the raw envelope JSON only
  *   node maxx/emit.mjs --dir PATH    — override projects dir
  *   node maxx/emit.mjs --signup H    — claim handle H on the tally server, write ~/.maxx/config.json
+ *   node maxx/emit.mjs --dash        — open the owner dashboard (magic link, no secret in URL)
  *   node maxx/emit.mjs --install-agent — keep --watch running at login (launchd on macOS)
  *
  * Wire contract: see maxx/LOGS.md.
@@ -57,6 +58,7 @@ function parseArgs(argv) {
     else if (a === "--dir") out.dir = argv[++i];
     else if (a === "--signup" || a === "signup") { const n = argv[i + 1]; out.signup = n && !n.startsWith("-") ? argv[++i] : true; }
     else if (a === "--install-agent") out.installAgent = true;
+    else if (a === "--dash" || a === "dash") out.dash = true;
   }
   return out;
 }
@@ -220,6 +222,25 @@ if (args.signup) {
 
 // --install-agent: run `emit.mjs --watch` at login. launchd on macOS; prints a
 // systemd user unit elsewhere.
+// --dash: open the owner dashboard via a magic link — the secret authenticates the
+// mint (bearer, request header), the link itself is single-use and dies in 120s, so
+// nothing durable ever lands in browser history or URLs.
+if (args.dash) {
+  if (!cfg.handle || !cfg.secret) { console.error("no handle/secret in ~/.maxx/config.json — run --signup first"); process.exit(1); }
+  const r = await fetch(`${base}/api/u/${cfg.handle}/magic`, { method: "POST", headers: { authorization: `Bearer ${cfg.secret}` } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.url) { console.error(`magic link failed: HTTP ${r.status}`); process.exit(1); }
+  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  try {
+    const { execFileSync } = await import("node:child_process");
+    execFileSync(opener, [j.url], { stdio: "ignore" });
+    console.log(`dashboard opening — link is single-use, expires in ${j.expires_in_sec}s`);
+  } catch {
+    console.log(`open this (single-use, ${j.expires_in_sec}s):\n  ${j.url}`);
+  }
+  process.exit(0);
+}
+
 if (args.installAgent) {
   if (!cfg.handle || !cfg.secret) { console.error("no handle/secret in ~/.maxx/config.json — run --signup <handle> first."); process.exit(1); }
   const self = fileURLToPath(import.meta.url);

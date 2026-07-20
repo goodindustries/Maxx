@@ -41,6 +41,29 @@ test("dash: no auth → login form; cookie → dashboard; ?k= → cookie + clean
   assert.match(bridge.headers["set-cookie"], /^maxx_k=/);
 });
 
+test("magic link: bearer-only mint, single-use, expires", async () => {
+  let t = 1_800_000_000;
+  const store = createMemoryStore();
+  const h = createHandler({ store, secretFor: (x) => (x === "testy" ? SECRET : null), now: () => t });
+  // a cookie must NOT be able to mint (mint = an action, cookie = reads only)
+  const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
+  assert.equal((await h(post("/api/u/testy/magic", {}, { cookie }))).status, 401);
+  const mint = await h(post("/api/u/testy/magic", {}, { authorization: `Bearer ${SECRET}` }));
+  assert.equal(mint.status, 200);
+  const m = new URL(JSON.parse(mint.body).url).searchParams.get("m");
+  const first = await h(get(`/u/testy/dash?m=${m}`));
+  assert.equal(first.status, 302);
+  assert.equal(first.headers.location, "/u/testy/dash");
+  assert.match(first.headers["set-cookie"], /^maxx_k=/);
+  // second use: consumed → login form, no cookie
+  assert.equal((await h(get(`/u/testy/dash?m=${m}`))).status, 401);
+  // expired token → login form
+  const mint2 = await h(post("/api/u/testy/magic", {}, { authorization: `Bearer ${SECRET}` }));
+  const m2 = new URL(JSON.parse(mint2.body).url).searchParams.get("m");
+  t += 200;
+  assert.equal((await h(get(`/u/testy/dash?m=${m2}`))).status, 401);
+});
+
 test("cookie works for GET reads, never for mutations", async () => {
   const { h } = mkHandler();
   const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));

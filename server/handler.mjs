@@ -700,6 +700,22 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     const md = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/dash\/?$/);
     if (md && method === "GET") {
       const h = md[1];
+      // magic link (?m=): single-use, short-TTL token minted by POST /api/u/:h/magic.
+      // Consume it → set the auth cookie → clean redirect. Being one-shot makes the
+      // URL harmless in history/logs the moment it's used.
+      const mtok = url.searchParams.get("m");
+      if (mtok) {
+        const s = await store.load(h);
+        const t = now();
+        const live = (s.magic || []).filter((x) => x.exp > t);
+        const hit = live.find((x) => x.t === mtok);
+        s.magic = live.filter((x) => x !== hit);
+        await store.save(h, s);
+        if (hit) {
+          const want = (await store.getSecret?.(h)) || (await secretFor(h)) || fallbackSecret;
+          return { status: 302, headers: { location: `/u/${h}/dash`, ...(want ? { "set-cookie": setCookie(want) } : {}) }, body: "" };
+        } // invalid/expired → fall through to cookie check / login form
+      }
       const tok = readTokenOf(headers, url);
       if (!tok || !(await authed(h, tok)))
         return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
@@ -709,6 +725,23 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const qk = url.searchParams.get("k");
       if (qk) return { status: 302, headers: { location: `/u/${h}/dash`, "set-cookie": setCookie(qk) }, body: "" };
       return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderDash(h) };
+    }
+
+    // ---- magic link mint: CLI (holding the secret as bearer) asks for a one-time
+    // sign-in URL — single-use, 120s TTL, opens the dash with zero copy-paste.
+    const mg = p.match(/^\/api\/u\/([^/]+)\/magic$/);
+    if (mg && method === "POST") {
+      const h = decodeURIComponent(mg[1]);
+      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" }); // bearer/?k= only, never cookie
+      const s = await store.load(h);
+      const t = now();
+      const tok = randomBytes(16).toString("base64url");
+      s.magic = [...(s.magic || []).filter((x) => x.exp > t), { t: tok, exp: Math.round(t + 120) }].slice(-5);
+      await store.save(h, s);
+      const host = headers["x-forwarded-host"] || headers.host || "api.meetmaxx.co";
+      // hand back the public-site URL when minted against the api host — same page, prettier link
+      const site = host === "api.meetmaxx.co" ? "meetmaxx.co" : host;
+      return json(200, { url: `https://${site}/u/${h}/dash?m=${tok}`, expires_in_sec: 120 });
     }
 
     // ---- browser login: secret arrives in the BODY, leaves as an HttpOnly cookie ----
