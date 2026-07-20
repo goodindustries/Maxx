@@ -14,7 +14,7 @@
  * The Netlify function and a local node http server are both thin wrappers.
  */
 import { randomBytes } from "node:crypto";
-import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives } from "./tally.mjs";
+import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives, logOp } from "./tally.mjs";
 
 const TOOLS = [
   {
@@ -204,14 +204,13 @@ function renderCard(h, s, b, setup = null) {
   // hero = RAW lifetime (the number a human recognizes); weighted units stay on the weekly row.
   const rawOf = (e) => e.raw || e.billed || 0;
   const { lifetime, json: rangesJson } = usageRanges(s);
-  const avail = b.session_to_spend, weekLeft = b.weekly_left_tokens;
-  const refillMin = b.five_reset_in_sec != null ? Math.round(b.five_reset_in_sec / 60) : null;
-  // honesty: a stale anchor means "last known", not "available right now"; tiny anchors (<5%)
-  // mean the cap estimate is still calibrating (integer-% reports → big relative error).
-  const refillTxt = !b.fresh
-    ? ` · last anchored ${b.anchor_age_sec != null ? Math.round(b.anchor_age_sec / 3600) + "h" : "?"} ago — stale`
-    : refillMin != null ? ` · window refills in ${Math.floor(refillMin / 60)}h ${refillMin % 60}m` : "";
-  const calibTxt = b.week != null && b.week < 0.05 ? " · calibrating" : "";
+  // bars data (initial paint; live.json tick keeps it current). Stale/calibrating
+  // honesty markers ride in the bar text — same semantics the old rows carried.
+  const bars0 = JSON.stringify({
+    five_billed: b.five_billed, available: b.session_to_spend, week: b.week,
+    weekly_left: b.weekly_left_tokens, five_reset_in_sec: b.five_reset_in_sec,
+    week_reset_in_sec: b.week_reset_in_sec, fresh: b.fresh, anchor_age_sec: b.anchor_age_sec,
+  });
   // badge: "live" only when data actually flows; a retired handle says so
   const lastEvt = s.events.reduce((a, e) => (e.ts > a ? e.ts : a), 0);
   const idleDays = lastEvt ? (Date.now() / 1000 - lastEvt) / 86400 : Infinity;
@@ -271,10 +270,14 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .chart{margin-top:14px;position:relative}
 .chart .cap{display:flex;justify-content:space-between;color:var(--ink-3);font-size:13px;margin-top:6px}
 .peak{position:absolute;font-size:12.5px;color:var(--ink-2);font-weight:600;white-space:nowrap}
-.rows{margin-top:18px;border-top:1px solid var(--line)}
-.r{display:flex;justify-content:space-between;align-items:baseline;padding:12.5px 0;border-bottom:1px solid var(--line);font-size:16px;gap:12px;flex-wrap:wrap}
-.r .k{color:var(--ink-2)}.r .v{font-weight:600;font-variant-numeric:tabular-nums}
-.r .sub{color:var(--ink-3);font-weight:400;font-size:14px}
+.bars{margin-top:18px;background:#f0ebfd;border-radius:12px;padding:14px 18px;font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:10px}
+.bar{display:grid;grid-template-columns:64px minmax(120px,1fr) auto;gap:14px;align-items:center}
+.bar .lab{color:#6d5fa8}
+.bar .track{height:13px;background:#e2d9f8;border-radius:3px;position:relative;overflow:hidden;border-right:4px solid #8b2635}
+.bar .fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#8fd4ae,#1c7c54);border-left:3px solid #5b21b6}
+.bar .num{color:#4a3f6b;white-space:nowrap}
+.bar .num .good{color:#1c7c54;font-weight:600}
+.bar .num .bad{color:#c0392b;font-weight:600}
 .foot{margin-top:22px;display:flex;justify-content:space-between;align-items:baseline;color:var(--ink-3);font-size:13.5px;gap:10px;flex-wrap:wrap}
 .foot a{color:var(--accent);font-weight:600;text-decoration:none}
 .share{display:flex;gap:10px}
@@ -307,10 +310,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
  <div class="chart" id="chart">${CHART_HTML}
   <div class="cap"><span id="capL"></span><span>all machines &amp; cloud · this Claude account</span><span id="capR">today</span></div>
  </div>
- <div class="rows">
-  <div class="r"><span class="k">Available right now</span><span class="v"><span id="avail">${avail != null ? humanN(avail) : "—"}</span> <span class="sub">${refillTxt}</span></span></div>
-  <div class="r"><span class="k">Weekly limit remaining</span><span class="v">${weekLeft != null ? humanN(weekLeft) : "—"} <span class="sub">· ${b.week != null ? Math.round(b.week * 100) + "% used ·" : ""} quota units${b.week_reset_in_sec != null ? " · resets in " + Math.round(b.week_reset_in_sec / 3600) + "h" : ""}${calibTxt}</span></span></div>
- </div>
+ <div class="bars" id="bars"></div>
 ${setupHtml}
  <div class="feed"><h3><span class="dot"></span> live feed</h3><ul id="feed"><li><span class="sub">listening…</span></li></ul></div>
  <div class="foot">
@@ -341,15 +341,39 @@ ${CHART_JS}
   window.__setLife=function(n){LIFE=n;if(cur==='all')document.getElementById('hero').textContent=Math.round(n).toLocaleString('en-US')};
 })();
 // live feed: poll the public counts-only endpoint; one row PER CHANNEL (cloud, machine 1, …),
-// not per turn — tick the hero odometer + availability in place
+// not per turn — tick the hero odometer + session/week bars in place
 (function(){
-  var avail=document.getElementById('avail'),feed=document.getElementById('feed');
+  var feed=document.getElementById('feed');
   var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
   var ago=function(s){return s<60?s+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
+  var kf=function(n){return Math.round(n/1000).toLocaleString('en-US')+'k'};
+  function renderBars(d){
+    var bar=function(lab,pct,num){
+      var w=Math.max(0,Math.min(100,pct==null?0:pct*100));
+      return '<div class="bar"><span class="lab">'+lab+'</span>'+
+        '<span class="track"><span class="fill" style="width:'+w.toFixed(1)+'%"></span></span>'+
+        '<span class="num">'+num+'</span></div>';
+    };
+    var stale=!d.fresh?' · stale (anchored '+(d.anchor_age_sec!=null?ago(d.anchor_age_sec):'?')+' ago)':'';
+    var calib=d.week!=null&&d.week<0.05?' · calibrating':'';
+    var sUsed=d.five_billed||0,sAllow=sUsed+(d.available||0);
+    var sNum='+'+kf(sUsed)+(d.available>0
+      ?' · <span class="good">~'+kf(d.available)+' left</span>'
+      :' · <span class="bad">0 left</span>')+
+      (d.five_reset_in_sec!=null?' · refills '+ago(d.five_reset_in_sec):'')+stale;
+    var wNum=(d.weekly_left!=null
+      ?(d.week!=null&&d.week>=0.99?'<span class="bad">~'+kf(d.weekly_left)+' left</span>':'<span class="good">~'+kf(d.weekly_left)+' left</span>')
+      :'—')+
+      (d.week!=null?' · '+Math.round(d.week*100)+'% used':'')+
+      (d.week_reset_in_sec!=null?' · '+ago(d.week_reset_in_sec):'')+calib;
+    document.getElementById('bars').innerHTML=
+      bar('session',sAllow>0?sUsed/sAllow:null,sNum)+bar('week',d.week,wNum);
+  }
+  renderBars(${bars0});
   function tick(){
     fetch('/u/${h}/live.json').then(function(r){return r.json()}).then(function(j){
       if(j.lifetime&&window.__setLife)window.__setLife(j.lifetime);
-      if(j.available!=null&&avail)avail.textContent=hum(j.available);
+      if(j.five_billed!=null)renderBars(j);
       if(j.feed&&j.feed.length)feed.innerHTML=j.feed.slice(0,8).map(function(e){
         return '<li><span>'+e.channel+' · '+ago(e.ago_sec)+' ago</span><b>'+(e.tokens_1h>0?'+'+hum(e.tokens_1h)+' <span class="sub">/1h</span>':'<span class="sub">idle</span>')+'</b></li>';}).join('');
       document.getElementById('stamp').textContent=new Date().toLocaleString([],{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -411,6 +435,107 @@ document.getElementById('f').addEventListener('submit',function(ev){
 </body></html>`;
 }
 
+// Owner settings — the control surface: fleet directives (pause/resume/clear per live
+// session), runaway thresholds, webhooks. Mutations ride the auth cookie + same-origin
+// Origin header (see mutAuthed); nothing here is reachable without the owner secret.
+function renderSettings(h, s, b) {
+  const esc = (x) => String(x == null ? "" : x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const cfg = s.config || {};
+  const burners = (b.top_burners || []).filter((a) => a.tokens_1h > 0);
+  const fleetRows = burners.map((a) => `
+   <tr><td><b>${esc(a.name || a.project || (a.session || "").slice(0, 8))}</b> <span class="mono">${esc((a.session || "").slice(0, 8))}</span></td>
+   <td class="mono">${esc(a.surface)}</td><td class="num">${a.rate_5m > 0 ? Math.round(a.rate_5m / 1000) + "k/5m" : "idle"}</td>
+   <td class="act"><button data-s="${esc(a.session)}" data-a="pause">pause</button><button data-s="${esc(a.session)}" data-a="resume">resume</button><button data-s="${esc(a.session)}" data-a="clear">clear</button></td></tr>`).join("");
+  const hookRows = (s.webhooks || []).map((w) => `
+   <tr><td class="mono">${esc(w.url)}</td><td>${esc(w.format || "json")}</td>
+   <td class="act"><button data-del="${esc(w.url)}">remove</button></td></tr>`).join("");
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${h} — settings · Maxx</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.card{width:1100px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
+.top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
+.brand .m{color:var(--accent);font-size:23px}
+.who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
+.top a{color:var(--accent);font-weight:600;text-decoration:none;font-size:14px}
+h2{font-size:13px;color:var(--ink-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-top:26px}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14.5px}
+th{text-align:left;color:var(--ink-3);font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line)}
+td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.act{text-align:right;white-space:nowrap}
+button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans);margin-left:6px}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+input{padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:13px;color:var(--ink)}
+.row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.row label{font-size:13.5px;color:var(--ink-2);min-width:220px}
+.empty{color:var(--ink-3);padding:10px;font-size:14px}
+.note{color:var(--ink-3);font-size:12.5px;margin-top:6px}
+.flash{display:none;margin-left:10px;font-size:13px;font-weight:600}
+.flash.ok{color:#1c7c54}.flash.err{color:#c0392b}
+</style></head><body>
+<div class="card">
+ <div class="top">
+  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · settings</span></div>
+  <span><a href="/u/${h}/dash">← dashboard</a> · <a href="/u/${h}">public card</a></span>
+ </div>
+
+ <h2>Fleet control <span class="sub">— live sessions (last hour); directives deliver on the session's next gate poll</span></h2>
+ <table><thead><tr><th>Session</th><th>Surface</th><th style="text-align:right">Rate</th><th></th></tr></thead>
+ <tbody id="fleet">${fleetRows || '<tr><td colspan="4" class="empty">nothing burning in the last hour</td></tr>'}</tbody>
+ <tbody><tr><td><b>ALL SESSIONS</b> <span class="mono">broadcast</span></td><td></td><td></td>
+  <td class="act"><button data-s="*" data-a="pause">pause all</button><button data-s="*" data-a="resume">resume all</button></td></tr></tbody></table>
+ <span class="flash" id="fleetFlash"></span>
+
+ <h2>Runaway detection <span class="sub">— sustained burn that trips the runaway webhook event</span></h2>
+ <div class="row"><label>Rate threshold (tokens / 5 min)</label><input id="rrate" value="${cfg.runaway_rate_5m ?? 500000}" size="12"></div>
+ <div class="row"><label>Sustained for (minutes)</label><input id="rmin" value="${cfg.runaway_min ?? 10}" size="12"></div>
+ <div class="row"><button class="primary" id="cfgSave">Save</button><span class="flash" id="cfgFlash"></span></div>
+
+ <h2>Webhooks <span class="sub">— push on over / refill / week-80/90/95 / runaway</span></h2>
+ <table><thead><tr><th>URL</th><th>Format</th><th></th></tr></thead>
+ <tbody id="hooks">${hookRows || '<tr><td colspan="3" class="empty">none registered</td></tr>'}</tbody></table>
+ <div class="row"><input id="hookUrl" placeholder="https://…" size="46"><input id="hookFmt" placeholder="json | dash" size="10"><button class="primary" id="hookAdd">Add</button><span class="flash" id="hookFlash"></span></div>
+ <div class="note">Directives, thresholds and webhooks act account-wide for @${h}. Session/project names on this page never appear publicly.</div>
+</div>
+<script>
+if(location.search)history.replaceState(null,'',location.pathname);
+(function(){
+  var flash=function(id,ok,msg){var f=document.getElementById(id);f.className='flash '+(ok?'ok':'err');f.textContent=msg;f.style.display='inline';setTimeout(function(){f.style.display='none'},2500)};
+  var post=function(path,body){return fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})})};
+  document.addEventListener('click',function(ev){
+    var b=ev.target;
+    if(b.dataset&&b.dataset.s&&b.dataset.a){
+      post('/api/u/${h}/directive',{session:b.dataset.s,action:b.dataset.a,note:'from settings'}).then(function(r){
+        flash('fleetFlash',r.ok,r.ok?b.dataset.a+' sent':'failed: '+(r.j.error||''));});
+    }
+    if(b.dataset&&b.dataset.del){
+      fetch('/api/u/${h}/webhooks',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({url:b.dataset.del})})
+        .then(function(r){if(r.ok)location.reload();else flash('hookFlash',false,'failed');});
+    }
+  });
+  document.getElementById('cfgSave').addEventListener('click',function(){
+    post('/api/u/${h}/config',{runaway_rate_5m:Number(document.getElementById('rrate').value),runaway_min:Number(document.getElementById('rmin').value)})
+      .then(function(r){flash('cfgFlash',r.ok,r.ok?'saved':'failed: '+(r.j.error||''))});
+  });
+  document.getElementById('hookAdd').addEventListener('click',function(){
+    post('/api/u/${h}/webhooks',{url:document.getElementById('hookUrl').value.trim(),format:document.getElementById('hookFmt').value.trim()||null})
+      .then(function(r){if(r.ok)location.reload();else flash('hookFlash',false,'failed: '+(r.j.error||''))});
+  });
+})();
+</script>
+</body></html>`;
+}
+
 // Owner dashboard, two panes: LEFT = the usage story (same range-toggle graph as the
 // public card, budget tiles, agents, channels); RIGHT = every emit, raw, CLI-style.
 function renderDash(h, s) {
@@ -447,6 +572,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .term .v{color:#4ade80;font-weight:600}
 .term .p{color:#e2e8f0}
 .term .d{color:#8ea3c0}
+.term .o{color:#fbbf24;font-weight:600}
 .bars{margin-top:20px;background:#f0ebfd;border-radius:12px;padding:14px 18px;font-family:var(--mono);font-size:13px;display:flex;flex-direction:column;gap:10px}
 .bar{display:grid;grid-template-columns:64px minmax(120px,1fr) auto;gap:14px;align-items:center}
 .bar .lab{color:#6d5fa8}
@@ -484,7 +610,7 @@ td b{font-weight:600}
 <div class="card">
  <div class="top">
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
-  <div class="badge" id="verdict">loading…</div>
+  <span style="display:flex;align-items:center;gap:14px"><a href="/u/${h}/settings" style="color:var(--accent);font-weight:600;text-decoration:none;font-size:14px">⚙ settings</a><span class="badge" id="verdict">loading…</span></span>
  </div>
  <div class="bars" id="bars"></div>
  <div class="ranges" id="ranges">${RANGE_PILLS}<span class="tot"><span id="tot"></span> <span class="sub" id="totSub"></span></span></div>
@@ -504,7 +630,7 @@ td b{font-weight:600}
  </div>
 </div>
 <div class="term">
- <div class="thead"><span class="dot"></span> emits — live</div>
+ <div class="thead"><span class="dot"></span> activity — live <span style="text-transform:none;letter-spacing:0;font-weight:400">· emits + mcp + directives + auth</span></div>
  <div class="lines" id="term"><div class="ln d">listening…</div></div>
 </div>
 </div>
@@ -575,27 +701,41 @@ ${CHART_JS}
       window.__ev=(j.events||[]).filter(function(e){return e.billed>0&&e.surface!=='directive'});
       renderChannels();renderTerm();
     }).catch(function(){});
+    fetch('/api/u/${h}/ops?n=100').then(function(r){return r.json()}).then(function(j){
+      window.__ops=j.ops||[];renderTerm();
+    }).catch(function(){});
   }
-  // right pane: every emit as a CLI log line, oldest→newest, pinned to the bottom
-  // like a tail -f unless the user has scrolled up
+  // right pane: EVERYTHING, merged chronologically — emits (green) plus tally ops
+  // (amber: mcp gate checks, reserves, directives, auth). Oldest→newest, pinned to
+  // the bottom like tail -f unless the user has scrolled up.
   function renderTerm(){
-    // epoch-0 rows are backfill bookkeeping, not live emits — keep them out of the tail
-    var el=document.getElementById('term'),ev=(window.__ev||[]).filter(function(e){return new Date(e.ts).getTime()>0}).slice().reverse();
-    if(!ev.length){el.innerHTML='<div class="ln d">no emits yet</div>';return}
-    var pinned=el.scrollHeight-el.scrollTop-el.clientHeight<40;
-    el.innerHTML=ev.map(function(e){
-      var d=new Date(e.ts); // rendered in the VIEWER'S timezone — wall-clock times must be local
-      var t=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+    var el=document.getElementById('term');
+    var tl=function(ts){var d=new Date(ts); // viewer-local wall clock
+      return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0')};
+    var items=[];
+    (window.__ev||[]).forEach(function(e){
+      var ms=new Date(e.ts).getTime();
+      if(!(ms>0))return; // epoch-0 backfill bookkeeping stays out of the tail
       var who=e.name||e.project||'';
       var extra=[];
       if(e.turns)extra.push(e.turns+'t');
       if(e.tool_calls)extra.push(e.tool_calls+'tc');
       if(e.ctx)extra.push('ctx'+hum(e.ctx));
-      return '<div class="ln"><span class="t">'+t+'</span> <span class="s">'+esc(e.surface)+'</span> '+
+      items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> <span class="s">'+esc(e.surface)+'</span> '+
         '<span class="v">+'+hum(e.billed)+'</span>'+
         (who?' <span class="p">'+esc(who)+'</span>':'')+
-        (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+'</div>';
-    }).join('');
+        (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+'</div>'});
+    });
+    (window.__ops||[]).forEach(function(o){
+      var ms=o.ts*1000;
+      if(!(ms>0))return;
+      items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> <span class="o">'+esc(o.op)+'</span>'+
+        (o.d?' <span class="d">'+esc(o.d)+'</span>':'')+'</div>'});
+    });
+    if(!items.length){el.innerHTML='<div class="ln d">no activity yet</div>';return}
+    items.sort(function(a,b2){return a.ms-b2.ms});
+    var pinned=el.scrollHeight-el.scrollTop-el.clientHeight<40;
+    el.innerHTML=items.slice(-250).map(function(i){return i.html}).join('');
     if(pinned)el.scrollTop=el.scrollHeight;
   }
   // channels = budget.surfaces (billed this 5h window) merged with the feed (last-seen + 1h burn),
@@ -656,6 +796,20 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
   };
   const readTokenOf = (headers, url) => tokenOf(headers, url) || cookieK(headers);
   const setCookie = (v) => `maxx_k=${encodeURIComponent(v)}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`;
+  // Mutations from the BROWSER (settings page): cookie accepted only when the Origin
+  // header is same-origin — the standard CSRF defense (SameSite=Lax is the backstop).
+  // Bearer/?k= callers (CLI, MCP, curl) are unaffected: no cookie, no Origin needed.
+  const sameOrigin = (headers) => {
+    const o = headers.origin || headers.Origin || "";
+    if (!o) return false;
+    const host = (headers["x-forwarded-host"] || headers.host || "").split(",")[0].trim();
+    try { return new URL(o).host === host || new URL(o).host === "meetmaxx.co"; } catch { return false; }
+  };
+  const mutAuthed = async (h, headers, url) => {
+    if (await authed(h, tokenOf(headers, url))) return true;
+    const ck = cookieK(headers);
+    return !!ck && sameOrigin(headers) && (await authed(h, ck));
+  };
   // Self-serve secrets (signup) live in the store; env secrets (MAXX_SECRET*) are
   // the operator fallback that also gates unclaimed handles on a public deploy.
   const authed = async (handle, token) => {
@@ -725,6 +879,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       return { granted: false, remaining: avail, verdict: b.verdict };
     const lease = { id: randomBytes(8).toString("hex"), tokens, expires: Math.round(t + Math.min(Math.max(ttl_sec, 60), 6 * 3600)), label };
     s.leases.push(lease);
+    logOp(s, "reserve", `${Math.round(tokens / 1000)}k granted${label ? ` · ${label}` : ""}`, t);
     await store.save(handle, s);
     return { granted: true, lease_id: lease.id, tokens, remaining: avail - tokens, expires_at: lease.expires };
   }
@@ -798,7 +953,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
           .map((c) => ({ channel: c.channel, ago_sec: Math.max(0, Math.round(t - c.last)), tokens_1h: c.h1 }));
         const lifetime = s.events.reduce((a, e) => a + (e.raw || e.billed || 0), 0);
         return { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
-          body: JSON.stringify({ lifetime, available: budget.session_to_spend, burn_5m: budget.burn_5m, feed }) };
+          body: JSON.stringify({
+            lifetime, available: budget.session_to_spend, burn_5m: budget.burn_5m,
+            // magnitudes for the card's session/week bars — counts only, same class of
+            // data as "available"; never names
+            five_billed: budget.five_billed, week: budget.week,
+            weekly_left: budget.weekly_left_tokens,
+            five_reset_in_sec: budget.five_reset_in_sec, week_reset_in_sec: budget.week_reset_in_sec,
+            fresh: budget.fresh, feed,
+          }) };
       }
       // owner view: /u/{h}?k={secret} adds the private setup-check panel — "is my install right?"
       // Three signals, each with its fix: CLI shipping (laptop events), connector connected (authed
@@ -845,6 +1008,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         s.magic = live.filter((x) => x !== hit);
         await store.save(h, s);
         if (hit) {
+          logOp(s, "auth:magic", "link consumed", t);
+          await store.save(h, s);
           const want = (await store.getSecret?.(h)) || (await secretFor(h)) || fallbackSecret;
           return dashPage(want);
         } // invalid/expired → fall through to cookie check / login form
@@ -874,13 +1039,27 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       return json(200, { url: `https://${site}/u/${h}/dash?m=${tok}`, expires_in_sec: 120 });
     }
 
+    // ---- owner settings: same auth model as the dash (cookie; ?k= sets the cookie) ----
+    const ms = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/settings\/?$/);
+    if (ms && method === "GET") {
+      const h = ms[1];
+      const tok = readTokenOf(headers, url);
+      if (!tok || !(await authed(h, tok)))
+        return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
+      const s = await store.load(h);
+      const qk = url.searchParams.get("k");
+      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(qk ? { "set-cookie": setCookie(qk) } : {}) }, body: renderSettings(h, s, computeBudget(s, now())) };
+    }
+
     // ---- browser login: secret arrives in the BODY, leaves as an HttpOnly cookie ----
     const ml = p.match(/^\/api\/u\/([^/]+)\/login$/);
     if (ml && method === "POST") {
       const h = decodeURIComponent(ml[1]);
       let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
       const secret = String(b.secret || "");
-      if (!secret || !(await authed(h, secret))) return json(401, { error: "wrong secret" });
+      const ok = secret && (await authed(h, secret));
+      { const so = await store.load(h); logOp(so, "auth:login", ok ? "ok" : "FAILED attempt", now()); await store.save(h, so); }
+      if (!ok) return json(401, { error: "wrong secret" });
       return { status: 200, headers: { "content-type": "application/json", "set-cookie": setCookie(secret) }, body: JSON.stringify({ ok: true }) };
     }
 
@@ -935,7 +1114,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     m = p.match(/^\/api\/u\/([^/]+)\/webhooks$/);
     if (m) {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      if (!(method === "GET" ? await authed(h, readTokenOf(headers, url)) : await mutAuthed(h, headers, url)))
+        return json(401, { error: "unauthorized" });
       const s = await store.load(h);
       s.webhooks = s.webhooks || [];
       if (method === "GET")
@@ -977,7 +1157,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     m = p.match(/^\/api\/u\/([^/]+)\/config$/);
     if (m && method === "POST") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      if (!(await mutAuthed(h, headers, url))) return json(401, { error: "unauthorized" });
       let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
       const s = await store.load(h);
       s.config = { ...(s.config || {}) };
@@ -989,11 +1169,11 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     m = p.match(/^\/api\/u\/([^/]+)\/directive$/);
     if (m && method === "POST") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      if (!(await mutAuthed(h, headers, url))) return json(401, { error: "unauthorized" });
       let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
       const s = await store.load(h);
       const res = addDirective(s, b, now());
-      if (res.ok) await store.save(h, s);
+      if (res.ok) { logOp(s, "directive", `${b.action} → ${b.session}${b.note ? ` · ${b.note}` : ""}`, now()); await store.save(h, s); }
       return json(res.ok ? 200 : 400, res);
     }
     m = p.match(/^\/api\/u\/([^/]+)\/directives$/);
@@ -1008,6 +1188,17 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       if (!peek) await store.save(h, s);
       return json(200, { directives });
     }
+    // Ops ring (newest first) — everything on the tally besides emits: MCP gate
+    // checks, reserves, directives, auth events. Owner read (cookie ok).
+    m = p.match(/^\/api\/u\/([^/]+)\/ops$/);
+    if (m && method === "GET") {
+      const h = decodeURIComponent(m[1]);
+      if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      const n = Math.min(300, Math.max(1, Number(url.searchParams.get("n")) || 100));
+      const s = await store.load(h);
+      return json(200, { ops: (s.ops || []).slice(-n).reverse() });
+    }
+
     // Recent emit events (newest first) — the "who's emitting" feed for `maxx watch`.
     m = p.match(/^\/api\/u\/([^/]+)\/feed$/);
     if (m && method === "GET") {
@@ -1085,6 +1276,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify({ ok: true, ...res }) }] });
           }
           if (name === "maxx_budget") {
+            // ops feed: a cloud agent checking the gate is an event the owner wants to see
+            try { const so = await store.load(h); logOp(so, "mcp:budget", "gate check", now()); await store.save(h, so); } catch {}
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(await budget(h)) }] });
           }
           if (name === "maxx_reserve") {
@@ -1093,7 +1286,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
           if (name === "maxx_directive") {
             const s = await store.load(h);
             const res = addDirective(s, args, now());
-            if (res.ok) await store.save(h, s);
+            if (res.ok) { logOp(s, "directive", `${args.action} → ${args.session}`, now()); await store.save(h, s); }
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(res) }] });
           }
           return rpcOk(id, { isError: true, content: [{ type: "text", text: `unknown tool ${name}` }] });

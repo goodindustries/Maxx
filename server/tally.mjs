@@ -30,7 +30,15 @@ export function emptyStore() {
   // webhooks: [{url, secret, headers, format}] · leases: [{id, tokens, expires, label}]
   // signal: last-notified state for transition webhooks · config: per-handle overrides
   // directives: [{id, session, surface, action, note, created, expires, delivered_to}]
-  return { events: [], anchors: [], seen: {}, webhooks: [], leases: [], signal: null, config: {}, directives: [] };
+  return { events: [], anchors: [], seen: {}, webhooks: [], leases: [], signal: null, config: {}, directives: [], ops: [] };
+}
+
+// Ops ring: everything that happens ON the tally besides emits — MCP budget checks,
+// reserve leases, directives, auth events. Capped so it can never bloat the store.
+export function logOp(store, op, detail = "", now) {
+  store.ops = store.ops || [];
+  store.ops.push({ ts: Math.round(now), op, d: String(detail).slice(0, 120) });
+  if (store.ops.length > 300) store.ops = store.ops.slice(-300);
 }
 
 /**

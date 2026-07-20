@@ -78,3 +78,32 @@ test("cookie works for GET reads, never for mutations", async () => {
   assert.equal((await h(post("/api/u/testy/directive", { session: "*", action: "pause" }, { cookie }))).status, 401);
   assert.equal((await h(post("/api/u/testy/logs", env, { cookie, authorization: `Bearer ${SECRET}` }))).status, 200);
 });
+
+test("settings mutations: cookie + same-origin Origin ok; cross-origin/no-Origin denied", async () => {
+  const { h } = mkHandler();
+  const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
+  const same = { cookie, origin: "https://api.meetmaxx.co", host: "api.meetmaxx.co" };
+  const dir = { session: "*", action: "pause" };
+  assert.equal((await h(post("/api/u/testy/directive", dir, same))).status, 200);
+  assert.equal((await h(post("/api/u/testy/config", { runaway_min: 5 }, same))).status, 200);
+  assert.equal((await h(post("/api/u/testy/directive", dir, { cookie, origin: "https://evil.example", host: "api.meetmaxx.co" }))).status, 401);
+  assert.equal((await h(post("/api/u/testy/directive", dir, { cookie, host: "api.meetmaxx.co" }))).status, 401);
+  // settings page: auth-gated like the dash
+  assert.equal((await h(get("/u/testy/settings"))).status, 401);
+  const page = await h(get("/u/testy/settings", { cookie }));
+  assert.equal(page.status, 200);
+  assert.match(page.body, /Fleet control/);
+});
+
+test("ops ring: auth + mcp + directives land in /ops, capped and owner-only", async () => {
+  const { h } = mkHandler();
+  await h(post("/api/u/testy/login", { secret: "wrong" }));
+  const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
+  await h(post("/api/u/testy/directive", { session: "*", action: "pause" }, { cookie, origin: "https://api.meetmaxx.co", host: "api.meetmaxx.co" }));
+  assert.equal((await h(get("/api/u/testy/ops"))).status, 401);
+  const r = await h(get("/api/u/testy/ops", { cookie }));
+  assert.equal(r.status, 200);
+  const ops = JSON.parse(r.body).ops.map((o) => `${o.op}:${o.d}`);
+  assert.ok(ops.some((o) => o.startsWith("auth:login:FAILED")), "failed login logged");
+  assert.ok(ops.some((o) => o.startsWith("directive:pause")), "directive logged");
+});
