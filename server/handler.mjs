@@ -860,7 +860,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var wRatio=wTick!=null&&wTick>0.02?leftFrac/wTick:1;
     var wCol=(leftFrac<0.1||wRatio<0.5)?'red':wRatio<0.85?'amber':'green';
     document.getElementById('bars').innerHTML=bar('session',sSpec,sNum)+bar('week',{green:leftFrac,tick:wTick,col:wCol},wNum)+
-      '<div style="font-size:11.5px;color:#a3abba">bar = fuel left · grows back as usage ages out · <span style="color:#152036">╎</span> even-pace mark</div>';
+      '<div style="font-size:11.5px;color:#a3abba">bar = what\\'s left · <span style="color:#152036">╎</span> = even pace</div>';
 
     // trio mirrors the statusline: NET/MIN = refuel − burn (the CLI's +xxk/min),
     // REMAINING = the rolling-session standing, AT PACE = where that net rate lands you.
@@ -869,20 +869,20 @@ if(location.search)history.replaceState(null,'',location.pathname);
     if(Math.abs(prog)<1000){netV.textContent='0';netU.textContent='/min';}
     else{netV.textContent=(banked?'+':'−')+nh.slice(0,-1);netU.textContent=nh.slice(-1)+'/min';}
     netV.style.color=banked?'var(--green)':'var(--red)';
-    netSub.textContent=b.net_per_min!=null?'refuel − burn · from the statusline':'refuel '+hum(refuel)+' − burn '+hum(burnMin)+' /min';
+    netSub.textContent='refill − burn';
     // WEEK LEFT: the weekly reserve, with the pace bank as context
     var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
     remV.textContent=hum(b.weekly_left_tokens);remV.style.color='var(--ink)';
-    remSub.textContent=(bank!=null?(bank>=0?'+'+hum(bank)+' banked vs even pace':hum(-bank)+' over even pace'):'—')+
+    remSub.textContent=(bank!=null?(bank>=0?'+'+hum(bank)+' ahead of pace':hum(-bank)+' over pace'):'—')+
       (b.week_reset_in_sec!=null?' · resets '+ago(b.week_reset_in_sec):'');
     // THIS SESSION: the signed rolling standing — what you can spend right now
     var runV=document.getElementById('runV'),runSub=document.getElementById('runSub');
     if(banked){
       runV.textContent='+'+hum(b.session_to_spend);runV.style.color='var(--ink)';
-      runSub.textContent='available · refills as usage ages out';
+      runSub.textContent='available · refills over 5h';
     }else{
       runV.textContent=b.session_over>0?'−'+hum(b.session_over):'0';runV.style.color='var(--red)';
-      runSub.textContent='over — ease off, refuels at '+hum(refuel)+'/min';
+      runSub.textContent='over · refills over 5h';
     }
     var h1=ev.filter(function(e){var ts=new Date(e.ts).getTime()/1000;return ts>t-3600});
     var h1b=h1.reduce(function(a,e){return a+e.billed},0),h1t=h1.reduce(function(a,e){return a+(e.turns||0)},0);
