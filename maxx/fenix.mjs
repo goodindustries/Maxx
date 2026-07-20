@@ -15,7 +15,8 @@
  * headless — `claude -p "$(cat .fenix/handoff.md)"` — or let the next interactive
  * session in this directory pick it up automatically via --wake.
  */
-import { readFileSync, writeFileSync, renameSync, statSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, renameSync, statSync, readdirSync, existsSync, openSync } from "node:fs";
+import { spawn } from "node:child_process";
 import path from "node:path";
 
 const DIR = path.join(process.cwd(), ".fenix");
@@ -41,6 +42,23 @@ if (arg === "--wake") {
   process.exit(0);
 }
 
+// --rise: the unattended rebirth. /clear is a human keystroke the model can't press —
+// but a NEW process is a fresh context by construction. Consume the handoff and spawn a
+// detached headless continuation with it as the prompt. Output → .fenix/rise-<ts>.log.
+if (arg === "--rise") {
+  if (!existsSync(HANDOFF)) { console.error("fenix: no pending handoff to rise from."); process.exit(1); }
+  const body = readFileSync(HANDOFF, "utf8");
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  renameSync(HANDOFF, path.join(DIR, `handoff.consumed-${ts}.md`)); // consume FIRST: the child's --wake hook must not double-inject
+  const log = path.join(DIR, `rise-${ts}.log`);
+  const fd = openSync(log, "a");
+  const child = spawn("claude", ["-p", `🔥 FENIX RISE — you are the continuation of a cleared session. Resume the handoff below; verify claims against the working tree first.\n\n${body}`],
+    { cwd: process.cwd(), detached: true, stdio: ["ignore", fd, fd] });
+  child.unref();
+  console.log(`fenix: risen — headless continuation pid ${child.pid} · log ${log}`);
+  process.exit(0);
+}
+
 if (arg === "--status") {
   if (!existsSync(DIR)) { console.log("fenix: no .fenix/ here — nothing pending."); process.exit(0); }
   const pending = existsSync(HANDOFF) ? `PENDING (${Math.round((Date.now() - statSync(HANDOFF).mtimeMs) / 60000)}m old)` : "none";
@@ -49,5 +67,5 @@ if (arg === "--status") {
   process.exit(0);
 }
 
-console.error("fenix: unknown arg (use --wake | --status)");
+console.error("fenix: unknown arg (use --wake | --rise | --status)");
 process.exit(1);

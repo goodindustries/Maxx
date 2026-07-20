@@ -6,6 +6,8 @@ trigger: /fenix
 
 # /fenix — the maxx rebirth loop
 
+(Subroute of maxx: `/maxx fenix` and `/fenix` are the same flow.)
+
 Context is the scarcest resource after tokens. Fenix trades a bloated session for a
 fresh one WITHOUT losing the thread: you write the handoff, the human clears, the
 next session in this directory auto-inherits the handoff (a SessionStart hook injects
@@ -40,10 +42,15 @@ it, read=consume — it fires exactly once).
 2. **Truth check** — every "Just landed" claim needs evidence you actually have.
    Unverified work goes under "In motion", never "landed".
 
-3. **Tell the human** (exactly this shape):
-   - `handoff written → .fenix/handoff.md`
-   - `now hit /clear — the next session here rises with the handoff automatically`
-   - `unattended instead: claude -p "$(cat .fenix/handoff.md)"`
+3. **Hand back control.** Straight truth: `/clear` is a human keystroke — no model,
+   hook, or tool can clear a session's own context. Two exits, pick by presence:
+   - **Human present:** say exactly — `handoff written → .fenix/handoff.md · hit
+     /clear — the next session here rises automatically.`
+   - **Unattended / human says "rise":** run
+     `node ~/.claude/skills/maxx/fenix.mjs --rise` — consumes the handoff and
+     spawns a detached headless `claude -p` continuation (fresh process = fresh
+     context; log lands in `.fenix/rise-<ts>.log`). Then END your turn — the
+     continuation owns the work now; doing more here defeats the rebirth.
 
 4. Do NOT delete or edit the handoff after writing it — `fenix.mjs --wake` consumes
    it on next session start. `node ~/.claude/skills/maxx/fenix.mjs --status` shows
