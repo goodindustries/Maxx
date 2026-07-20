@@ -445,6 +445,8 @@ td b{font-weight:600}
  </div>
 </div>
 <script>
+// scrub one-time tokens / legacy secrets out of the address bar AND this history entry
+if(location.search)history.replaceState(null,'',location.pathname);
 (function(){
   var esc=function(s){var d=document.createElement('span');d.textContent=s==null?'':String(s);return d.innerHTML};
   var hum=function(n){return n==null?'—':n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+Math.round(n)};
@@ -703,6 +705,16 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       // magic link (?m=): single-use, short-TTL token minted by POST /api/u/:h/magic.
       // Consume it → set the auth cookie → clean redirect. Being one-shot makes the
       // URL harmless in history/logs the moment it's used.
+      // NO server-side redirects here: the Netlify proxy re-appends the original query
+      // string to Location headers, which turns a strip-the-token redirect into a loop.
+      // Instead: serve the dash directly with Set-Cookie, and the page itself cleans the
+      // address bar via history.replaceState — the token/secret URL never even survives
+      // as a history entry.
+      const dashPage = (cookieVal) => ({
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(cookieVal ? { "set-cookie": setCookie(cookieVal) } : {}) },
+        body: renderDash(h),
+      });
       const mtok = url.searchParams.get("m");
       if (mtok) {
         const s = await store.load(h);
@@ -713,18 +725,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         await store.save(h, s);
         if (hit) {
           const want = (await store.getSecret?.(h)) || (await secretFor(h)) || fallbackSecret;
-          return { status: 302, headers: { location: `/u/${h}/dash`, ...(want ? { "set-cookie": setCookie(want) } : {}) }, body: "" };
+          return dashPage(want);
         } // invalid/expired → fall through to cookie check / login form
       }
       const tok = readTokenOf(headers, url);
       if (!tok || !(await authed(h, tok)))
         return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
-      // legacy ?k= link: convert to the cookie and bounce to the clean URL so the
-      // secret drops out of the location bar (it was still in history once — the
-      // login form path avoids even that).
+      // legacy ?k= link: convert the secret to the cookie; replaceState scrubs it client-side
       const qk = url.searchParams.get("k");
-      if (qk) return { status: 302, headers: { location: `/u/${h}/dash`, "set-cookie": setCookie(qk) }, body: "" };
-      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderDash(h) };
+      return dashPage(qk || null);
     }
 
     // ---- magic link mint: CLI (holding the secret as bearer) asks for a one-time
