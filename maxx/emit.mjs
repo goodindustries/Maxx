@@ -367,7 +367,15 @@ async function runOnce({ quiet = false } = {}) {
     console.log(`MAXX_EMIT handle=${handle} surface=${surface} new_billed=${totalBilled} output=${totalOutput} sessions=${sessions.length} anchor=${anchor ? "yes" : "no"} target=${base}/api/u/${handle}/logs mode=${args.send ? "send" : "dry"}`);
     if (args.json) console.log(JSON.stringify(envelope, null, 2));
   }
-  if (!totalBilled) { if (!quiet) console.log("  nothing new since cursor."); return maxTs; }
+  // Idle heartbeat: no new burn still refreshes the server's anchor. Without this an
+  // idle laptop lets the anchor age out and every fail-closed gate blocks on "stale"
+  // while budget sits unused. Throttled off the cursor stamp; needs a fresh local
+  // anchor to ship (a genuinely blind machine still goes stale — that's correct).
+  const lastSendAt = (() => { try { return Date.parse(JSON.parse(readFileSync(CURSOR, "utf8")).at) || 0; } catch { return 0; } })();
+  const hbMin = process.env.MAXX_HEARTBEAT_MIN !== undefined ? Number(process.env.MAXX_HEARTBEAT_MIN) : 5;
+  const hbDue = args.send && anchor && Date.now() - lastSendAt > hbMin * 60_000;
+  if (!totalBilled && !hbDue) { if (!quiet) console.log("  nothing new since cursor."); return maxTs; }
+  if (!totalBilled && !quiet) console.log("  idle heartbeat — anchor-only refresh.");
 
   if (!args.send) {
     if (!quiet && !args.json) {
