@@ -33,13 +33,13 @@ test("dash: no auth → login form; cookie → dashboard; ?k= → cookie + clean
   const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
   const dash = await h(get("/u/testy/dash", { cookie }));
   assert.equal(dash.status, 200);
-  assert.match(dash.body, /owner dashboard/);
+  assert.match(dash.body, /cockpit/);
   assert.ok(!dash.body.includes(SECRET), "secret must not be embedded in the page");
   // ?k= bridge: dash served directly + cookie set (no redirect — the Netlify proxy
   // re-appends the query string to Location headers, which would loop)
   const bridge = await h(get(`/u/testy/dash?k=${SECRET}`));
   assert.equal(bridge.status, 200);
-  assert.match(bridge.body, /owner dashboard/);
+  assert.match(bridge.body, /cockpit/);
   assert.match(bridge.headers["set-cookie"], /^maxx_k=/);
 });
 
@@ -55,7 +55,7 @@ test("magic link: bearer-only mint, single-use, expires", async () => {
   const m = new URL(JSON.parse(mint.body).url).searchParams.get("m");
   const first = await h(get(`/u/testy/dash?m=${m}`));
   assert.equal(first.status, 200);
-  assert.match(first.body, /owner dashboard/);
+  assert.match(first.body, /cockpit/);
   assert.match(first.headers["set-cookie"], /^maxx_k=/);
   // second use: consumed → login form, no cookie
   assert.equal((await h(get(`/u/testy/dash?m=${m}`))).status, 401);
