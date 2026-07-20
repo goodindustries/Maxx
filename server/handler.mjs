@@ -628,7 +628,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .bar .num .bad{color:var(--red);font-weight:700}
 .klabel{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);font-family:var(--mono)}
 .warns{margin-top:12px;display:flex;flex-direction:column;gap:7px;font-family:var(--mono);font-size:12.5px}
-.walert{display:flex;gap:9px;align-items:center;padding:8px 13px;border-radius:9px;line-height:1.5}
+.walert{padding:8px 13px;border-radius:9px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .walert b{font-weight:700}
 .walert.red{background:#fdeeee;color:#b02f2f}
 .walert.amber{background:#fdf6e7;color:#8f660e}
@@ -1051,13 +1051,13 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // 105k is fine (no warn); one climbing shows +k/turn and turns-to-wall. Most
     // urgent (soonest wall) first. window.__ctxS is set at the top of renderAll.
     (window.__ctxS||[]).filter(function(x){return x.ctx>120e3||x.ttw<25}).sort(function(a,b2){return a.ttw-b2.ttw}).slice(0,3).forEach(function(x){
-      var nm=esc((x.name||x.project||'').slice(0,28));
-      var climb=x.vel>0?' · +'+hum(x.vel)+'/turn':'';
-      var ttw=isFinite(x.ttw)?' · ~'+Math.round(x.ttw)+' turns to wall':'';
-      if(x.ctx>CTX_WALL)warns.push({s:'red',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+' · past wall · <b>/fenix now</b>'});
-      else if(x.vel>0&&x.ttw<15)warns.push({s:'red',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+climb+ttw+' · <b>/fenix soon</b>'});
+      var nm=esc((x.name||x.project||'').slice(0,18));
+      var climb=x.vel>0?' · +'+hum(x.vel)+'/t':'';
+      var ttw=isFinite(x.ttw)?' · →'+Math.round(x.ttw)+'t':'';
+      if(x.ctx>CTX_WALL)warns.push({s:'red',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+' · past wall · <b>/fenix</b>'});
+      else if(x.vel>0&&x.ttw<15)warns.push({s:'red',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+climb+ttw+' · <b>/fenix</b>'});
       else if(x.vel>0&&x.ctx>120e3)warns.push({s:'amber',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+climb+ttw});
-      else if(x.ctx>200e3)warns.push({s:'amber',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+' · holding steady'});
+      else if(x.ctx>200e3)warns.push({s:'amber',t:'ctx <b>'+hum(x.ctx)+'</b> '+nm+' · holding'});
     });
     var werrs=h1.reduce(function(a,e){return a+(e.errors||0)},0);
     if(werrs>0)warns.push({s:'amber',t:'<b>'+werrs+'</b> token error'+(werrs===1?'':'s')+' · last hour'});
