@@ -352,7 +352,7 @@ ${CHART_JS}
       if(j.available!=null&&avail)avail.textContent=hum(j.available);
       if(j.feed&&j.feed.length)feed.innerHTML=j.feed.slice(0,8).map(function(e){
         return '<li><span>'+e.channel+' · '+ago(e.ago_sec)+' ago</span><b>'+(e.tokens_1h>0?'+'+hum(e.tokens_1h)+' <span class="sub">/1h</span>':'<span class="sub">idle</span>')+'</b></li>';}).join('');
-      document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
+      document.getElementById('stamp').textContent=new Date().toLocaleString([],{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     }).catch(function(){});
   }
   tick();setInterval(tick,15000);
@@ -569,7 +569,7 @@ ${CHART_JS}
           '<td class="num">'+(a.cost_per_action?hum(a.cost_per_action):'—')+'</td></tr>';
       }).join(''):'<tr><td colspan="6" class="empty">nothing burning in the last hour</td></tr>';
       window.__sf=b.surfaces||[];renderChannels();
-      document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
+      document.getElementById('stamp').textContent=new Date().toLocaleString([],{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     }).catch(function(){});
     fetch('/api/u/${h}/feed?n=200').then(function(r){return r.json()}).then(function(j){
       window.__ev=(j.events||[]).filter(function(e){return e.billed>0&&e.surface!=='directive'});
@@ -584,8 +584,8 @@ ${CHART_JS}
     if(!ev.length){el.innerHTML='<div class="ln d">no emits yet</div>';return}
     var pinned=el.scrollHeight-el.scrollTop-el.clientHeight<40;
     el.innerHTML=ev.map(function(e){
-      var d=new Date(e.ts);
-      var t=String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+':'+String(d.getUTCSeconds()).padStart(2,'0');
+      var d=new Date(e.ts); // rendered in the VIEWER'S timezone — wall-clock times must be local
+      var t=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
       var who=e.name||e.project||'';
       var extra=[];
       if(e.turns)extra.push(e.turns+'t');
