@@ -492,34 +492,42 @@ function renderSettings(h, s, b) {
 <title>${h} — settings · Maxx</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+:root{--bg:#eceef3;--card:#fff;--line:#edeef4;--ink:#132038;--ink-2:#2a3346;--ink-25:#6c7688;--ink-3:#98a1b2;--accent:#5b52e8;--green:#178a4e;--red:#c23a3a;--sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
-.card{width:1100px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.card{width:1100px;max-width:100%;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:36px 42px 30px}
 .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
-.brand .m{color:var(--accent);font-size:23px}
-.who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
+.brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:21px;letter-spacing:-.01em}
+.brand .m{color:var(--accent);font-size:22px;font-weight:700}
+.who{font-family:var(--mono);font-size:16px;color:var(--ink-25);font-weight:400}
 .top a{color:var(--accent);font-weight:600;text-decoration:none;font-size:14px}
-h2{font-size:13px;color:var(--ink-3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-top:26px}
-h2 .sub{text-transform:none;letter-spacing:0;font-weight:400}
-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14.5px}
-th{text-align:left;color:var(--ink-3);font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
-td{padding:8px 10px;border-bottom:1px solid var(--line)}
-td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
-td.num{text-align:right;font-variant-numeric:tabular-nums}
+h2{font-size:12px;color:var(--ink-3);font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-top:28px;font-family:var(--mono)}
+h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;font-family:var(--sans);font-size:12.5px}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px}
+th{text-align:left;color:var(--ink-3);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+td{padding:8px;border-bottom:1px solid #f0f1f6;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-25)}
+td.num{text-align:right;font-family:var(--mono);font-size:12.5px;color:var(--ink-25)}
 td.act{text-align:right;white-space:nowrap}
-button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans);margin-left:6px}
+button{border:1px solid #e3e2f4;background:var(--card);color:var(--ink-2);border-radius:9px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans);margin-left:6px;transition:border-color .15s,color .15s}
 button:hover{border-color:var(--accent);color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-input{padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:13px;color:var(--ink)}
+button.primary:hover{color:#fff;filter:brightness(1.08)}
+input{padding:8px 12px;border:1px solid #e3e2f4;background:#f6f6fb;border-radius:9px;font-family:var(--mono);font-size:13px;color:var(--ink)}
+input:focus{outline:none;border-color:var(--accent);background:#fff}
 .row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .row label{font-size:13.5px;color:var(--ink-2);min-width:220px}
-.empty{color:var(--ink-3);padding:10px;font-size:14px}
-.note{color:var(--ink-3);font-size:12.5px;margin-top:6px}
-.flash{display:none;margin-left:10px;font-size:13px;font-weight:600}
-.flash.ok{color:#1c7c54}.flash.err{color:#c0392b}
+input{max-width:100%}
+#hookUrl{flex:1 1 260px;min-width:0}
+@media(max-width:640px){td.act{white-space:normal}td.act button{margin:3px 0 3px 6px}}
+.empty{color:var(--ink-3);padding:10px;font-size:13.5px}
+.note{color:var(--ink-3);font-size:12.5px;margin-top:8px}
+.flash{display:none;margin-left:10px;font-size:13px;font-weight:600;font-family:var(--mono)}
+.flash.ok{color:var(--green)}.flash.err{color:var(--red)}
 </style></head><body>
 <div class="card">
  <div class="top">
