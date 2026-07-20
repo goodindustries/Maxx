@@ -628,11 +628,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .bar .num .bad{color:var(--red);font-weight:700}
 .klabel{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);font-family:var(--mono)}
 .warns{margin-top:12px;display:flex;flex-direction:column;gap:7px;font-family:var(--mono);font-size:12.5px}
-.warn{display:flex;gap:9px;align-items:center;padding:8px 13px;border-radius:9px;line-height:1.5}
-.warn b{font-weight:700}
-.warn.red{background:#fdeeee;color:#b02f2f}
-.warn.amber{background:#fdf6e7;color:#8f660e}
-.warn.ok{background:#eaf7ef;color:#178a4e}
+.walert{display:flex;gap:9px;align-items:center;padding:8px 13px;border-radius:9px;line-height:1.5}
+.walert b{font-weight:700}
+.walert.red{background:#fdeeee;color:#b02f2f}
+.walert.amber{background:#fdf6e7;color:#8f660e}
+.walert.ok{background:#eaf7ef;color:#178a4e}
 .trio{display:grid;grid-template-columns:1.25fr 1fr 1fr;margin-top:20px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .trio>div{padding:18px 22px;border-right:1px solid var(--line)}
 .trio>div:last-child{border-right:none}
@@ -876,8 +876,11 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // color follow the STANDING, never the raw rate. week = left · even-pace bank · reset.
     var burnMin=b.burn_5m!=null?b.burn_5m/5:0;
     var refuel=(b.five_billed||0)/300;
-    // prefer the statusline's OWN net (shipped via the anchor) — derivation is fallback only
-    var prog=b.net_per_min!=null?b.net_per_min:refuel-burnMin;
+    // net rate MUST agree with the chart the user sees: refill − recent (5-min) burn,
+    // both live from the same budget. The statusline's net_per_min (refill − a 60s-decay
+    // burn) can read +banking while the chart's recent minutes are clearly burning —
+    // that mismatch is the bug. Anchor net is fallback only when live burn is absent.
+    var prog=b.burn_5m!=null?refuel-burnMin:(b.net_per_min!=null?b.net_per_min:0);
     // live drift: standing moves at net/min, week reserve drains at burn/min
     var standing=(b.session_to_spend||0)-(b.session_over||0)+prog*drift/60;
     var toSpend=Math.max(0,standing),over=Math.max(0,-standing);
@@ -1064,7 +1067,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     if(wBurn>=5e5&&wBurn>2*wRefill)warns.push({s:'amber',t:'burn <b>'+hum(wBurn)+'/min</b> · refill '+hum(wRefill)+'/min'});
     if(b.anchor_age_sec!=null&&b.anchor_age_sec>90)warns.push({s:'amber',t:'anchor <b>'+b.anchor_age_sec+'s</b> old'});
     document.getElementById('warns').innerHTML=(warns.length?warns:[{s:'ok',t:'all clear'}]).map(function(w){
-      return '<div class="warn '+w.s+'">'+w.t+'</div>';
+      return '<div class="walert '+w.s+'">'+w.t+'</div>';
     }).join('');
 
     // deterministic advisory: worst live session by ctx, with the numbers that justify
