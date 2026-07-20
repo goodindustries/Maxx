@@ -293,7 +293,7 @@ document.getElementById('cp').addEventListener('click',function(){navigator.clip
       return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#635bff" stroke="#fff" stroke-width="1"/>'}).join(''):'';
     var pi=vals.indexOf(Math.max.apply(null,vals)),pk=document.getElementById('peak');
     if(vals[pi]>0){pk.style.display='block';pk.style.left=(pi/(n-1)*100).toFixed(1)+'%';pk.style.top='-6px';
-      pk.style.transform='translateX(-'+(pi>n*0.7?105:0)+'%)';pk.textContent='peak '+hum(vals[pi])+' · '+labels[pi];}
+      pk.style.transform='translateX(-'+(pi/(n-1)>0.7?105:0)+'%)';pk.textContent='peak '+hum(vals[pi])+' · '+labels[pi];}
     else pk.style.display='none';
     document.getElementById('capL').textContent=labels[0]||'';
     document.getElementById('capR').textContent=key==='hourly'?'now':labels[labels.length-1]||'today';
@@ -424,7 +424,7 @@ td b{font-weight:600}
         return '<tr><td><b>'+esc(a.name||a.project||(a.session||'').slice(0,8))+'</b>'+(a.project&&a.name?' <span class="mono">'+esc(a.project)+'</span>':'')+'</td>'+
           '<td class="mono">'+esc(a.surface)+'</td><td class="num">'+hum(a.tokens_1h)+'</td>'+
           '<td class="num">'+(a.rate_5m>0?'<b>'+hum(a.rate_5m)+'</b>':'idle')+'</td>'+
-          '<td class="num">'+(a.ctx?Math.round(a.ctx)+'%':'—')+'</td>'+
+          '<td class="num">'+(a.ctx?hum(a.ctx):'—')+'</td>'+
           '<td class="num">'+(a.cost_per_action?hum(a.cost_per_action):'—')+'</td></tr>';
       }).join(''):'<tr><td colspan="6" class="empty">nothing burning in the last hour</td></tr>';
       window.__sf=b.surfaces||[];renderChannels();
