@@ -99,14 +99,14 @@ const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers
 // ---- live card page (GET /u/{handle}) ------------------------------------------------------
 const fmtN = (n) => Math.round(n).toLocaleString("en-US");
 const humanN = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
-function renderCard(h, s, b, setup = null) {
-  // hero = RAW lifetime (the number a human recognizes); weighted units stay on the weekly row.
+// ---- range series for the chart toggle: hourly / daily / monthly / all time.
+// Buckets are computed server-side so pages embed aggregates only, never raw events.
+// Shared by the public card and the owner dashboard — one source for the bucket math.
+function usageRanges(s) {
   const rawOf = (e) => e.raw || e.billed || 0;
   const lifetime = s.events.reduce((a, e) => a + rawOf(e), 0);
   const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const humanDay = (t) => { const d = new Date(t); return `${MO[d.getUTCMonth()]} ${d.getUTCDate()}`; };
-  // ---- range series for the chart toggle: hourly / daily / monthly / all time.
-  // Buckets are computed server-side so the public page embeds aggregates only, never raw events.
   const evs = s.events.filter((e) => e.ts > 0).map((e) => ({ ts: e.ts * 1000, v: rawOf(e) }));
   const nowMs = Date.now();
   const bucketed = (startMs, stepMs, count, fmt) => {
@@ -141,6 +141,69 @@ function renderCard(h, s, b, setup = null) {
     monthly: { ...monthly, sub: "tokens · last 12 months" },
     all: { ...bucketed(Math.floor(firstTs / DAY) * DAY, DAY, allDays, humanDay), sub: "lifetime tokens" },
   };
+  // embed-ready form (rounded vals, no extra fields)
+  const json = JSON.stringify(Object.fromEntries(Object.entries(RANGES).map(([k, r]) => [k, { labels: r.labels, vals: r.vals.map((v) => Math.round(v)), sub: r.sub }])));
+  return { lifetime, RANGES, json };
+}
+
+// Chart drawing + range-pill wiring, shared verbatim by card and dash. Expects in scope:
+// R (ranges object), pill buttons in #ranges, svg paths #cLine/#cArea/#cDots, #peak,
+// #capL/#capR, #chart/#tip/#guide, and an onDraw(key, total, sub) callback for the hero.
+const CHART_JS = `
+  var cur='all',labels=[],vals=[];
+  var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
+  var W=1080,H=150;
+  function draw(key){
+    cur=key;var r=R[key];labels=r.labels;vals=r.vals;
+    var n=Math.max(2,vals.length),peak=Math.max.apply(null,[1].concat(vals));
+    var pts=vals.map(function(v,i){return [(i*W/(n-1)),(H-(v/peak)*(H-6))]});
+    var line='M'+pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1)}).join('L');
+    document.getElementById('cLine').setAttribute('d',line);
+    document.getElementById('cArea').setAttribute('d',line+'L'+W+','+H+'L0,'+H+'Z');
+    document.getElementById('cDots').innerHTML=n<=60?pts.map(function(p){
+      return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#635bff" stroke="#fff" stroke-width="1"/>'}).join(''):'';
+    var pi=vals.indexOf(Math.max.apply(null,vals)),pk=document.getElementById('peak');
+    if(vals[pi]>0){pk.style.display='block';pk.style.left=(pi/(n-1)*100).toFixed(1)+'%';pk.style.top='-6px';
+      pk.style.transform='translateX(-'+(pi/(n-1)>0.7?105:0)+'%)';pk.textContent='peak '+hum(vals[pi])+' · '+labels[pi];}
+    else pk.style.display='none';
+    document.getElementById('capL').textContent=labels[0]||'';
+    document.getElementById('capR').textContent=key==='hourly'?'now':labels[labels.length-1]||'today';
+    var total=vals.reduce(function(a,v){return a+v},0);
+    onDraw(key,total,r.sub);
+    var bs=document.querySelectorAll('#ranges button');
+    for(var i=0;i<bs.length;i++)bs[i].className=bs[i].getAttribute('data-r')===key?'on':'';
+  }
+  document.getElementById('ranges').addEventListener('click',function(ev){
+    var k=ev.target.getAttribute&&ev.target.getAttribute('data-r');if(k)draw(k);
+  });
+  draw('all');
+  var chart=document.getElementById('chart'),tip=document.getElementById('tip'),guide=document.getElementById('guide');
+  chart.addEventListener('mousemove',function(ev){
+    var r=chart.getBoundingClientRect(),x=ev.clientX-r.left;
+    var i=Math.max(0,Math.min(labels.length-1,Math.round(x/r.width*(labels.length-1))));
+    var cx=i/(labels.length-1)*r.width;
+    tip.style.display='block';tip.style.left=Math.max(60,Math.min(r.width-60,cx))+'px';tip.style.top='34px';
+    tip.textContent=labels[i]+' · '+hum(vals[i])+' tokens';
+    guide.style.display='block';guide.style.left=cx+'px';
+  });
+  chart.addEventListener('mouseleave',function(){tip.style.display='none';guide.style.display='none';});
+`;
+
+// The chart markup the CHART_JS above drives — same skeleton on card and dash.
+const CHART_HTML = `
+  <svg width="100%" viewBox="0 0 1080 150" preserveAspectRatio="none" style="display:block">
+   <path id="cArea" d="" fill="#635bff" opacity=".12"/>
+   <path id="cLine" d="" fill="none" stroke="#635bff" stroke-width="2"/>
+   <g id="cDots"></g>
+  </svg>
+  <div class="guide" id="guide"></div><div class="tip" id="tip"></div>
+  <div class="peak" id="peak" style="display:none"></div>`;
+const RANGE_PILLS = `<button data-r="hourly">Hourly</button><button data-r="daily">Daily</button><button data-r="monthly">Monthly</button><button data-r="all" class="on">All time</button>`;
+
+function renderCard(h, s, b, setup = null) {
+  // hero = RAW lifetime (the number a human recognizes); weighted units stay on the weekly row.
+  const rawOf = (e) => e.raw || e.billed || 0;
+  const { lifetime, json: rangesJson } = usageRanges(s);
   const avail = b.session_to_spend, weekLeft = b.weekly_left_tokens;
   const refillMin = b.five_reset_in_sec != null ? Math.round(b.five_reset_in_sec / 60) : null;
   // honesty: a stale anchor means "last known", not "available right now"; tiny anchors (<5%)
@@ -240,17 +303,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
   <div class="badge">${badge}</div>
  </div>
  <div class="hero"><div class="n" id="hero">${fmtN(lifetime)}</div><div class="l" id="heroSub">lifetime tokens</div></div>
- <div class="ranges" id="ranges">
-  <button data-r="hourly">Hourly</button><button data-r="daily">Daily</button><button data-r="monthly">Monthly</button><button data-r="all" class="on">All time</button>
- </div>
- <div class="chart" id="chart">
-  <svg width="100%" viewBox="0 0 1080 150" preserveAspectRatio="none" style="display:block">
-   <path id="cArea" d="" fill="#635bff" opacity=".12"/>
-   <path id="cLine" d="" fill="none" stroke="#635bff" stroke-width="2"/>
-   <g id="cDots"></g>
-  </svg>
-  <div class="guide" id="guide"></div><div class="tip" id="tip"></div>
-  <div class="peak" id="peak" style="display:none"></div>
+ <div class="ranges" id="ranges">${RANGE_PILLS}</div>
+ <div class="chart" id="chart">${CHART_HTML}
   <div class="cap"><span id="capL"></span><span>all machines &amp; cloud · this Claude account</span><span id="capR">today</span></div>
  </div>
  <div class="rows">
@@ -277,47 +331,13 @@ document.getElementById('sh').addEventListener('click',function(){
 document.getElementById('cp').addEventListener('click',function(){navigator.clipboard.writeText("${url}");this.textContent="Copied";setTimeout(()=>this.textContent="Copy link",1500);});
 // range toggle + chart: draw the selected series client-side (hourly/daily/monthly/all time)
 (function(){
-  var R=${JSON.stringify(Object.fromEntries(Object.entries(RANGES).map(([k, r]) => [k, { labels: r.labels, vals: r.vals.map((v) => Math.round(v)), sub: r.sub }])))};
+  var R=${rangesJson};
   var LIFE=${Math.round(lifetime)};
-  var cur='all',labels=[],vals=[];
-  var hum=function(n){return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n};
-  var W=1080,H=150;
-  function draw(key){
-    cur=key;var r=R[key];labels=r.labels;vals=r.vals;
-    var n=Math.max(2,vals.length),peak=Math.max.apply(null,[1].concat(vals));
-    var pts=vals.map(function(v,i){return [(i*W/(n-1)),(H-(v/peak)*(H-6))]});
-    var line='M'+pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1)}).join('L');
-    document.getElementById('cLine').setAttribute('d',line);
-    document.getElementById('cArea').setAttribute('d',line+'L'+W+','+H+'L0,'+H+'Z');
-    document.getElementById('cDots').innerHTML=n<=60?pts.map(function(p){
-      return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#635bff" stroke="#fff" stroke-width="1"/>'}).join(''):'';
-    var pi=vals.indexOf(Math.max.apply(null,vals)),pk=document.getElementById('peak');
-    if(vals[pi]>0){pk.style.display='block';pk.style.left=(pi/(n-1)*100).toFixed(1)+'%';pk.style.top='-6px';
-      pk.style.transform='translateX(-'+(pi/(n-1)>0.7?105:0)+'%)';pk.textContent='peak '+hum(vals[pi])+' · '+labels[pi];}
-    else pk.style.display='none';
-    document.getElementById('capL').textContent=labels[0]||'';
-    document.getElementById('capR').textContent=key==='hourly'?'now':labels[labels.length-1]||'today';
-    var total=vals.reduce(function(a,v){return a+v},0);
+  function onDraw(key,total,sub){
     document.getElementById('hero').textContent=(key==='all'?LIFE:total).toLocaleString('en-US');
-    document.getElementById('heroSub').textContent=r.sub;
-    var bs=document.querySelectorAll('#ranges button');
-    for(var i=0;i<bs.length;i++)bs[i].className=bs[i].getAttribute('data-r')===key?'on':'';
+    document.getElementById('heroSub').textContent=sub;
   }
-  document.getElementById('ranges').addEventListener('click',function(ev){
-    var k=ev.target.getAttribute&&ev.target.getAttribute('data-r');if(k)draw(k);
-  });
-  draw('all');
-  // hover: nearest-bucket tooltip + guide line
-  var chart=document.getElementById('chart'),tip=document.getElementById('tip'),guide=document.getElementById('guide');
-  chart.addEventListener('mousemove',function(ev){
-    var r=chart.getBoundingClientRect(),x=ev.clientX-r.left;
-    var i=Math.max(0,Math.min(labels.length-1,Math.round(x/r.width*(labels.length-1))));
-    var cx=i/(labels.length-1)*r.width;
-    tip.style.display='block';tip.style.left=Math.max(60,Math.min(r.width-60,cx))+'px';tip.style.top='34px';
-    tip.textContent=labels[i]+' · '+hum(vals[i])+' tokens';
-    guide.style.display='block';guide.style.left=cx+'px';
-  });
-  chart.addEventListener('mouseleave',function(){tip.style.display='none';guide.style.display='none';});
+${CHART_JS}
   window.__setLife=function(n){LIFE=n;if(cur==='all')document.getElementById('hero').textContent=Math.round(n).toLocaleString('en-US')};
 })();
 // live feed: poll the public counts-only endpoint; one row PER CHANNEL (cloud, machine 1, …),
@@ -391,7 +411,10 @@ document.getElementById('f').addEventListener('submit',function(ev){
 </body></html>`;
 }
 
-function renderDash(h) {
+// Owner dashboard, two panes: LEFT = the usage story (same range-toggle graph as the
+// public card, budget tiles, agents, channels); RIGHT = every emit, raw, CLI-style.
+function renderDash(h, s) {
+  const { json: rangesJson } = usageRanges(s);
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${h} — owner dashboard · Maxx</title>
@@ -401,7 +424,29 @@ function renderDash(h) {
 :root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
-.card{width:1100px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:14px;width:1560px;max-width:100%;align-items:start}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+.card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
+.ranges{margin-top:20px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.ranges button{border:1px solid var(--line);background:var(--card);color:var(--ink-2);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+.ranges button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.ranges .tot{margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.ranges .tot .sub{color:var(--ink-3);font-weight:400;font-size:12.5px}
+.chart{margin-top:12px;position:relative}
+.chart .cap{display:flex;justify-content:space-between;color:var(--ink-3);font-size:12.5px;margin-top:6px}
+.peak{position:absolute;font-size:12.5px;color:var(--ink-2);font-weight:600;white-space:nowrap}
+.tip{position:absolute;pointer-events:none;display:none;background:var(--ink);color:#fff;font-family:var(--mono);font-size:12.5px;padding:6px 10px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-130%);z-index:2}
+.guide{position:absolute;top:0;bottom:24px;width:1px;background:var(--accent);opacity:.4;display:none;pointer-events:none}
+.term{background:#0b1220;border-radius:20px;border:1px solid #1c2740;padding:0;display:flex;flex-direction:column;position:sticky;top:24px;max-height:calc(100vh - 48px);min-height:420px}
+.term .thead{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid #1c2740;color:#8ea3c0;font-size:12.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.term .thead .dot{width:7px;height:7px;border-radius:50%;background:#2fbf71;animation:pulse 2s infinite}
+.term .lines{overflow-y:auto;padding:12px 16px 16px;font-family:var(--mono);font-size:12px;line-height:1.75;flex:1}
+.term .ln{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.term .t{color:#5b6e8c}
+.term .s{color:#7dd3fc}
+.term .v{color:#4ade80;font-weight:600}
+.term .p{color:#e2e8f0}
+.term .d{color:#8ea3c0}
 .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
 .brand .m{color:var(--accent);font-size:23px}
@@ -427,10 +472,15 @@ td b{font-weight:600}
 .foot{margin-top:20px;color:var(--ink-3);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .foot a{color:var(--accent);font-weight:600;text-decoration:none}
 </style></head><body>
+<div class="wrap">
 <div class="card">
  <div class="top">
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
   <div class="badge" id="verdict">loading…</div>
+ </div>
+ <div class="ranges" id="ranges">${RANGE_PILLS}<span class="tot"><span id="tot"></span> <span class="sub" id="totSub"></span></span></div>
+ <div class="chart" id="chart">${CHART_HTML}
+  <div class="cap"><span id="capL"></span><span>all machines &amp; cloud</span><span id="capR">today</span></div>
  </div>
  <div class="stats" id="stats"></div>
  <h2><span class="dot"></span> Agents right now <span style="text-transform:none;letter-spacing:0;font-weight:400">— heaviest sessions, last hour</span></h2>
@@ -441,12 +491,26 @@ td b{font-weight:600}
  <tbody id="channels"><tr><td colspan="5" class="empty">loading…</td></tr></tbody></table>
  <div class="foot">
   <span>Owner-only — session and project names never appear on the public card · <span id="stamp"></span></span>
-  <a href="/u/${h}">public card →</a>
+  <a href="/u/${h}">shareable card (safe — no names) →</a>
  </div>
+</div>
+<div class="term">
+ <div class="thead"><span class="dot"></span> emits — live</div>
+ <div class="lines" id="term"><div class="ln d">listening…</div></div>
+</div>
 </div>
 <script>
 // scrub one-time tokens / legacy secrets out of the address bar AND this history entry
 if(location.search)history.replaceState(null,'',location.pathname);
+// usage graph — same ranges + drawing as the public card
+(function(){
+  var R=${rangesJson};
+  function onDraw(key,total,sub){
+    document.getElementById('tot').textContent=hum(total);
+    document.getElementById('totSub').textContent=sub;
+  }
+${CHART_JS}
+})();
 (function(){
   var esc=function(s){var d=document.createElement('span');d.textContent=s==null?'':String(s);return d.innerHTML};
   var hum=function(n){return n==null?'—':n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+Math.round(n)};
@@ -474,10 +538,31 @@ if(location.search)history.replaceState(null,'',location.pathname);
       window.__sf=b.surfaces||[];renderChannels();
       document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
     }).catch(function(){});
-    fetch('/api/u/${h}/feed?n=100').then(function(r){return r.json()}).then(function(j){
+    fetch('/api/u/${h}/feed?n=200').then(function(r){return r.json()}).then(function(j){
       window.__ev=(j.events||[]).filter(function(e){return e.billed>0&&e.surface!=='directive'});
-      renderChannels();
+      renderChannels();renderTerm();
     }).catch(function(){});
+  }
+  // right pane: every emit as a CLI log line, oldest→newest, pinned to the bottom
+  // like a tail -f unless the user has scrolled up
+  function renderTerm(){
+    var el=document.getElementById('term'),ev=(window.__ev||[]).slice().reverse();
+    if(!ev.length){el.innerHTML='<div class="ln d">no emits yet</div>';return}
+    var pinned=el.scrollHeight-el.scrollTop-el.clientHeight<40;
+    el.innerHTML=ev.map(function(e){
+      var d=new Date(e.ts);
+      var t=String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+':'+String(d.getUTCSeconds()).padStart(2,'0');
+      var who=e.name||e.project||'';
+      var extra=[];
+      if(e.turns)extra.push(e.turns+'t');
+      if(e.tool_calls)extra.push(e.tool_calls+'tc');
+      if(e.ctx)extra.push('ctx'+hum(e.ctx));
+      return '<div class="ln"><span class="t">'+t+'</span> <span class="s">'+esc(e.surface)+'</span> '+
+        '<span class="v">+'+hum(e.billed)+'</span>'+
+        (who?' <span class="p">'+esc(who)+'</span>':'')+
+        (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+'</div>';
+    }).join('');
+    if(pinned)el.scrollTop=el.scrollHeight;
   }
   // channels = budget.surfaces (billed this 5h window) merged with the feed (last-seen + 1h burn),
   // keyed by full surface id — one row per machine / cloud routine, never per turn
@@ -710,14 +795,14 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       // Instead: serve the dash directly with Set-Cookie, and the page itself cleans the
       // address bar via history.replaceState — the token/secret URL never even survives
       // as a history entry.
+      const s = await store.load(h);
       const dashPage = (cookieVal) => ({
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(cookieVal ? { "set-cookie": setCookie(cookieVal) } : {}) },
-        body: renderDash(h),
+        body: renderDash(h, s),
       });
       const mtok = url.searchParams.get("m");
       if (mtok) {
-        const s = await store.load(h);
         const t = now();
         const live = (s.magic || []).filter((x) => x.exp > t);
         const hit = live.find((x) => x.t === mtok);
