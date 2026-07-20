@@ -424,7 +424,7 @@ function renderDash(h, s) {
 :root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
-.wrap{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:14px;width:1560px;max-width:100%;align-items:start}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;width:1720px;max-width:100%;align-items:stretch}
 @media(max-width:1100px){.wrap{grid-template-columns:1fr}}
 .card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 44px}
 .ranges{margin-top:20px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
@@ -437,7 +437,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:10
 .peak{position:absolute;font-size:12.5px;color:var(--ink-2);font-weight:600;white-space:nowrap}
 .tip{position:absolute;pointer-events:none;display:none;background:var(--ink);color:#fff;font-family:var(--mono);font-size:12.5px;padding:6px 10px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-130%);z-index:2}
 .guide{position:absolute;top:0;bottom:24px;width:1px;background:var(--accent);opacity:.4;display:none;pointer-events:none}
-.term{background:#0b1220;border-radius:20px;border:1px solid #1c2740;padding:0;display:flex;flex-direction:column;position:sticky;top:24px;max-height:calc(100vh - 48px);min-height:420px}
+.term{background:#0b1220;border-radius:20px;border:1px solid #1c2740;padding:0;display:flex;flex-direction:column;position:sticky;top:24px;max-height:calc(100vh - 48px);min-height:420px;min-width:0}
 .term .thead{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid #1c2740;color:#8ea3c0;font-size:12.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
 .term .thead .dot{width:7px;height:7px;border-radius:50%;background:#2fbf71;animation:pulse 2s infinite}
 .term .lines{overflow-y:auto;padding:12px 16px 16px;font-family:var(--mono);font-size:12px;line-height:1.75;flex:1}
