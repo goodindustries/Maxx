@@ -26,6 +26,11 @@ const MAX_AGE_H = 48; // a stale handoff is history, not context — never auto-
 const arg = process.argv[2] || "--wake";
 
 if (arg === "--wake") {
+  // SessionStart hooks get {source: startup|clear|resume|compact} on stdin — after a /clear
+  // with NO handoff, say so (the observed first-run failure: user cleared without /fenix
+  // first, then "continue" had nothing to continue from). Manual runs (TTY) stay quiet.
+  let src = "";
+  try { if (!process.stdin.isTTY) src = (JSON.parse(readFileSync(0, "utf8") || "{}").source || ""); } catch {}
   try {
     const st = statSync(HANDOFF);
     const ageH = (Date.now() - st.mtimeMs) / 3600000;
@@ -38,7 +43,10 @@ if (arg === "--wake") {
       `(written ${Math.round(ageH * 60)}m ago, now consumed). Resume it; verify claims against the ` +
       `working tree before trusting them.\n\n${body}\n`
     );
-  } catch { /* no handoff → silent */ }
+  } catch {
+    if (src === "clear")
+      process.stdout.write("fenix: no handoff in this directory — nothing carried over. Sequence is /fenix BEFORE /clear (handoffs are per-directory, written to .fenix/handoff.md; fenix cannot resurrect an already-wiped thread).\n");
+  }
   process.exit(0);
 }
 

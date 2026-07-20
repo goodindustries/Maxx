@@ -13,6 +13,10 @@ fresh one WITHOUT losing the thread: you write the handoff, the human clears, th
 next session in this directory auto-inherits the handoff (a SessionStart hook injects
 it, read=consume — it fires exactly once).
 
+**Sequence is sacred: /fenix BEFORE /clear.** Fenix saves state, then you burn; it
+cannot resurrect a thread that was cleared bare. Handoffs are PER-DIRECTORY
+(`.fenix/handoff.md` in the cwd) — clearing in another project finds nothing there.
+
 ## What to do
 
 1. **Write `.fenix/handoff.md`** (create the dir; add `.fenix/` to `.gitignore` if

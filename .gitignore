@@ -68,3 +68,4 @@ maxx-render
 .DS_Store
 .netlify/
 .gstack/
+.fenix/
