@@ -11,6 +11,14 @@
   status = 200
   force = true
 
+# API proxy: the owner dashboard (served under /u/*) fetches /api/* same-origin so its
+# HttpOnly auth cookie rides along — cross-origin fetch to api.meetmaxx.co would drop it.
+[[redirects]]
+  from = "/api/*"
+  to = "https://api.meetmaxx.co/api/:splat"
+  status = 200
+  force = true
+
 # short installer URL: `curl -fsSL https://meetmaxx.co/install | bash`
 # proxies to the repo's install.sh (single source of truth, no duplicated file).
 [[redirects]]

@@ -347,8 +347,51 @@ setTimeout(function(){location.reload()},300000);
 // project NAMES, so this page is owner-only: no valid ?k= → 401, nothing rendered.
 // The shell is static; the data comes from the already-authed /api endpoints (budget + feed),
 // polled every 10s, so the page and the API can never disagree.
-function renderDash(h, tok) {
-  const q = encodeURIComponent(tok);
+// Unauthenticated dash hit → paste-your-secret form. POSTs the secret in the request
+// BODY to /api/u/:h/login (never a URL), gets the HttpOnly cookie back, reloads.
+function renderLogin(h) {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${h} — owner login · Maxx</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{width:440px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 40px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
+.brand .m{color:var(--accent);font-size:23px}
+.who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
+p{color:var(--ink-2);font-size:14.5px;margin-top:14px;line-height:1.5}
+input{width:100%;margin-top:16px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:14px;color:var(--ink)}
+input:focus{outline:2px solid var(--accent);border-color:var(--accent)}
+button{width:100%;margin-top:12px;padding:11px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+.err{color:#c0392b;font-size:13.5px;margin-top:10px;display:none}
+.hint{color:var(--ink-3);font-size:12.5px;margin-top:14px}
+.hint code{font-family:var(--mono);background:#eef1f6;padding:2px 6px;border-radius:6px;font-size:11.5px}
+</style></head><body>
+<form class="card" id="f">
+ <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
+ <p>Paste your secret to sign in. It's sent once in the request body and stored as an HttpOnly cookie — it never appears in a URL.</p>
+ <input id="s" type="password" placeholder="your maxx secret" autocomplete="current-password" autofocus>
+ <button>Sign in</button>
+ <div class="err" id="err">Wrong secret.</div>
+ <div class="hint">On your machine it lives in <code>~/.maxx/config.json</code></div>
+</form>
+<script>
+document.getElementById('f').addEventListener('submit',function(ev){
+  ev.preventDefault();
+  fetch('/api/u/${h}/login',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({secret:document.getElementById('s').value.trim()})})
+  .then(function(r){if(r.ok)location.replace('/u/${h}/dash');else document.getElementById('err').style.display='block';})
+  .catch(function(){document.getElementById('err').style.display='block';});
+});
+</script>
+</body></html>`;
+}
+
+function renderDash(h) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${h} — owner dashboard · Maxx</title>
@@ -403,13 +446,12 @@ td b{font-weight:600}
 </div>
 <script>
 (function(){
-  var K='${q}';
   var esc=function(s){var d=document.createElement('span');d.textContent=s==null?'':String(s);return d.innerHTML};
   var hum=function(n){return n==null?'—':n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+Math.round(n)};
   var ago=function(s){return s<60?Math.round(s)+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
   var stat=function(k,v,sub){return '<div class="stat"><div class="k">'+k+'</div><div class="v">'+v+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>'};
   function tick(){
-    fetch('/api/u/${h}/budget?k='+K).then(function(r){return r.json()}).then(function(b){
+    fetch('/api/u/${h}/budget').then(function(r){return r.json()}).then(function(b){
       var vd=document.getElementById('verdict');
       vd.textContent=b.verdict==='ok'?'✓ verdict ok':b.verdict;
       vd.className='badge'+(b.verdict==='ok'?'':' '+esc(b.verdict));
@@ -430,7 +472,7 @@ td b{font-weight:600}
       window.__sf=b.surfaces||[];renderChannels();
       document.getElementById('stamp').textContent=new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
     }).catch(function(){});
-    fetch('/api/u/${h}/feed?n=100&k='+K).then(function(r){return r.json()}).then(function(j){
+    fetch('/api/u/${h}/feed?n=100').then(function(r){return r.json()}).then(function(j){
       window.__ev=(j.events||[]).filter(function(e){return e.billed>0&&e.surface!=='directive'});
       renderChannels();
     }).catch(function(){});
@@ -480,6 +522,17 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
   // claude.ai custom connector self-authenticate via the URL alone (it can't
   // always set an Authorization header).
   const tokenOf = (headers, url) => bearer(headers) || url.searchParams.get("k") || "";
+  // Browser auth: HttpOnly cookie set by POST /api/u/:h/login, so the secret never
+  // has to appear in a URL (history, logs, screenshots). Honored for GET READS ONLY
+  // — mutating endpoints stay bearer/?k=, which closes the CSRF door (SameSite=Lax
+  // is the backstop). The cookie carries the secret itself: single owner per handle,
+  // stateless, nothing server-side to expire.
+  const cookieK = (headers) => {
+    const m = /(?:^|;\s*)maxx_k=([^;]+)/.exec(headers.cookie || headers.Cookie || "");
+    return m ? decodeURIComponent(m[1]) : "";
+  };
+  const readTokenOf = (headers, url) => tokenOf(headers, url) || cookieK(headers);
+  const setCookie = (v) => `maxx_k=${encodeURIComponent(v)}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`;
   // Self-serve secrets (signup) live in the store; env secrets (MAXX_SECRET*) are
   // the operator fallback that also gates unclaimed handles on a public deploy.
   const authed = async (handle, token) => {
@@ -628,7 +681,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       // Three signals, each with its fix: CLI shipping (laptop events), connector connected (authed
       // mcp ping), anchor fresh (an interactive session saw /usage recently).
       let setup = null;
-      const tok = tokenOf(headers, url);
+      const tok = readTokenOf(headers, url);
       if (tok && (await authed(h, tok))) {
         const t = now();
         const lastOf = (pfx) => s.events.reduce((a, e) => (String(e.surface || "").startsWith(pfx) && e.ts > a ? e.ts : a), 0);
@@ -647,10 +700,25 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     const md = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/dash\/?$/);
     if (md && method === "GET") {
       const h = md[1];
-      const tok = tokenOf(headers, url);
+      const tok = readTokenOf(headers, url);
       if (!tok || !(await authed(h, tok)))
-        return { status: 401, headers: { "content-type": "text/html; charset=utf-8" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">Owner only — open <b>/u/${h}/dash?k=&lt;your-secret&gt;</b>. Public card: <a href="/u/${h}">/u/${h}</a>.</p>` };
-      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderDash(h, tok) };
+        return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
+      // legacy ?k= link: convert to the cookie and bounce to the clean URL so the
+      // secret drops out of the location bar (it was still in history once — the
+      // login form path avoids even that).
+      const qk = url.searchParams.get("k");
+      if (qk) return { status: 302, headers: { location: `/u/${h}/dash`, "set-cookie": setCookie(qk) }, body: "" };
+      return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderDash(h) };
+    }
+
+    // ---- browser login: secret arrives in the BODY, leaves as an HttpOnly cookie ----
+    const ml = p.match(/^\/api\/u\/([^/]+)\/login$/);
+    if (ml && method === "POST") {
+      const h = decodeURIComponent(ml[1]);
+      let b; try { b = JSON.parse(body || "{}"); } catch { return json(400, { error: "bad json" }); }
+      const secret = String(b.secret || "");
+      if (!secret || !(await authed(h, secret))) return json(401, { error: "wrong secret" });
+      return { status: 200, headers: { "content-type": "application/json", "set-cookie": setCookie(secret) }, body: JSON.stringify({ ok: true }) };
     }
 
     // ---- signup: claim a handle, mint its secret (first come, first served) ----
@@ -696,7 +764,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     m = p.match(/^\/api\/u\/([^/]+)\/budget$/);
     if (m && method === "GET") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      // cookie accepted: GET read, powers the owner dashboard
+      if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       return json(200, await budget(h));
     }
     // ---- webhooks (#1): register push consumers for state transitions ----
@@ -780,7 +849,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     m = p.match(/^\/api\/u\/([^/]+)\/feed$/);
     if (m && method === "GET") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, tokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      // cookie accepted: GET read, powers the owner dashboard
+      if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       const n = Math.min(200, Math.max(1, Number(url.searchParams.get("n")) || 30));
       const s = await store.load(h);
       const events = s.events.slice(-n).reverse().map((e) => ({
