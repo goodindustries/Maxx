@@ -105,7 +105,7 @@
   .term{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:0 24px 60px hsl(266 50% 30% / .16)}
   .term .dots{display:flex;gap:7px;padding:4px 6px 12px}
   .term .dots i{width:11px;height:11px;border-radius:50%;display:block;background:var(--track)}
-  .term img{width:100%;display:block;border-radius:9px}
+  .term img,.term video{width:100%;height:auto;display:block;border-radius:9px}
   .shot{border-radius:var(--radius);overflow:hidden;box-shadow:0 24px 60px hsl(266 50% 30% / .18);border:1px solid var(--line)}
   .shot img{width:100%;display:block}
   /* On a phone the whole 1100px dashboard shrinks to ~330px, which renders its
@@ -230,9 +230,14 @@
 <div class="wrap demo" style="margin-top:34px">
   <div class="term">
     <div class="dots"><i></i><i></i><i></i></div>
-    <img src="maxx-live-session.gif" alt="maxx statusline live under a real Claude Code session: numbers rolling, both rails banking green" loading="lazy">
+    <video id="statusline-vid" src="statusline.mp4" poster="statusline-poster.jpg" width="1100" height="508"
+           autoplay muted loop playsinline preload="metadata"
+           aria-label="The maxx statusline running under a live Claude Code session: the session and week rails sit below the transcript while work streams in above them"></video>
   </div>
   <p class="caption">And the same numbers in your Claude Code statusline, updated every second.</p>
+  <script>(function(){var v=document.getElementById('statusline-vid');
+    if(v&&matchMedia('(prefers-reduced-motion: reduce)').matches){v.removeAttribute('autoplay');v.pause();v.setAttribute('controls','')}
+  })();</script>
 </div>
 
 <section class="wrap" id="lie">
