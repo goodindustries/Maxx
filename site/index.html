@@ -102,6 +102,12 @@
   .term img{width:100%;display:block;border-radius:9px}
   .shot{border-radius:var(--radius);overflow:hidden;box-shadow:0 24px 60px hsl(266 50% 30% / .18);border:1px solid var(--line)}
   .shot img{width:100%;display:block}
+  /* On a phone the whole 1100px dashboard shrinks to ~330px, which renders its
+     13px type at 4px — the lead visual says nothing. Scale up and crop to the
+     left instead, so the odometer and the rails stay legible. */
+  @media(max-width:560px){
+    .shot img{width:165%;max-width:none;margin-left:-6%}
+  }
   .caption{text-align:center;color:var(--dim);font-size:14px;margin-top:14px}
 
   /* sections */
