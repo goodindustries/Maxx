@@ -1,11 +1,14 @@
 MAXX SITE COPY
 ==============
 
+Voice: plain, specific, true. Say the number instead of the adjective. One idea
+per sentence. Never be clever at the cost of being clear.
+
 META / BROWSER TAB
 ------------------
 Title: maxx. Never run out of tokens.
-Description: Claude lies to you. The 5-hour window looks spendable. Spend it and your week is gone. maxx is a Claude Code status bar that paces you to what lasts. The math is on the page.
-OG description: Claude lies to you. maxx paces you to what lasts. Tokenmaxx is spelled with maxx. One line to install.
+Description: Claude shows you a 5-hour window. Your real limit is the week. maxx is a Claude Code status bar that shows both, so you know what you can spend before you spend it. One line to install.
+OG description: Claude shows you a 5-hour window. Your real limit is the week. maxx shows both, in your terminal. One line to install.
 
 NAV
 ---
@@ -13,26 +16,26 @@ The math · How to read it · Install · GitHub
 
 HERO
 ----
-Eyebrow: Tokenmaxxing is easier with maxx.
+Eyebrow: A fuel gauge for Claude Code.
 H1: Never run out of tokens.
-Sub: How many times have you hit your weekly limit before your project was done?
+Sub: Claude shows you a 5-hour window. Your real limit is the week. maxx puts both on one line in your terminal, so you know what you can spend before you spend it.
 Install line: curl -fsSL https://meetmaxx.co/install | bash
 Hint: Install /maxx
 
 DEMO CAPTION
 ------------
-Runs in your cli, heads up token availability.
+It sits in your Claude Code statusline and updates every second.
 
-SECTION: CLAUDE LIES TO YOU
----------------------------
-H2: /usage was built by the guys trying to sell you tokens.
-Big: You get ~2.8 days of full 5hr sessions in a 7 day window.
-Fix: Keep it up, and you'll be out of tokens by Wednesday at 6pm central.
+SECTION: THE WRONG NUMBER
+-------------------------
+H2: /usage shows you the wrong number.
+Big: A 7-day limit holds about 2.8 days of full 5-hour sessions.
+Fix: Spend every window to the wall and the week is gone by Wednesday night.
 
-SECTION: NO SLOP. HERE'S THE MATH.
-----------------------------------
-H2: You've been flying blind.
-Lead: Unlocking the black box of token usage
+SECTION: HERE IS THE MATH
+-------------------------
+H2: Here is the math.
+Lead: Four lines. That is the whole product.
 
 pace    to_spend = week_left ÷ 5h_windows_left
         The sustainable token usage for this next 5hr period.
@@ -43,34 +46,34 @@ burn    per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × 
 models  haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3
         Price-weighted. Refreshed daily from Anthropic's price sheet.
 
-Footnote: Fable > Opus > Sonnet > Haiku, so your token usage should be pinned to market prices.
+Footnote: A Fable token costs ten times a Haiku token, so maxx counts your tokens at what they actually cost.
 
 SECTION: HOW TO READ THE BAR
 ----------------------------
-H2: How to read the token fuel gauge
-Lead: Session rail & Weekly rail
+H2: How to read the bar
+Lead: Two rails: this session, and the week.
 
-session: Use less before, have more now, rolling the last 5 hours.
-week: Total remaining tokens estimated available (updated once per second)
-context: a meta line with context fill, model, branch, spend and cache-hit rate.
+session: what you can safely spend now — your weekly budget paced across the 5-hour windows left.
+week: tokens left in your 7-day limit, updated every second.
+context: how full the context window is, plus model, branch, spend and cache-hit rate.
 
 Animated notes (cycle under the demo rail):
-- Your miserly-ness is paying off, banking tokens.
-- Stable as Old Faithful, using tokens correctly.
-- YOLO mode? Slow down a bit.
-- Roger red leader, you are about to hit a wall. (5h session limit hard cap)
+- Under pace. Banking tokens.
+- Steady. Right on pace.
+- Over pace. Ease off.
+- About to hit the 5-hour wall, where Claude stops you.
 
 SECTION: EVERY SITUATION, AT A GLANCE
 -------------------------------------
 H2: Examples
-Lead: What the two rails look like as your day unfolds.
+Lead: What the two rails look like as the day goes on.
 
-Tokens available: Good pacing, but it's time to get back to working.
-On pace: Steady. Nothing to worry about, except everything else.
-Borrowing from later: Running a bit hot, that feature better be worth it.
-Near the 5h wall: Drop it like it's hot, or Claude will drop you.
-Half your week, day one: Week draining fast. Plan better, or go for a walk or something.
-Back from a break: Your last 5 hours were quiet, so the tank refilled itself. Free to fly!
+Tokens available: Banked. You can spend more than your pace right now.
+On pace: On pace. Keep going.
+Borrowing from later: Over pace. You are spending the next window's tokens.
+Near the 5h wall: Close to the 5-hour wall. Claude cuts you off here, not maxx.
+Half your week, day one: Half the week gone on day one. Ease off or it ends early.
+Back from a break: You eased off, so the tank refilled. A fresh 5-hour window ahead.
 
 SECTION: INSTALL
 ----------------
@@ -79,17 +82,23 @@ Lead: One line in your terminal. Restart Claude Code. Done.
 Hint 1: Prefer the plugin manager (skill only, no bar)? In Claude Code: /plugin marketplace add goodindustries/Maxx then /plugin install maxx@maxx.
 Hint 2: Then type /maxx any time for total tokens, tokens/day, cache-hit rate and streak. Or /maxx session for how much to burn this window.
 
+SECTION: EVERY MACHINE, ONE TALLY
+---------------------------------
+H2: Every machine, one tally.
+Lead: Your quota is one pool, so maxx counts it as one: laptops, Claude Code cloud routines, claude.ai sessions. The installer claims a handle from your Claude login and starts tracking on its own. Use this form first if you want a particular name. One handle per Claude account.
+Hint: Your own dashboards can subscribe too: webhooks push over / recovered / week-80 / week-90 / week-95 / runaway transitions (POST /api/u/<you>/webhooks), and GET /api/u/<you>/budget serves live availability, burn rate and top burners for polling.
+
 SECTION: WORKS IN YOUR TERMINAL
 -------------------------------
-H2: Works in every terminal. (Except for that one we don't have support for).
-Lead: maxx renders through the Claude Code statusline. Plain ANSI. And a pain in the ANSI to build.
+H2: Works in your terminal.
+Lead: maxx draws through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does.
 
 macOS: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.
 
 SECTION: PRIVACY
 ----------------
 H2: Your stuff stays yours
-We might launch some sharing of metadata (opt-in) for using in better algorithm-ing, but for now no data leaves the box. MIT.
+Lead: Nothing leaves your machine until you claim a handle. After that, maxx sends counts only: tokens, timestamps, model names. Never a prompt, never a message, never your code — the emitter cannot leak what it never reads. It is MIT licensed, so you can read the code.
 
 SECTION: SAY HELLO
 ------------------
