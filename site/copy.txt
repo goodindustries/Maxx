@@ -1,14 +1,17 @@
 MAXX SITE COPY
 ==============
 
+ONE ASSERTION: the page makes one claim — track your token usage everywhere.
+Everything else supports it or gets cut.
+
 Voice: plain, specific, true. Say the number instead of the adjective. One idea
 per sentence. Never be clever at the cost of being clear.
 
 META / BROWSER TAB
 ------------------
-Title: maxx. Never run out of tokens.
-Description: Claude shows you a 5-hour window. Your real limit is the week. maxx is a Claude Code status bar that shows both, so you know what you can spend before you spend it. One line to install.
-OG description: Claude shows you a 5-hour window. Your real limit is the week. maxx shows both, in your terminal. One line to install.
+Title: maxx — track your token usage everywhere.
+Description: Every machine, every cloud agent, one live tally. maxx counts the tokens you actually spend and shows what is left, in your terminal and on one page. One line to install.
+OG description: Every machine, every cloud agent, one live tally. One line to install.
 
 NAV
 ---
@@ -16,9 +19,9 @@ The math · How to read it · Install · GitHub
 
 HERO
 ----
-Eyebrow: A fuel gauge for Claude Code.
-H1: Never run out of tokens.
-Sub: Claude shows you a 5-hour window. Your real limit is the week. maxx puts both on one line in your terminal, so you know what you can spend before you spend it.
+Eyebrow: For Claude Code
+H1: Track your token usage everywhere.
+Sub: Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.
 Install line: curl -fsSL https://meetmaxx.co/install | bash
 Hint: Install /maxx
 
@@ -66,23 +69,12 @@ Animated notes (cycle under the demo rail):
 - Over pace. Ease off.
 - About to hit the 5-hour wall, where Claude stops you.
 
-SECTION: EVERY SITUATION, AT A GLANCE
--------------------------------------
-H2: Examples
-Lead: What the two rails look like as the day goes on.
-
-Tokens available: Banked. You can spend more than your pace right now.
-On pace: On pace. Keep going.
-Borrowing from later: Over pace. You are spending the next window's tokens.
-Near the 5h wall: Close to the 5-hour wall. Claude cuts you off here, not maxx.
-Half your week, day one: Half the week gone on day one. Ease off or it ends early.
-Back from a break: You eased off, so the tank refilled. A fresh 5-hour window ahead.
-
 SECTION: INSTALL
 ----------------
 H2: Install
 Lead: One line in your terminal. Restart Claude Code. Done.
 Hint 1: Prefer the plugin manager (skill only, no bar)? In Claude Code: /plugin marketplace add goodindustries/Maxx then /plugin install maxx@maxx.
+Hint (terminals): Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.
 Hint 2: Then type /maxx any time for total tokens, tokens/day, cache-hit rate and streak. Or /maxx session for how much to burn this window.
 
 SECTION: EVERY MACHINE, ONE TALLY
@@ -90,13 +82,6 @@ SECTION: EVERY MACHINE, ONE TALLY
 H2: Every machine, one tally.
 Lead: Your quota is one pool, so maxx counts it as one: laptops, Claude Code cloud routines, claude.ai sessions. The installer claims a handle from your Claude login and starts tracking on its own. Use this form first if you want a particular name. One handle per Claude account.
 Hint: Your own dashboards can subscribe too: webhooks push over / recovered / week-80 / week-90 / week-95 / runaway transitions (POST /api/u/<you>/webhooks), and GET /api/u/<you>/budget serves live availability, burn rate and top burners for polling.
-
-SECTION: WORKS IN YOUR TERMINAL
--------------------------------
-H2: Works in your terminal.
-Lead: maxx draws through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does.
-
-macOS: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.
 
 SECTION: PRIVACY
 ----------------

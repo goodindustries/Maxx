@@ -1,24 +1,18 @@
 # maxx
 
-### 🌐 [meetmaxx.co](https://meetmaxx.co) · [Install](#install) · [How to read it](#how-to-read-the-token-fuel-gauge)
+### Track your token usage everywhere.
 
-**How many times have you hit your weekly limit before your project was done?**
+🌐 [meetmaxx.co](https://meetmaxx.co) · [Install](#install) · [How to read the bar](#how-to-read-the-bar)
 
-`/usage` is built by the guys trying to sell you tokens. You get about 2.8 days of full 5hr sessions in a 7 day window. Keep maxing them and you're out of tokens by Wednesday.
+Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.
 
-maxx is the token fuel gauge for Claude Code. Tokenmaxx is spelled with maxx.
+Claude enforces two walls at once: a 5-hour session cap and a 7-day weekly cap. `/usage` shows you the 5-hour one, which is not the one that ends your week. A 7-day limit holds about 2.8 days of full 5-hour sessions, so spending every window to the wall puts you out of tokens by Wednesday.
 
-It lives in your status line. Two rails, updating as you work:
-
-![maxx status line at the bottom of a live Claude Code session](assets/maxx-in-session.gif)
-
-Up close: signed standing (`+banked` / `−over`), gradient fills, numbers that roll one digit at a time:
-
-![maxx statusline, both rails banking green](assets/maxx-banked.gif)
+maxx counts what you actually spend, prices it per model, and shows both walls at once.
 
 ## Install
 
-One line in your terminal. Installs the bar and the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
+One line. Installs the bar and the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
 
 ```bash
 curl -fsSL https://meetmaxx.co/install | bash
@@ -47,10 +41,22 @@ In Claude Code:
 
 Then type `/maxx` any time:
 
-- `/maxx`: total tokens, tokens/day, cache-hit rate, and streak
-- `/maxx session`: how much you can safely spend now (weekly-paced, capped at the 5h wall) + the hard burst ceiling
+- `/maxx` — total tokens, tokens/day, cache-hit rate, streak
+- `/maxx session` — how much you can safely spend now (weekly-paced, capped at the 5h wall) plus the hard burst ceiling
 
-## You've been flying blind. Here's the math.
+Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does. Verified on macOS Terminal.app (auto 256-color), iTerm2, Ghostty; truecolor everywhere else — Warp, Alacritty, kitty, the VS Code and Cursor terminals, tmux, ssh, Linux.
+
+## How to read the bar
+
+Two rails, both anchored to the exact `five_hour` / `seven_day` percentages `/usage` reports.
+
+**`session`** — what you can safely spend now: your weekly budget paced across the 5-hour windows left. Green from the left is banked, red from the right is over. The signed number (`+Xk` banked / `−Xk` over) carries a trailing `±k/min` telling you whether you are recovering or falling behind right now.
+
+**`week`** — tokens left in your 7-day limit, updated every second. The fill is what remains; the `┊` tick marks even-burn pace. Fill past the tick and you are banked, short of it and you are spending too fast.
+
+**meta** — context fill, model, branch, spend, cache-hit rate, and `137k/+43k turn`: what your last 3 turns cost on average, and how far the newest turn sits from that average. That delta moves first when a context starts re-billing itself, well before the 5h meter reacts.
+
+## The math
 
 Every number on the bar comes from four lines. Check them against `/usage` any time.
 
@@ -59,72 +65,60 @@ pace    to_spend = week_left ÷ 5h_windows_left     The sustainable spend for th
 anchor  cap = burned ÷ used%                       Pinned to Claude's own /usage numbers every refresh.
 burn    (input + 5·output + 1.25·cache_write
          + 0.1·cache_read) × model_price           Different models cost different.
-models  haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3  Price-weighted. Refreshed daily from Anthropic's price sheet.
+models  haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3  Price-weighted, refreshed daily from Anthropic's price sheet.
 ```
 
-Fable > Opus > Sonnet > Haiku, so your token usage is pinned to market prices. Unweighted, a Haiku subagent token counts the same as a Fable token. Weighted, the pacing is honest.
+A Fable token costs ten times a Haiku token. Unweighted, a Haiku subagent token would count the same as a Fable token; weighted, the pacing is honest.
 
-## How to read the token fuel gauge
+## Everywhere
 
-Session rail and weekly rail. Both anchored to the exact `five_hour` / `seven_day` percentages `/usage` reports.
+Your quota is one pool, so maxx counts it as one. Claim a handle and every surface reports to the same tally:
 
-**`session`**: use less before, have more now, rolling the last 5 hours.
+```bash
+node ~/.claude/skills/maxx/emit.mjs --signup
+```
 
-- **Green from the left**: banked. Under your sustainable pace, building a cushion.
-- **Red from the right**: over. Burning faster than sustainable; longer red = deeper hole.
-- The signed number (`+Xk` banked / `−Xk` over) rolls one digit at a time, with a trailing **±k/min** telling you whether you're recovering or falling behind right now. Full red means the 5h wall is close.
+- **Laptops** — `emit.mjs --watch` ships counts continuously (launchd agent on macOS).
+- **Cloud routines and claude.ai** — add the printed URL as a custom MCP connector. Any agent holding it gets the budget-gate rules on connect and can call `maxx_budget` / `maxx_emit` against your account only.
+- **Your dashboard** — `meetmaxx.co/u/<you>` is a live card; `/u/<you>/dash` is the cockpit: burn rate, per-session attribution, channels, and what each is costing per turn.
+- **Your own tooling** — `GET /api/u/<you>/budget` serves live availability and top burners; webhooks push `over` / `recovered` / `week-80` / `week-90` / `week-95` / `runaway` transitions.
 
-**`week`**: total remaining tokens estimated available. A fuel tank: the fill is budget remaining, draining as you spend (green to amber to red). The `┊` tick marks even-burn pace. Then `Xk left`, your pace standing, and days to reset.
+### The gate and the watchdog
 
-**Context**: a meta line with context fill, model, branch, spend, and cache-hit rate.
+`gate.mjs` installs as a PreToolUse hook and denies expensive spawns when the tally says you are out. Verdicts are `ok`, `degraded` (no machine has read `/usage` lately, so the weekly ledger governs), `over`, and `stale`.
 
-## Examples
-
-What the two rails look like as your day unfolds ([animated at meetmaxx.co](https://meetmaxx.co#situations)):
-
-![maxx situations, banking, on pace, over, near the wall, week draining, fresh window](assets/maxx-situations.gif)
-
-| Situation | `session` | `week` | What it means |
-|---|---|---|---|
-| **Tokens available** | `+591k` 🟢 | `312M left` | Good pacing, but it's time to get back to working. |
-| **On pace** | `+96k` 🟢 | `228M left` | Steady. Nothing to worry about, except everything else. |
-| **Borrowing from later** | `−1,240k` 🔴 | `210M left` | Running a bit hot, that feature better be worth it. |
-| **Near the 5h wall** | `−4,980k` 🔴 | `170M left` | Drop it like it's hot, or Claude will drop you. |
-| **Half your week, day one** | `+220k` 🟢 | `148M left · 6d` 🔴 | Week draining fast. Plan better, or go for a walk or something. |
-| **Fresh 5-hour window** | `+7,900k` 🟢 | `268M left` | Full tank, week healthy. Free to fly! |
-
-## Works in every terminal. (Except for that one we don't have support for).
-
-maxx renders through the Claude Code statusline. Plain ANSI. And a pain in the ANSI to build.
-
-Verified on macOS: Terminal.app (auto 256-color mode), iTerm2, Ghostty. Truecolor everywhere else: Warp, Alacritty, kitty, the VS Code and Cursor terminals, tmux, ssh, Linux.
+The watchdog runs server-side on every emit. When the account is burning several times its sustainable pace and one session is driving it — because its context grew large enough that every turn re-bills the whole thing — it queues a `clear` directive against that session, which `gate.mjs` injects as context on that session's next tool call. Advisory only: it never pauses or denies, and it will not nag the same session twice in half an hour.
 
 ## Your stuff stays yours
 
-No analytics, no phone-home. Your usage is parsed on your machine. The only network call is a daily read-only fetch of Anthropic's public price sheet ([prices.mjs](maxx/prices.mjs)). It sends nothing. No data leaves the box.
+Local by default: nothing leaves your machine until you claim a handle. After that, maxx sends counts only — tokens, timestamps, model names. Never a prompt, never a message, never your code. The emitter cannot leak content because it never reads it.
+
+Without a handle the only network call is a daily read-only fetch of Anthropic's public price sheet ([prices.mjs](maxx/prices.mjs)), which sends nothing.
 
 ## How it works
 
-Claude enforces two hard walls at once: a five-hour session cap and a seven-day weekly cap. Maxing the raw 5h cap every window drains the week days before it refreshes. Then you're locked out. So maxx paces you to a **session token budget** = weekly tokens left ÷ the 5h windows left this week, over a rolling 5h window, bounded by the 5h wall. It's a tank: burning drains it, and it recovers as old usage ages out. Go light and it climbs. Overspend and it shrinks. That's what `/maxx session` reports.
+Maxing the raw 5h cap every window drains the week days before it refreshes, and then you are locked out. So maxx paces you to a **session token budget** = weekly tokens left ÷ 5h windows left this week, over a rolling 5h window, bounded by the 5h wall. It behaves like a tank: burning drains it, and it recovers as old usage ages out.
 
-Everything is anchored to Anthropic's authoritative `five_hour` / `seven_day` percentages, the same numbers `/usage` shows. Those are the only ground truth Claude exposes; token magnitudes are estimates derived from them, so steer by the percentage and the pace.
-
-Fast live query:
+Everything is anchored to Anthropic's authoritative `five_hour` / `seven_day` percentages — the only ground truth Claude exposes. Token magnitudes are estimates derived from them, so steer by the percentage and the pace.
 
 ```bash
 node ~/.claude/skills/maxx/render.mjs --session   # "how much to spend this session"
 node ~/.claude/skills/maxx/render.mjs --status    # machine-readable status.json
 ```
 
-Data flow:
-
 - `render.mjs` receives live rate-limit percentages and reset times, writes `~/.maxx/rl.json` + `~/.maxx/status.json`, and draws the bar.
-- `limit.mjs` maintains rolling price-weighted token buckets in `~/.maxx/window.json` (incremental transcript tails + periodic reconciliation), and emits the session governor gate (`sessionSafe` / `sessionToSpend` / `sessionOver`) so an unattended agent burns only its sustainable per-window share. `limit.mjs --nazi` is an hourly posture check: ranked token drains plus one lever.
-- `prices.mjs` refreshes per-model quota weights daily from Anthropic's public price sheet into `~/.maxx/prices.json`; `limit.mjs` falls back to built-in weights without it.
+- `limit.mjs` maintains rolling price-weighted token buckets in `~/.maxx/window.json` (incremental transcript tails plus periodic reconciliation) and emits the session governor so an unattended agent burns only its sustainable share.
+- `emit.mjs` ships per-session counts to the central tally and attaches the `/usage` anchor.
+- `prices.mjs` refreshes per-model quota weights daily; `limit.mjs` falls back to built-in weights without it.
+- `server/` is the tally itself: `tally.mjs` is pure (ingest, budget, directives, watchdog), `handler.mjs` wraps it in HTTP + MCP and renders the card and cockpit.
 
 ## Development
 
-Requires Node 18 or newer. Tests: `node --test maxx/maxx.test.mjs`.
+Requires Node 18 or newer.
+
+```bash
+npm test    # node --test maxx/*.test.mjs server/*.test.mjs
+```
 
 ## License
 

@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>maxx. Never run out of tokens.</title>
-<meta name="description" content="Claude shows you a 5-hour window. Your real limit is the week. maxx is a Claude Code status bar that shows both, so you know what you can spend before you spend it. One line to install.">
-<meta property="og:title" content="maxx. Never run out of tokens.">
-<meta property="og:description" content="Claude shows you a 5-hour window. Your real limit is the week. maxx shows both, in your terminal. One line to install.">
+<title>maxx — track your token usage everywhere.</title>
+<meta name="description" content="Every machine, every cloud agent, one live tally. maxx counts the tokens you actually spend and shows what is left, in your terminal and on one page. One line to install.">
+<meta property="og:title" content="maxx — track your token usage everywhere.">
+<meta property="og:description" content="Every machine, every cloud agent, one live tally. One line to install.">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -146,20 +146,11 @@
   .dfill.green{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
   .dfill.red{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
   .demo-note{margin:4px 0 16px;font-size:14px;color:var(--dim);min-height:1.2em;transition:opacity .3s}
-  .situations{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:26px}
-  @media(max-width:680px){.situations{grid-template-columns:1fr}}
-  .sit{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
-  .sit .r{font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:10px;margin:6px 0;white-space:nowrap;overflow:hidden}
   .sit .r .lb{color:var(--dim);width:48px;flex:none}
-  .sit .track{position:relative;height:13px;background:var(--track);border-radius:3px;overflow:hidden;width:150px;flex:none}
-  .sit .fill{position:absolute;top:0;bottom:0;width:0;transition:width 2.1s cubic-bezier(.33,.02,.22,1)}
   .sit .fg{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
   .sit .fr{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
   .sit .fa{left:0;background:linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))}
   .sit .fl{left:0;background:linear-gradient(90deg,hsl(354 58% 72%),hsl(354 55% 50%))}
-  .sit .tk{position:absolute;top:-1px;bottom:-1px;width:2px;background:hsl(266 28% 50%);border-radius:1px}
-  .sit .num{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis}
-  .sit .cap{margin-top:12px;font-size:14px;color:var(--dim);line-height:1.45}
   .sit .cap b{color:var(--ink)}
   .readlist{list-style:none;padding:0;margin:18px 0 0}
   .readlist li{padding:10px 0;border-top:1px solid var(--line);color:var(--dim);font-size:15px}
@@ -180,7 +171,6 @@
   .lie .big{font-size:clamp(22px,3vw,28px);font-weight:800;color:#fff;letter-spacing:-.01em}
   .lie .fix{margin-top:22px;padding-top:20px;border-top:1px solid hsl(266 40% 50% / .35);font-size:17px}
   .lie b{color:hsl(264 76% 84%)}
-  .sit .title{font-weight:700;color:var(--ink);font-size:15px;margin-bottom:10px}
 
   /* privacy */
   .privacy{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:30px;text-align:center}
@@ -205,9 +195,9 @@
 </nav>
 
 <header class="wrap">
-  <div class="eyebrow">A fuel gauge for <b style="color:var(--brand)">Claude Code</b>.</div>
-  <h1>Never run out<br>of tokens.</h1>
-  <p class="sub">Claude shows you a 5-hour window. Your real limit is the week. maxx puts both on one line in your terminal, so you know what you can spend before you spend it.</p>
+  <div class="eyebrow">For <b style="color:var(--brand)">Claude Code</b></div>
+  <h1>Track your token<br>usage everywhere.</h1>
+  <p class="sub">Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.</p>
 
   <div class="install" id="install-top">
     <code><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
@@ -280,55 +270,7 @@
   </ul>
 </section>
 
-<section class="wrap" id="situations">
-  <h2>Examples</h2>
-  <p class="lead">What the two rails look like as the day goes on.</p>
-  <div class="situations">
 
-    <div class="sit" data-sit>
-      <div class="title">Tokens available</div>
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="55"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="591">+0</span>k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fg" data-w="62"></span><span class="tk" style="left:55%"></span></span><span class="num"><span class="cnt" data-to="312">0</span>M left</span></div>
-      <div class="cap">Banked. You can spend more than your pace right now.</div>
-    </div>
-
-    <div class="sit" data-sit>
-      <div class="title">On pace</div>
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="14"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="96">+0</span>k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fg" data-w="48"></span><span class="tk" style="left:47%"></span></span><span class="num"><span class="cnt" data-to="228">0</span>M left</span></div>
-      <div class="cap">On pace. Keep going.</div>
-    </div>
-
-    <div class="sit" data-sit>
-      <div class="title">Borrowing from later</div>
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" data-w="30"></span></span><span class="num k-red"><span class="cnt" data-sign="−" data-to="1240">−0</span>k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="46"></span><span class="tk" style="left:56%"></span></span><span class="num"><span class="cnt" data-to="210">0</span>M left</span></div>
-      <div class="cap">Over pace. You are spending the next window’s tokens.</div>
-    </div>
-
-    <div class="sit" data-sit>
-      <div class="title">Near the 5h wall</div>
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fr" data-w="92"></span></span><span class="num k-red"><span class="cnt" data-sign="−" data-to="4980">−0</span>k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fa" data-w="38"></span><span class="tk" style="left:58%"></span></span><span class="num"><span class="cnt" data-to="170">0</span>M left</span></div>
-      <div class="cap">Close to the 5-hour wall. Claude cuts you off here, not maxx.</div>
-    </div>
-
-    <div class="sit" data-sit>
-      <div class="title">Half your week, day one</div>
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="28"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="220">+0</span>k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fl" data-w="28"></span><span class="tk" style="left:86%"></span></span><span class="num k-red"><span class="cnt" data-to="148">0</span>M left · 6d</span></div>
-      <div class="cap">Half the week gone on day one. Ease off or it ends early.</div>
-    </div>
-
-    <div class="sit" data-sit>
-      <div class="title">Back from a break</div>
-      <div class="r"><span class="lb">session</span><span class="track"><span class="fill fg" data-w="96"></span></span><span class="num k-green"><span class="cnt" data-sign="+" data-to="7900">+0</span>k</span></div>
-      <div class="r"><span class="lb">week</span><span class="track"><span class="fill fg" data-w="58"></span><span class="tk" style="left:52%"></span></span><span class="num"><span class="cnt" data-to="268">0</span>M left</span></div>
-      <div class="cap">You eased off, so the tank refilled. A fresh 5-hour window ahead.</div>
-    </div>
-
-  </div>
-</section>
 
 <section class="wrap" id="install">
   <h2>Install</h2>
@@ -338,6 +280,7 @@
     <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
   </div>
   <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
+  <p class="hint">Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</p>
   <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak. Or <code>/maxx session</code> for how much to burn this window.</p>
 </section>
 
@@ -399,13 +342,7 @@
   </script>
 </section>
 
-<section class="wrap" id="terminals">
-  <h2>Works in your terminal.</h2>
-  <p class="lead">maxx draws through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does.</p>
-  <ul class="readlist">
-    <li><b>macOS</b>: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</li>
-  </ul>
-</section>
+
 
 <section class="wrap">
   <div class="privacy">
@@ -468,41 +405,6 @@
     if(RM){ i=2; apply(); } else { apply(); setInterval(apply,7000); }
   })();
 
-  // situation cards — start IN the final state, then breathe: fills drift a few percent and the
-  // numbers wobble with them, so the bars read as live gauges instead of loading animations.
-  (function(){
-    const cards=document.querySelectorAll('[data-sit]');
-    if(!cards.length) return;
-    const items=[];
-    cards.forEach(function(card){
-      card.querySelectorAll('.r').forEach(function(row){
-        const f=row.querySelector('.fill'), c=row.querySelector('.cnt');
-        if(!f) return;
-        const w=+f.dataset.w, to=c?+c.dataset.to:0, sign=c?(c.dataset.sign||''):'';
-        const lb=row.querySelector('.lb'), isWeek=lb&&/week/.test(lb.textContent);
-        f.style.transition='none'; f.style.width=w+'%';
-        if(c) c.textContent=sign+to.toLocaleString();
-        items.push({f,c,w,to,sign,isWeek,phase:Math.random()*Math.PI*2,speed:.00045+Math.random()*.0003});
-      });
-    });
-    if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const t0=performance.now();
-    (function frame(now){
-      items.forEach(function(it){
-        let frac;
-        if(it.isWeek){
-          // weeks only drain: bleed up to 2.5% over ~50s, then hold — never grows
-          frac=-Math.min(2.5, (now-t0)*.00005)/it.w;
-        } else {
-          // sessions breathe: the rolling window legitimately recovers as usage ages out
-          frac=Math.sin(now*it.speed+it.phase)*.022;
-        }
-        it.f.style.width=(it.w*(1+frac))+'%';
-        if(it.c) it.c.textContent=it.sign+Math.round(it.to*(1+frac)).toLocaleString();
-      });
-      requestAnimationFrame(frame);
-    })(performance.now());
-  })();
 
 
   // week rail — the tank drains slowly over a simulated week, pace tick marching with it
