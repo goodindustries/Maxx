@@ -327,6 +327,17 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .bar{grid-template-columns:52px minmax(60px,1fr);gap:10px}
 .bar .num{grid-column:1/-1;white-space:normal}
 }
+@media(prefers-color-scheme:dark){
+:root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-3:#727c93;--line:#29334c;--accent:#8079f2}
+.card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
+.bars{background:#1e2740}
+.bar .track{background:#2c3652}
+.badge{background:#231f4d}
+.livepill{background:#16281d}
+.setup{background:#1b2333;border-color:#29334c}
+.ranges button{background:#1b2333;border-color:#2c3652}
+.ranges button.on{background:var(--accent);border-color:var(--accent)}
+}
 </style></head><body>
 <div class="card">
  <div class="top">
@@ -481,6 +492,13 @@ button:hover{filter:brightness(1.08)}
 .err{color:#c23a3a;font-size:13.5px;margin-top:10px;display:none}
 .hint{color:var(--ink-3);font-size:12.5px;margin-top:14px}
 .hint code{font-family:var(--mono);background:#f0f0fa;padding:2px 6px;border-radius:6px;font-size:11.5px}
+@media(prefers-color-scheme:dark){
+:root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-3:#8b94a8;--accent:#8079f2}
+.card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
+input{background:#1b2333;border-color:#2c3652}
+input:focus{background:#0d1420}
+.hint code{background:#232c40}
+}
 </style></head><body>
 <form class="card" id="f">
  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
@@ -558,6 +576,15 @@ input{max-width:100%}
 .note{color:var(--ink-3);font-size:12.5px;margin-top:8px}
 .flash{display:none;margin-left:10px;font-size:13px;font-weight:600;font-family:var(--mono)}
 .flash.ok{color:var(--green)}.flash.err{color:var(--red)}
+@media(prefers-color-scheme:dark){
+:root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-25:#929cb0;--ink-3:#727c93;--line:#29334c;--accent:#8079f2}
+.card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
+input{background:#1b2333;border-color:#2c3652}
+input:focus{background:#0d1420}
+button{background:#171f30;border-color:#2c3652}
+button:hover{border-color:var(--accent)}
+td{border-bottom-color:#222b40}
+}
 </style></head><body>
 <div class="card">
  <div class="top">
