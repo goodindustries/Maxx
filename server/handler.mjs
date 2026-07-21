@@ -719,6 +719,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
    every idle minute at the ceiling and left the whole lower half of the box empty.) */
 .chart48 .col .bar{position:absolute;left:0;right:0;bottom:0;border-radius:2px 2px 0 0;background:linear-gradient(0deg,#bfdbfe,#3b82f6);transition:height .6s ease}
 .chart48 .col .bar.idle{background:#dfe3ec}
+/* outside the fetched range — no baseline stub, so "no data" never reads as "idle" */
+.chart48 .col.nodata{background:repeating-linear-gradient(135deg,transparent,transparent 5px,#eef0f5 5px,#eef0f5 6px);opacity:.65}
 .chart48 .col.live .bar{background:linear-gradient(0deg,#93c5fd,#2563eb)}
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
 /* Sits INSIDE the chart box. It used to be translate(-50%,-110%) off top:36px, which
@@ -1060,6 +1062,17 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var span=hi-lo+1, share=e.billed/span;
       for(var i=lo;i<=hi;i++)buckets[i]+=share;
     });
+    // How far back the data actually reaches. The feed is capped at 200 events, so with
+    // several sessions emitting the newest 200 may only span a few minutes — the rest of
+    // the 48 were never FETCHED, not idle. Plotting them as zero and averaging over all
+    // 48 understated burn ~3x and printed "under pace" through a 3x-over-pace stretch.
+    // Judge only over the minutes we actually have.
+    // Only when the feed came back FULL (n=200) is it truncated. Short of that the oldest
+    // event is where this account's activity actually begins, and the earlier minutes are
+    // genuinely idle — hatching those would be the same lie pointed the other way.
+    var oldest=t;
+    ev.forEach(function(e){var x=new Date(e.ts0||e.ts).getTime()/1000;if(x>0&&x<oldest)oldest=x});
+    var covLo=ev.length>=200?Math.max(0,Math.min(47,47-Math.floor((t-oldest)/60))):0,cov=48-covLo;
     var mx=Math.max.apply(null,buckets.concat([1]));
     // TOKENS OUT per minute, grown from the bottom baseline, with the sustainable
     // weekly pace drawn across as the reference line. A bar taller than the line is a
@@ -1079,6 +1092,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // stub so the 48-minute timeline still reads as continuous.
     document.getElementById('cols').innerHTML=buckets.map(function(v,i){
       var live=i===47?' live':'';
+      // Beyond the data's reach: render nothing at all. A 2px idle stub here would be a
+      // claim we cannot make — that the minute was quiet.
+      if(i<covLo)return '<div class="col nodata"></div>';
       return '<div class="col'+live+'">'+(v>0
         ? '<div class="bar" style="height:'+sc(v).toFixed(0)+'px"></div>'
         : '<div class="bar idle" style="height:2px"></div>')+'</div>';
@@ -1092,13 +1108,16 @@ if(location.search)history.replaceState(null,'',location.pathname);
       al.style.display='none';ab.style.display='none';
       document.getElementById('chartMeta').textContent='nothing spent in the last 48 minutes · sustainable '+hum(pace)+'/min'+(window.__perTurn?' · '+window.__perTurn:'');
     }else{
-      var winAvg=winTot/48;
+      var winAvg=winTot/cov;
       var hotAvg=winAvg>pace;
+      var covLab=cov>=48?'48m':'last '+cov+'m';
       var avgY=BOX-Math.min(H,Math.max(2,sc(winAvg)));
       al.style.display='block';al.style.top=avgY.toFixed(0)+'px';al.style.borderTopColor=hotAvg?'#e8853a':'#8ec5ff';
       ab.style.display='block';ab.style.top=Math.max(0,avgY-14).toFixed(0)+'px';ab.style.color=hotAvg?'#c2703a':'#2563eb';
-      ab.textContent='48m avg '+hum(winAvg)+'/min'+(hotAvg?' · over pace':' · under pace');
-      document.getElementById('chartMeta').textContent='tokens out per minute · 48m avg '+hum(winAvg)+'/min vs sustainable '+hum(pace)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+      ab.textContent=covLab+' avg '+hum(winAvg)+'/min'+(hotAvg?' · over pace':' · under pace');
+      document.getElementById('chartMeta').textContent='tokens out per minute · '+covLab+' avg '+hum(winAvg)+'/min vs sustainable '+hum(pace)+'/min · peak '+hum(mx)+' · √'
+        +(cov<48?' · older minutes not fetched (feed caps at 200 events)':'')
+        +(window.__perTurn?' · '+window.__perTurn:'');
     }
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
@@ -1309,13 +1328,32 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // colored as the cost signal it is (every turn re-bills ~ctx)
     var chipCols=['#7dd3fc','#4ade80','#f0abfc','#fbbf24','#a5b4fc','#fb7185'];
     var chipCol=function(k){var n=0;for(var i=0;i<k.length;i++)n+=k.charCodeAt(i);return chipCols[n%chipCols.length]};
-    (window.__ev||[]).forEach(function(e){
+    var projOf=function(e){return e.project||(String(e.surface).indexOf('cloud')===0?String(e.surface).slice(6):'?')};
+    // Dropping the name costs nothing UNLESS two sessions of the same project are both
+    // emitting — then the chip alone no longer tells their rows apart. Tag the root only
+    // in that case, so the common case stays clean.
+    var rootsBy={};
+    (window.__ev||[]).forEach(function(e){var p=projOf(e);(rootsBy[p]=rootsBy[p]||{})[e.root]=1});
+    // Oldest-first so "did the session change since the row above?" is answerable. Printing
+    // the tag on every row would just swap one repeated constant for another; it earns its
+    // place only where the lane actually switches.
+    var lastKey='';
+    (window.__ev||[]).slice().filter(function(e){return new Date(e.ts).getTime()>0})
+      .sort(function(a,b){return new Date(a.ts)-new Date(b.ts)}).forEach(function(e){
       var ms=new Date(e.ts).getTime();
-      if(!(ms>0))return;
-      var proj=e.project||(String(e.surface).indexOf('cloud')===0?String(e.surface).slice(6):'?');
-      var who=e.name||'';
+      var proj=projOf(e);
+      var key=proj+'|'+e.root;
+      var tag=(Object.keys(rootsBy[proj]||{}).length>1&&key!==lastKey)?String(e.root).slice(0,4):'';
+      lastKey=key;
+      // The session NAME was printed on every row — identical for every emit of a
+      // session, so the widest column repeated a constant. Turn numbers go there
+      // instead: where this session is, and which turns this batch covered.
+      var tn='';
+      if(e.turn_end>0)tn=e.turn_start===e.turn_end?'t'+e.turn_end:'t'+e.turn_start+'–'+e.turn_end;
       var extra=[];
-      if(e.turns)extra.push(e.turns+'t');
+      // turn count is implicit in the range; only fall back to the delta if an older
+      // server is answering and turn_end is absent
+      if(!tn&&e.turns)extra.push(e.turns+'t');
       if(e.tool_calls)extra.push(e.tool_calls+'tc');
       var cxCls=e.ctx>250e3?'cx hot':e.ctx>120e3?'cx warn':'cx';
       // ctx delta from this session's previous batch — growth per batch, right in
@@ -1326,7 +1364,8 @@ if(location.search)history.replaceState(null,'',location.pathname);
       items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> '+
         '<span class="chip" style="color:'+chipCol(proj)+'">'+esc(proj)+'</span> '+
         '<span class="v">+'+hum(e.billed)+'</span>'+
-        (who?' <span class="p">'+esc(who)+'</span>':'')+
+        (tag?' <span class="d">'+esc(tag)+'</span>':'')+
+        (tn?' <span class="p">'+tn+'</span>':'')+
         (extra.length?' <span class="d">'+extra.join(' ')+'</span>':'')+
         (e.ctx?' <span class="'+cxCls+'">ctx'+hum(e.ctx)+'</span>'+dStr:'')+
         (e.errors>0?' <span class="cx hot">⚠'+e.errors+'err</span>':'')+'</div>'});
@@ -1847,7 +1886,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
       const n = Math.min(200, Math.max(1, Number(url.searchParams.get("n")) || 30));
       const s = await store.load(h);
+      // Absolute turn numbers per session. `turns` on an event is a per-batch DELTA, so
+      // counting it up from the returned slice would restart at whatever the window
+      // happens to contain and label a session's 200th turn "turn 3". Accumulate over
+      // the WHOLE store instead, chronologically, so the numbers mean what they say.
+      const run = Object.create(null), endOf = new Map();
+      for (const e of s.events) endOf.set(e, (run[e.root] = (run[e.root] || 0) + (e.turns || 0)));
       const events = s.events.slice(-n).reverse().map((e) => ({
+        turn_end: endOf.get(e) || 0,
+        turn_start: Math.max(1, (endOf.get(e) || 0) - (e.turns || 0) + 1),
         surface: e.surface, root: e.root, ts: new Date(e.ts * 1000).toISOString(),
         ts0: new Date((e.ts0 || e.ts) * 1000).toISOString(),
         billed: e.billed, output: e.output || 0,
