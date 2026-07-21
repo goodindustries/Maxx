@@ -73,6 +73,11 @@
   .logo b{color:var(--brand)}
   nav .links{display:flex;gap:22px;align-items:center;font-size:15px}
   nav .links a{color:var(--dim)}
+  /* Hit targets, not layout: nav links were 23px tall and footer links 17px,
+     well under the 44px minimum. The pseudo-element grows the tappable box
+     without moving a single pixel of the design. */
+  nav .links a,footer a,.caption a{position:relative}
+  nav .links a::after,footer a::after,.caption a::after{content:"";position:absolute;inset:-14px -6px}
 
   /* hero */
   header{text-align:center;padding:40px 0 14px}
