@@ -263,6 +263,7 @@ function renderCard(h, s, b, setup = null) {
 <style>
 :root{--bg:#eceef3;--card:#fff;--line:#e7e9f0;--ink:#132038;--ink-2:#3a4356;--ink-25:#6c7688;--ink-3:#98a1b2;--accent:#5b52e8;--green:#159a52;--red:#c23a3a;--sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;gap:22px}
 .card{width:1180px;max-width:100%;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:44px 52px 40px;display:flex;flex-direction:column}
 .top{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px}
@@ -460,21 +461,26 @@ function renderLogin(h) {
 <title>${h} — owner login · Maxx</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f6f9fc;--card:#fff;--line:#e6ebf1;--ink:#0a2540;--ink-2:#425466;--ink-3:#8898aa;--accent:#635bff;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
+:root{--bg:#eceef3;--card:#fff;--line:#edeef4;--ink:#132038;--ink-2:#2a3346;--ink-3:#98a1b2;--accent:#5b52e8;--sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--ink);font-family:var(--sans);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.card{width:440px;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 15px 35px rgba(60,66,87,.08),0 5px 15px rgba(0,0,0,.06);padding:36px 40px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
-.brand .m{color:var(--accent);font-size:23px}
-.who{font-family:var(--mono);font-size:14px;color:var(--ink-2);font-weight:400}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{width:440px;max-width:100%;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:36px 40px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:21px;letter-spacing:-.01em}
+.brand .m{color:var(--accent);font-size:22px;font-weight:700}
+.who{font-family:var(--mono);font-size:15px;color:var(--ink-3);font-weight:400}
 p{color:var(--ink-2);font-size:14.5px;margin-top:14px;line-height:1.5}
-input{width:100%;margin-top:16px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:14px;color:var(--ink)}
-input:focus{outline:2px solid var(--accent);border-color:var(--accent)}
-button{width:100%;margin-top:12px;padding:11px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--sans)}
-.err{color:#c0392b;font-size:13.5px;margin-top:10px;display:none}
+input{width:100%;margin-top:16px;padding:11px 14px;border:1px solid #e3e2f4;background:#f6f6fb;border-radius:12px;font-family:var(--mono);font-size:14px;color:var(--ink)}
+input:focus{outline:none;border-color:var(--accent);background:#fff}
+button{width:100%;margin-top:12px;padding:12px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+button:hover{filter:brightness(1.08)}
+.err{color:#c23a3a;font-size:13.5px;margin-top:10px;display:none}
 .hint{color:var(--ink-3);font-size:12.5px;margin-top:14px}
-.hint code{font-family:var(--mono);background:#eef1f6;padding:2px 6px;border-radius:6px;font-size:11.5px}
+.hint code{font-family:var(--mono);background:#f0f0fa;padding:2px 6px;border-radius:6px;font-size:11.5px}
 </style></head><body>
 <form class="card" id="f">
  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · owner dashboard</span></div>
@@ -521,6 +527,7 @@ function renderSettings(h, s, b) {
 <style>
 :root{--bg:#eceef3;--card:#fff;--line:#edeef4;--ink:#132038;--ink-2:#2a3346;--ink-25:#6c7688;--ink-3:#98a1b2;--accent:#5b52e8;--green:#178a4e;--red:#c23a3a;--sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
 .card{width:1100px;max-width:100%;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:36px 42px 30px}
 .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
@@ -622,6 +629,7 @@ function renderDash(h, s) {
 <style>
 :root{--bg:#eceef3;--card:#fff;--line:#edeef4;--ink:#132038;--ink-2:#2a3346;--ink-25:#6c7688;--ink-3:#98a1b2;--accent:#5b52e8;--green:#178a4e;--amber:#c98a12;--red:#c23a3a;--sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace}
 *{box-sizing:border-box;margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
 .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;width:1780px;max-width:100%;align-items:stretch}
 @media(max-width:1400px){.wrap{grid-template-columns:1fr}}
@@ -741,6 +749,13 @@ td b{font-weight:700}
 .split{grid-template-columns:1fr}
 .bar{grid-template-columns:52px minmax(60px,1fr);gap:10px}
 .bar .num{grid-column:1/-1;white-space:normal}
+/* source/model/session splits: drop the decorative track bar, let values wrap —
+   the fixed name + nowrap value column was pushing the page past the viewport */
+.srow{grid-template-columns:1fr auto;gap:10px}
+.sessrow{grid-template-columns:14px 1fr auto;gap:9px}
+.srow .tr,.sessrow .tr{display:none}
+.srow .vv,.sessrow .vv{white-space:normal;text-align:right}
+.sessrow .nm{min-width:0}
 table{font-size:12px}
 }
 </style></head><body>
