@@ -36,6 +36,36 @@ Your own eyes: `node ~/.claude/skills/maxx/watch.mjs` (live dashboard) ·
 `tail -f ~/.maxx/emit.log` (shipper log) ·
 `GET /api/u/<you>/feed?n=50` (server-side event feed).
 
+### The four verdicts (the contract every agent gates on)
+
+`maxx_budget` returns one of four verdicts. The server owns this policy — agents
+read it, they do not re-derive their own staleness tolerance, and a routine prompt
+should never hand-roll a fifth rule.
+
+| verdict | what it means | what an agent should do |
+|---|---|---|
+| `ok` | fresh /usage anchor, under every wall | proceed; plan against `session_to_spend` |
+| `degraded` | no machine has read /usage in the last 45m, but the weekly standing is still live from the server's own billed ledger | **proceed** on the WEEKLY numbers (`weekly_left_tokens`, `session_to_spend`); ignore the 5h-window fields; re-check more often |
+| `over` | a wall is hit (weekly ≥99%, 5h ≥99%, or nothing left after reserves) | stop; `tokens_again` says when it lifts |
+| `stale` | genuinely blind — no anchor at all, or one over 12h old | stop |
+
+**Why `degraded` exists.** Only a real Claude surface can read `/usage`, so the
+anchor comes from an interactive Claude Code session's statusline. When every
+linked machine is asleep the anchor ages — and before `degraded` existed, that
+flipped the account to `stale` and hard-blocked every cloud routine, including the
+ones whose burn report would have refreshed the tally. Self-reinforcing.
+
+But the anchor only *calibrates* caps against Anthropic's percentages, and those
+caps move on a 7-day window — hours-old calibration still prices the weekly tank
+correctly, and the server holds the full billed ledger from every surface either
+way. So an aged anchor degrades to weekly-only instead of blinding the account.
+
+**A cloud agent cannot clear `stale` by calling `maxx_emit`.** Emit ships event
+counts; anchors come from `/usage`, which cloud has no access to (that is why the
+`maxx_emit` schema says to leave `anchor` unset). Any "re-emit to re-anchor, then
+re-read" retry loop is a no-op that logs a self-heal which did not happen. To
+re-anchor, open a Claude Code session on any linked machine.
+
 ### The hard gate (PreToolUse deny)
 
 The connector's `instructions` are advisory. install.sh also wires the HARD gate:

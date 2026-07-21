@@ -216,6 +216,7 @@ function renderCard(h, s, b, setup = null) {
     weekly_left: b.weekly_left_tokens, session_over: b.session_over, burn_5m: b.burn_5m,
     week_billed: b.week_billed, week_bank: b.week_bank, net_per_min: b.net_per_min,
     week_reset_in_sec: b.week_reset_in_sec, fresh: b.fresh, anchor_age_sec: b.anchor_age_sec,
+    verdict: b.verdict,
   });
   // badge: "live" only when data actually flows; a retired handle says so
   const lastEvt = s.events.reduce((a, e) => (e.ts > a ? e.ts : a), 0);
@@ -230,13 +231,17 @@ function renderCard(h, s, b, setup = null) {
   const url = `https://meetmaxx.co/u/${h}`;
   // owner-only setup panel (present when the page was opened with ?k=<secret>)
   const agoTxt = (sec) => sec == null ? "never" : sec < 90 ? `${sec}s ago` : sec < 5400 ? `${Math.round(sec / 60)}m ago` : sec < 172800 ? `${Math.round(sec / 3600)}h ago` : `${Math.round(sec / 86400)}d ago`;
+  // ok: true | false | "warn" — "warn" is degraded-but-working (amber), so a tenant whose
+  // laptop simply sleeps at night doesn't see a red ❌ on a healthy install.
   const setupRow = (ok, label, ago, fix) =>
-    `<li><span>${ok ? "✅" : "❌"} <b>${label}</b> <span class="sub">· ${agoTxt(ago)}</span></span>${ok ? "" : `<span class="fix">${fix}</span>`}</li>`;
+    `<li><span>${ok === true ? "✅" : ok === "warn" ? "⚠️" : "❌"} <b>${label}</b> <span class="sub">· ${agoTxt(ago)}</span></span>${ok === true ? "" : `<span class="fix">${fix}</span>`}</li>`;
   const setupHtml = !setup ? "" : `
  <div class="setup"><h3>Setup check <span class="sub">— only you can see this (opened with your secret)</span></h3><ul>
   ${setupRow(setup.cli.ok, "Claude CLI shipping", setup.cli.ago, `run: <code>curl -fsSL https://meetmaxx.co/install | MAXX_HANDLE=${h} MAXX_SECRET=&lt;your-secret&gt; bash</code>`)}
   ${setupRow(setup.connector.ok, "claude.ai connector", setup.connector.ago, `add the connector at <a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener">claude.ai → Connectors</a> (name Maxx, your mcp URL)`)}
-  ${setupRow(setup.anchor.ok, "Anchor fresh (/usage)", setup.anchor.ago, `open a Claude Code session on the linked machine — the statusline ships the authoritative %`)}
+  ${setupRow(setup.anchor.ok, "Anchor fresh (/usage)", setup.anchor.ago, setup.anchor.ok === "warn"
+    ? `no machine has read /usage recently, so budget runs on the weekly ledger only (verdict "degraded" — agents still work). Open a Claude Code session on any linked machine to re-anchor.`
+    : `open a Claude Code session on the linked machine — the statusline ships the authoritative %`)}
  </ul></div>`;
   const desc = `${humanN(lifetime)} lifetime Claude tokens · live tally, anchored to Anthropic /usage · verified by Maxx`;
   const shareTxt = `${humanN(lifetime)} lifetime Claude tokens, verified by @meetmaxx`;
@@ -407,7 +412,10 @@ ${CHART_JS}
         (tick!=null?'<span style="position:absolute;left:'+tick.toFixed(1)+'%;top:0;bottom:0;width:2px;background:#152036;z-index:2"></span>':'')+
         '</span><span class="num">'+num+'</span></div>';
     };
-    var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale'):'';
+    // "stale" is a hard-stop word now; a sleeping laptop is "degraded" and the weekly
+    // numbers on this card are still real. Say which one it actually is.
+    var vw=d.verdict==='degraded'?'degraded':'stale';
+    var stale=!d.fresh?(d.anchor_age_sec!=null?' · '+vw+' · anchored '+ago(d.anchor_age_sec)+' ago':' · '+vw):'';
     var calib=d.week!=null&&d.week<0.05?' · calibrating':'';
     // net = sustainable weekly pace − burn (server-computed, one ruler with dash/statusline)
     var prog=d.net_per_min!=null?d.net_per_min:0,up=prog>=0;
@@ -1484,7 +1492,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             weekly_left: budget.weekly_left_tokens, session_over: budget.session_over,
             week_billed: budget.week_billed, week_bank: budget.week_bank, net_per_min: budget.net_per_min,
             five_reset_in_sec: budget.five_reset_in_sec, week_reset_in_sec: budget.week_reset_in_sec,
-            fresh: budget.fresh, anchor_age_sec: budget.anchor_age_sec, feed,
+            fresh: budget.fresh, anchor_age_sec: budget.anchor_age_sec, verdict: budget.verdict, feed,
           }) };
       }
       // owner view: /u/{h}?k={secret} adds the private setup-check panel — "is my install right?"
@@ -1499,7 +1507,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         setup = {
           cli: { ok: t - lastLaptop < 1800, ago: lastLaptop ? Math.round(t - lastLaptop) : null },
           connector: { ok: t - lastCloud < 7 * 86400, ago: lastCloud ? Math.round(t - lastCloud) : null },
-          anchor: { ok: budget.fresh, ago: budget.anchor_age_sec },
+          anchor: { ok: budget.fresh ? true : budget.verdict === "degraded" ? "warn" : false, ago: budget.anchor_age_sec },
         };
       }
       return { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": setup ? "no-store" : "public, max-age=60" }, body: renderCard(h, s, budget, setup) };
