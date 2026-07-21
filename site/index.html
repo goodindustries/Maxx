@@ -315,7 +315,7 @@
 <section class="wrap" id="connector">
   <h2>Cross-platform. One tally.</h2>
   <p class="lead">Track token use across every surface that burns your quota: laptops, Claude Code cloud routines, claude.ai sessions. <b>The installer claims a handle from your Claude login and starts tracking automatically.</b> Use this form to reserve a specific name first. One handle per Claude account.</p>
-  <p class="hint">Your own dashboards can subscribe too: webhooks push <code>over</code> / <code>refill</code> / <code>week-80</code> / <code>week-90</code> / <code>week-95</code> / <code>runaway</code> transitions (<code>POST /api/u/&lt;you&gt;/webhooks</code>), and <code>GET /api/u/&lt;you&gt;/budget</code> serves live availability, burn rate and top burners for polling.</p>
+  <p class="hint">Your own dashboards can subscribe too: webhooks push <code>over</code> / <code>recovered</code> / <code>week-80</code> / <code>week-90</code> / <code>week-95</code> / <code>runaway</code> transitions (<code>POST /api/u/&lt;you&gt;/webhooks</code>), and <code>GET /api/u/&lt;you&gt;/budget</code> serves live availability, burn rate and top burners for polling.</p>
   <div class="install" style="display:flex;width:100%;max-width:560px">
     <code style="flex:1;padding-right:0"><span class="p">@</span><input id="sg-handle" placeholder="your-handle" maxlength="32" autocomplete="off" spellcheck="false" style="background:none;border:0;outline:0;color:inherit;font:inherit;width:100%"></code>
     <button id="sg-go">Get my URL</button>

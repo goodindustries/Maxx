@@ -604,7 +604,7 @@ td{border-bottom-color:#222b40}
  <div class="row"><label>Sustained for (minutes)</label><input id="rmin" value="${cfg.runaway_min ?? 10}" size="12"></div>
  <div class="row"><button class="primary" id="cfgSave">Save</button><span class="flash" id="cfgFlash"></span></div>
 
- <h2>Webhooks <span class="sub">— push on over / refill / week-80/90/95 / runaway</span></h2>
+ <h2>Webhooks <span class="sub">— push on over / recovered / week-80/90/95 / runaway</span></h2>
  <table><thead><tr><th>URL</th><th>Format</th><th></th></tr></thead>
  <tbody id="hooks">${hookRows || '<tr><td colspan="3" class="empty">none registered</td></tr>'}</tbody></table>
  <div class="row"><input id="hookUrl" placeholder="https://…" size="46"><input id="hookFmt" placeholder="json | dash" size="10"><button class="primary" id="hookAdd">Add</button><span class="flash" id="hookFlash"></span></div>
@@ -1651,7 +1651,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         s.webhooks = s.webhooks.filter((w) => w.url !== b.url);
         s.webhooks.push({ url: b.url, secret: b.secret || null, headers: b.headers || null, format: b.format || null });
         await store.save(h, s);
-        return json(200, { ok: true, webhooks: s.webhooks.length, events: ["over", "refill", "week-80", "week-90", "week-95", "runaway"] });
+        return json(200, { ok: true, webhooks: s.webhooks.length, events: ["over", "recovered", "week-80", "week-90", "week-95", "runaway"] });
       }
     }
     // ---- reservation lease (#4) ----

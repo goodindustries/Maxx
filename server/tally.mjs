@@ -400,7 +400,7 @@ export function transitionEvents(store, budget, now) {
   if (!prev) return [];                                 // baseline, fire nothing
   const events = [];
   if (prev.verdict === "ok" && budget.verdict === "over") events.push({ event: "over" });
-  if (prev.verdict === "over" && budget.verdict === "ok") events.push({ event: "refill" });
+  if (prev.verdict === "over" && budget.verdict === "ok") events.push({ event: "recovered" });
   if (weekBand > (prev.weekBand || 0)) events.push({ event: `week-${weekBand}` });
   for (const r of runaway)
     if (!(prev.runaway || []).includes(`${r.surface}|${r.session}`))
