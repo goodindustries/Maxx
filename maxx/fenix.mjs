@@ -15,7 +15,7 @@
  * headless — `claude -p "$(cat .fenix/handoff.md)"` — or let the next interactive
  * session in this directory pick it up automatically via --wake.
  */
-import { readFileSync, writeFileSync, renameSync, statSync, readdirSync, existsSync, openSync } from "node:fs";
+import { readFileSync, writeFileSync, writeSync, renameSync, statSync, readdirSync, existsSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 
@@ -52,8 +52,6 @@ if (arg === "--wake") {
     const ageH = (Date.now() - st.mtimeMs) / 3600000;
     if (ageH > MAX_AGE_H) process.exit(0);
     const body = readFileSync(HANDOFF, "utf8");
-    // consume BEFORE printing: a crash mid-print must not re-inject next session
-    renameSync(HANDOFF, path.join(DIR, `handoff.consumed-${new Date().toISOString().replace(/[:.]/g, "-")}.md`));
     // Structured injection, not bare stdout. Plain stdout reached the transcript but not
     // reliably the model's context on a /clear, so the handoff was consumed and then
     // ignored — you had to ask "check fenix handoff" by hand every single time, which
@@ -63,13 +61,21 @@ if (arg === "--wake") {
       `(written ${Math.round(ageH * 60)}m ago, now consumed). Resume it now without being asked: ` +
       `state in one line what you are picking up, verify its claims against the working tree, ` +
       `then continue that work.\n\n${body}\n`;
-    process.stdout.write(JSON.stringify({
+    // writeSync, not process.stdout.write: stdout is a PIPE here, so the async write returns
+    // before the bytes land and the process.exit(0) below truncates whatever is still buffered.
+    // Measured: a 320K handoff delivered exactly 65536 bytes (one pipe buffer) of invalid JSON.
+    writeSync(1, JSON.stringify({
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text },
     }) + "\n");
-    await postOp("fenix:rise", `${path.basename(process.cwd())} · handoff consumed (${Math.round(ageH * 60)}m old)`);
+    // Consume only AFTER delivery is on the wire. The old order (rename first) meant a lost
+    // write still ate the handoff — thread gone silently, which is far worse than the
+    // double-inject the old order was avoiding.
+    renameSync(HANDOFF, path.join(DIR, `handoff.consumed-${new Date().toISOString().replace(/[:.]/g, "-")}.md`));
+    // Fire-and-forget: telemetry must never sit between delivery and exit.
+    postOp("fenix:rise", `${path.basename(process.cwd())} · handoff consumed (${Math.round(ageH * 60)}m old)`).catch(() => {});
   } catch {
     if (src === "clear")
-      process.stdout.write(JSON.stringify({
+      writeSync(1, JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "SessionStart",
           additionalContext:
