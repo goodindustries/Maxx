@@ -1254,7 +1254,12 @@ if(location.search)history.replaceState(null,'',location.pathname);
         (d.note?'<br><span style="color:var(--ink-3)">'+esc(d.note)+'</span>':'')+'</td></tr>';
     };
     var body=rows.map(function(c){
-      var mine=dirs.filter(function(d){return d.surface&&d.surface===c.surface});
+      // channel keys are "surface · project" but a directive carries the bare surface
+      // (top_burners has no project), so match the machine prefix too or every
+      // auto-raised directive falls into the unpinned bucket it was meant to escape
+      var mine=dirs.filter(function(d){
+        return d.surface&&(d.surface===c.surface||c.surface.indexOf(d.surface+' · ')===0);
+      });
       mine.forEach(function(d){placed[d.id]=1});
       return '<tr><td class="mono">'+esc(c.surface)+'</td>'+
         '<td>'+(c.last?ago(Math.max(0,t-c.last))+' ago':'—')+'</td>'+
