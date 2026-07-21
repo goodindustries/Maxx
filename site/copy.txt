@@ -24,7 +24,7 @@ Hint: Install /maxx
 
 HERO VISUALS (in order)
 -----------------------
-1. Dashboard screenshot (card-hero.png)
+1. Dashboard, recorded live (card-hero.gif)
    Caption: Your dashboard: every machine and cloud agent on one page, live. See a real one -> meetmaxx.co/u/reif_tgp
 2. Statusline recording (maxx-live-session.gif)
    Caption: And the same numbers in your Claude Code statusline, updated every second.
