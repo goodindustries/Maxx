@@ -52,13 +52,34 @@ if (arg === "--wake") {
     const ageH = (Date.now() - st.mtimeMs) / 3600000;
     if (ageH > MAX_AGE_H) process.exit(0);
     const body = readFileSync(HANDOFF, "utf8");
-    // Structured injection, not bare stdout. Plain stdout reached the transcript but not
-    // reliably the model's context on a /clear, so the handoff was consumed and then
-    // ignored — you had to ask "check fenix handoff" by hand every single time, which
-    // defeats the entire point of an automatic wake.
+    // DELIVERY IS NOT USE. Archiving on the first read meant the handoff belonged to
+    // whichever session started first — and a SessionStart hook cannot make the model
+    // take a turn, so a /clear you glance at and walk away from consumed the thread
+    // without a single word of work being done. Observed exactly that: session
+    // 92bd14d2 took the 16:48 handoff on a /clear, produced zero assistant turns, and
+    // the real work happened in a session that started 30s later and got nothing.
+    // So: keep the handoff live for a grace window and deliver it to every session that
+    // starts inside it. Re-delivering a thread costs a duplicate paragraph; losing it
+    // costs the thread.
+    const GRACE_MIN = parseInt(process.env.MAXX_WAKE_GRACE_MIN || "20", 10);
+    const dpath = path.join(DIR, "delivered.json");
+    let dlv = null;
+    try { dlv = JSON.parse(readFileSync(dpath, "utf8")); } catch {}
+    if (dlv && dlv.handoff_mtime !== st.mtimeMs) dlv = null; // a NEW handoff supersedes
+    const firstAt = dlv?.first_at || Date.now();
+    const nth = (dlv?.count || 0) + 1;
+    // Past the grace window the thread has been picked up (or abandoned) — archive it
+    // quietly rather than injecting stale state into an unrelated session days later.
+    if (Date.now() - firstAt > GRACE_MIN * 60000) {
+      renameSync(HANDOFF, path.join(DIR, `handoff.consumed-${new Date().toISOString().replace(/[:.]/g, "-")}.md`));
+      try { writeFileSync(dpath, JSON.stringify({ archived_at: Date.now() })); } catch {}
+      process.exit(0);
+    }
     const text =
       `🔥 FENIX — this session rises from a cleared one. The handoff below is what was in motion ` +
-      `(written ${Math.round(ageH * 60)}m ago, now consumed). Resume it now without being asked: ` +
+      `(written ${Math.round(ageH * 60)}m ago).` +
+      (nth > 1 ? ` (Also delivered to ${nth - 1} earlier session${nth > 2 ? "s" : ""} in the last ${GRACE_MIN}m — if that work is already underway elsewhere, say so instead of redoing it.)` : "") +
+      ` Resume it now without being asked: ` +
       `state in one line what you are picking up, verify its claims against the working tree, ` +
       `then continue that work.\n\n${body}\n`;
     // writeSync, not process.stdout.write: stdout is a PIPE here, so the async write returns
@@ -67,10 +88,9 @@ if (arg === "--wake") {
     writeSync(1, JSON.stringify({
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text },
     }) + "\n");
-    // Consume only AFTER delivery is on the wire. The old order (rename first) meant a lost
-    // write still ate the handoff — thread gone silently, which is far worse than the
-    // double-inject the old order was avoiding.
-    renameSync(HANDOFF, path.join(DIR, `handoff.consumed-${new Date().toISOString().replace(/[:.]/g, "-")}.md`));
+    // Record the delivery only AFTER it is on the wire — a lost write must not count as
+    // delivered, for the same reason the archive used to happen too early.
+    try { writeFileSync(dpath, JSON.stringify({ first_at: firstAt, count: nth, handoff_mtime: st.mtimeMs })); } catch {}
     // Fire-and-forget: telemetry must never sit between delivery and exit.
     postOp("fenix:rise", `${path.basename(process.cwd())} · handoff consumed (${Math.round(ageH * 60)}m old)`).catch(() => {});
   } catch {

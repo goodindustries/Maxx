@@ -49,10 +49,18 @@ cannot resurrect a thread that was cleared bare. Handoffs are PER-DIRECTORY
 2. **Truth check** — every "Just landed" claim needs evidence you actually have.
    Unverified work goes under "In motion", never "landed".
 
-3. **Hand back control.** Straight truth: `/clear` is a human keystroke — no model,
-   hook, or tool can clear a session's own context. Two exits, pick by presence:
-   - **Human present:** say exactly — `handoff written → .fenix/handoff.md · hit
-     /clear — the next session here rises automatically.`
+3. **Hand back control.** Straight truth, twice over: `/clear` is a human keystroke — no
+   model, hook, or tool can clear a session's own context. And a SessionStart hook can
+   only ADD CONTEXT; it cannot make the model take a turn. So after `/clear` the handoff
+   is loaded and waiting, but nothing moves until the human sends one message — any
+   message. Never promise that it "resumes automatically"; it resumes on the next
+   keystroke. (Verified: a `/clear` at 16:48 injected the handoff correctly, then sat at
+   zero assistant turns until it was abandoned.) The handoff now stays live for a grace
+   window (default 20m, `MAXX_WAKE_GRACE_MIN`) and is delivered to EVERY session started
+   inside it, so a `/clear` you walk away from no longer burns the thread; it archives
+   once the window passes. Two exits, pick by presence:
+   - **Human present:** say exactly — `handoff written → .fenix/handoff.md · hit /clear,
+     then send anything ("go") — it picks up from there.`
    - **Unattended / human says "rise":** run
      `node ~/.claude/skills/maxx/fenix.mjs --rise` — consumes the handoff and
      spawns a detached headless continuation (fresh process = fresh context; log
