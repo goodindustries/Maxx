@@ -1166,7 +1166,26 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var wheld=(window.__ops||[]).filter(function(o){return /held|OVER|pause/i.test((o.op||'')+' '+(o.d||''))&&o.ts>t-1800}).sort(function(x,y){return y.ts-x.ts})[0];
     if(wheld)warns.push({s:'amber',t:'🛡 gate held spend · '+ago(Math.max(0,t-wheld.ts))+' ago'});
     var wBurn=b.burn_5m!=null?b.burn_5m/5:0,wPace=b.sustainable_per_min||0;
-    if(wBurn>=5e5&&wPace>0&&wBurn>2*wPace)warns.push({s:'amber',t:'burn <b>'+hum(wBurn)+'/min</b> · '+(Math.round(wBurn/wPace*10)/10)+'× weekly pace'});
+    // A burn multiple on its own is a number, not an answer. Name the session driving
+    // it, its context size, and the action — the cause is nearly always one session
+    // past the context wall re-billing its whole context every turn.
+    if(wBurn>=5e5&&wPace>0&&wBurn>2*wPace){
+      var mult=Math.round(wBurn/wPace*10)/10;
+      var hot=(b.top_burners||[]).filter(function(a){return a.rate_5m>0})
+                .sort(function(x,y){return y.rate_5m-x.rate_5m});
+      var lead=hot[0],cause='';
+      if(lead){
+        var lrate=lead.rate_5m/5,share=wBurn>0?Math.round(lrate/wBurn*100):0;
+        cause=' — <b>'+esc(lead.name||lead.project||(lead.session||'').slice(0,8))+'</b> '+hum(lrate)+'/min'+
+              (share>=15?' ('+share+'%)':'')+
+              (lead.ctx?' at ctx'+hum(lead.ctx):'')+
+              (lead.ctx>CTX_WALL?' · past wall · <b>/fenix</b> it':'');
+        if(hot[1]&&hot[1].rate_5m/5>=wBurn*0.15)
+          cause+=', then <b>'+esc(hot[1].name||hot[1].project||'session')+'</b> '+hum(hot[1].rate_5m/5)+'/min'+
+                 (hot[1].ctx>CTX_WALL?' (also past wall)':'');
+      }
+      warns.push({s:mult>=5?'red':'amber',t:'burn <b>'+hum(wBurn)+'/min</b> · '+mult+'× weekly pace'+cause});
+    }
     if(b.anchor_age_sec!=null&&b.anchor_age_sec>90)warns.push({s:'amber',t:'anchor <b>'+b.anchor_age_sec+'s</b> old'});
     document.getElementById('warns').innerHTML=(warns.length?warns:[{s:'ok',t:'all clear'}]).map(function(w){
       return '<div class="walert '+w.s+'">'+w.t+'</div>';
