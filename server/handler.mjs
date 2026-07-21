@@ -729,8 +729,14 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
 /* Sits INSIDE the chart box. It used to be translate(-50%,-110%) off top:36px, which
    lifted it clear out of the chart and over the "TOKENS / MIN" heading above. */
-.tip48{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:12px;font-weight:500;padding:8px 12px;border-radius:9px;white-space:nowrap;transform:translate(-50%,0);top:6px;z-index:4;line-height:1.6}
-.tip48 .pr{color:#fbbf24}
+/* The hover readout used to be a floating dark card pinned inside the plot, which
+   covered the bars it was describing. It reads BELOW the axis now — the height is
+   reserved so nothing shifts when it appears — and a thin guide ties it to the
+   hovered minute. */
+.tip48{min-height:19px;margin-top:4px;font-family:var(--mono);font-size:12.5px;font-weight:500;color:#5b6474;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tip48 .pr{color:#b4801f}
+.tip48 .mut{color:#98a1b0}
+.guide48{position:absolute;top:0;bottom:0;width:1.5px;background:#c7c3f2;display:none;pointer-events:none;z-index:1}
 .axis48{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:#a3abba;margin-top:7px}
 .pace{display:flex;flex-direction:column;gap:15px;margin-top:22px;background:#f6f6fb;border-radius:16px;padding:18px 20px}
 .gauge{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:15px}
@@ -877,9 +883,10 @@ td{border-bottom-color:#222b40}
    <div class="avglab" id="avglab" style="display:none">avg</div>
    <div class="cols" id="cols"></div>
    <div class="marks" id="marks"></div>
-   <div class="tip48" id="tip48"></div>
+   <div class="guide48" id="guide48"></div>
   </div>
   <div class="axis48"><span>-48m</span><span>-24m</span><span>now</span></div>
+  <div class="tip48" id="tip48"></div>
  </div>
 
  <div class="pace">
@@ -1156,11 +1163,15 @@ if(location.search)history.replaceState(null,'',location.pathname);
       if(usedPct==null)return '';
       var evenPct=resetIn!=null?Math.max(0,Math.min(1,(winSec-resetIn)/winSec)):null;
       var d=evenPct>0?(usedPct-evenPct)/evenPct*100:0;
-      var ahead=d>=0;
+      // Said in words, not in a sign. "-71% vs even" meant "spent 71% LESS than an even
+      // burn" — good news wearing a minus, while the chart right above it uses minus for
+      // OVERspending. Same screen, opposite meaning for the same sign, so neither read
+      // clearly. Words carry the direction now and colour agrees with them.
+      var over=d>=0;
       return '<div class="gauge"><span class="lab">'+lab+'</span>'+
         '<span class="track"><span class="fill" style="width:'+(usedPct*100).toFixed(1)+'%"></span>'+
         (evenPct!=null?'<span class="mark" style="left:'+(evenPct*100).toFixed(1)+'%"></span>':'')+'</span>'+
-        '<span class="num"><b style="color:'+(ahead?'var(--red)':'var(--green)')+'">'+(ahead?'+':'')+d.toFixed(0)+'% vs even</b> · '+
+        '<span class="num"><b style="color:'+(over?'var(--red)':'var(--green)')+'">'+Math.abs(d).toFixed(0)+'% '+(over?'over':'under')+' even pace</b> · '+
         (leftTok!=null?hum(leftTok)+' left':'—')+'</span></div>';
     };
     document.getElementById('gauges').innerHTML=
@@ -1411,24 +1422,25 @@ if(location.search)history.replaceState(null,'',location.pathname);
   }
   // hover: per-minute tokens + what maxx did in that minute
   (function(){
-    var c48=document.getElementById('chart48'),tip=document.getElementById('tip48');
+    var c48=document.getElementById('chart48'),tip=document.getElementById('tip48'),g48=document.getElementById('guide48');
     c48.addEventListener('mousemove',function(evt){
       var st=window.__chartMins;if(!st)return;
       var r=c48.getBoundingClientRect();
       var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
       var ts=new Date((st.t-(47-idx)*60)*1000);
       var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
-      // lead with the signed number the bar is drawing, then the arithmetic behind it
+      // one line, below the axis: lead with the signed number the bar is drawing,
+      // then the arithmetic behind it. Never covers the bars it describes.
       var out=st.buckets[idx],pc=st.pace||0,over=out>pc;
-      var html=esc(hh)+' · <span style="color:'+(over?'#f0873c':'#4ade80')+'">'+(over?'−':'+')+esc(hum(Math.abs(pc-out)))+(over?' over':' banked')+'</span>'+
-        '<br><span style="color:#8a93a5">'+esc(hum(out))+' out of '+esc(hum(pc))+'/min allowance</span>';
+      var html=esc(hh)+' · <span style="color:'+(over?'#c2703a':'#15803d')+'">'+(over?'−':'+')+esc(hum(Math.abs(pc-out)))+(over?' over':' banked')+'</span>'+
+        ' <span class="mut">· '+esc(hum(out))+' out of '+esc(hum(pc))+'/min allowance</span>';
       var m=st.ops[idx];
-      if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
-      tip.style.display='block';
-      tip.style.left=Math.max(80,Math.min(r.width-80,(idx+0.5)/48*r.width))+'px';
+      if(m)m.items.slice(0,2).forEach(function(x){html+=' <span class="pr">· '+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
       tip.innerHTML=html;
+      g48.style.display='block';
+      g48.style.left=((idx+0.5)/48*r.width).toFixed(1)+'px';
     });
-    c48.addEventListener('mouseleave',function(){tip.style.display='none'});
+    c48.addEventListener('mouseleave',function(){tip.innerHTML='';g48.style.display='none'});
   })();
   tick();setInterval(tick,10000);
   setInterval(renderBudget,1000); // liveness: drift the bars + tiles every second, snap on poll
