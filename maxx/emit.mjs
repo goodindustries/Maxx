@@ -453,15 +453,33 @@ if (!args.watch) {
   const { watch } = await import("node:fs");
   console.log(`MAXX_EMIT watch=on surface=${surface} target=${base} — live-streaming turns as they land (Ctrl-C to stop)`);
   await runOnce({ quiet: true });
-  let timer = null, running = false;
+  // The watcher is the whole data pipeline: if it stops, every surface goes dark and
+  // the tally silently reports "nothing spent". It ran 2h45m wedged exactly once —
+  // `running` latched true and every later cycle hit `if (running) return`, while the
+  // process stayed alive and healthy-looking. So: reset in a finally (a throw inside
+  // the catch used to strand it), cap a cycle so it can never hang forever, and let a
+  // cycle that overruns be superseded rather than blocking the next one for good.
+  const CYCLE_MAX_MS = 120000;
+  let timer = null, running = false, startedAt = 0;
   const kick = () => {
     if (timer) return;
     timer = setTimeout(async () => {
       timer = null;
-      if (running) return;
-      running = true;
-      try { await runOnce({ quiet: true }); } catch (e) { console.log("  cycle error:", e.message); }
-      running = false;
+      if (running) {
+        if (Date.now() - startedAt < CYCLE_MAX_MS) return;
+        console.log(`  cycle overran ${Math.round((Date.now() - startedAt) / 1000)}s — starting a fresh one`);
+      }
+      running = true; startedAt = Date.now();
+      try {
+        await Promise.race([
+          runOnce({ quiet: true }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error(`cycle timeout after ${CYCLE_MAX_MS}ms`)), CYCLE_MAX_MS)),
+        ]);
+      } catch (e) {
+        try { console.log("  cycle error:", (e && e.message) || String(e)); } catch {}
+      } finally {
+        running = false;
+      }
     }, 2000); // debounce 2s
   };
   try { watch(args.dir, { recursive: true }, (_e, f) => { if (f && f.endsWith(".jsonl")) kick(); }); }
