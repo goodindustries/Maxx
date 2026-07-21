@@ -822,19 +822,20 @@ function main() {
   // meters answer "how much is left"; this answers "what is each turn costing me right
   // now", which is the number that moves first when a context starts re-billing itself.
   // ▲ when the last 3 turns are meaningfully dearer than the 3 before them.
-  const hist = turnHistory(sid, lastTurns(p.transcript_path, 6), total);
-  if (hist.length >= 3) {
-    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-    const last3 = avg(hist.slice(-3));
-    // the average says what a turn costs; the delta says which way it is going. Compare
-    // the newest turn against the 3-turn mean rather than against the single previous
-    // turn, which is noisy enough to flip sign on nothing.
-    const delta = hist[hist.length - 1] - last3;
-    const turnCol = last3 >= 500e3 ? RED : last3 >= 200e3 ? AMBER : DIM;
-    const dPct = last3 > 0 ? delta / last3 : 0;
-    const dCol = dPct >= 0.35 ? RED : dPct >= 0.12 ? AMBER : dPct <= -0.12 ? GREEN : DIM;
-    metaRow += fg(DIM, "  ·  ") + fg(turnCol, tkf(last3))
-      + fg(DIM, "/") + fg(dCol, (delta >= 0 ? "+" : "−") + tkf(delta))
+  const hist = turnHistory(sid, lastTurns(p.transcript_path, 10), total);
+  if (hist.length >= 1) {
+    // running average over the last 10 turns — averaging whatever exists rather than
+    // waiting for a full window, so it reads from the first turn after a /clear.
+    const win = hist.slice(-10);
+    const avg = win.reduce((x, y) => x + y, 0) / win.length;
+    const last = hist[hist.length - 1];
+    const turnCol = avg >= 500e3 ? RED : avg >= 200e3 ? AMBER : DIM;
+    // the last turn is shown as its own total, not a delta; colour carries the
+    // comparison against the average so direction is still legible at a glance
+    const r = avg > 0 ? last / avg : 1;
+    const lCol = r >= 1.35 ? RED : r >= 1.12 ? AMBER : r <= 0.88 ? GREEN : DIM;
+    metaRow += fg(DIM, "  ·  ") + fg(turnCol, tkf(avg))
+      + fg(DIM, "/") + fg(lCol, tkf(last))
       + fg(DIM, " turn");
   }
 
