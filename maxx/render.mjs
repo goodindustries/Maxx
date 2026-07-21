@@ -456,7 +456,7 @@ function main() {
   // gate.mjs caches the server budget here on each gate check; use its net_per_min when
   // fresh (<90s) so all surfaces agree, else fall back to this machine's local compute.
   const gc = readJSON(path.join(HOME, ".maxx", "gate-cache.json"), null);
-  const gcFresh = gc && gc.at && nowS - gc.at < 90 && gc.b && gc.b.net_per_min != null;
+  const gcFresh = gc && gc.at && Date.now() / 1000 - gc.at < 90 && gc.b && gc.b.net_per_min != null;
   const netPerMin = gcFresh ? gc.b.net_per_min : refuelPerMin - Math.round((burn5 || 0) / 5);
 
   const usd = (p.cost || {}).total_cost_usd || 0;
