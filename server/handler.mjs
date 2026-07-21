@@ -1073,14 +1073,23 @@ if(location.search)history.replaceState(null,'',location.pathname);
         ? '<div class="bar" style="height:'+sc(v).toFixed(0)+'px"></div>'
         : '<div class="bar idle" style="height:2px"></div>')+'</div>';
     }).join('');
-    var winAvg=buckets.reduce(function(a,v){return a+v},0)/48;
-    var hotAvg=winAvg>pace;
+    var winTot=buckets.reduce(function(a,v){return a+v},0);
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    var avgY=BOX-Math.min(H,Math.max(2,sc(winAvg)));
-    al.style.display='block';al.style.top=avgY.toFixed(0)+'px';al.style.borderTopColor=hotAvg?'#e8853a':'#8ec5ff';
-    ab.style.display='block';ab.style.top=Math.max(0,avgY-14).toFixed(0)+'px';ab.style.color=hotAvg?'#c2703a':'#2563eb';
-    ab.textContent='48m avg '+hum(winAvg)+'/min'+(hotAvg?' · over pace':' · under pace');
-    document.getElementById('chartMeta').textContent='tokens out per minute · 48m avg '+hum(winAvg)+'/min vs sustainable '+hum(pace)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    if(winTot<=0){
+      // An idle window is a real state, not a zero to plot. "48m avg 0/min · peak 1"
+      // over an empty box reads as broken, and that peak is just the max(…,1) floor
+      // leaking into the UI. Say what is true instead.
+      al.style.display='none';ab.style.display='none';
+      document.getElementById('chartMeta').textContent='nothing spent in the last 48 minutes · sustainable '+hum(pace)+'/min'+(window.__perTurn?' · '+window.__perTurn:'');
+    }else{
+      var winAvg=winTot/48;
+      var hotAvg=winAvg>pace;
+      var avgY=BOX-Math.min(H,Math.max(2,sc(winAvg)));
+      al.style.display='block';al.style.top=avgY.toFixed(0)+'px';al.style.borderTopColor=hotAvg?'#e8853a':'#8ec5ff';
+      ab.style.display='block';ab.style.top=Math.max(0,avgY-14).toFixed(0)+'px';ab.style.color=hotAvg?'#c2703a':'#2563eb';
+      ab.textContent='48m avg '+hum(winAvg)+'/min'+(hotAvg?' · over pace':' · under pace');
+      document.getElementById('chartMeta').textContent='tokens out per minute · 48m avg '+hum(winAvg)+'/min vs sustainable '+hum(pace)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    }
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
