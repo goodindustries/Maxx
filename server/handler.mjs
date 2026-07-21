@@ -1044,11 +1044,21 @@ if(location.search)history.replaceState(null,'',location.pathname);
     window.__perTurn=h1t>0?hum(h1b/h1t)+' /turn · '+h1t+' turns/1h':'';
 
     // 48-min tokens/min chart from the feed
+    // An emit is a per-session DELTA covering every turn since the emitter's cursor, so
+    // one record can span many minutes. Dropping it all in the minute it finished made a
+    // batch look like a 30M spike in 60 seconds and left the minutes it actually covered
+    // empty. Spread each record evenly across the minutes between ts0 and ts.
     var buckets=new Array(48).fill(0);
     ev.forEach(function(e){
       var ts=new Date(e.ts).getTime()/1000;if(!(ts>0))return;
-      var idx=47-Math.floor((t-ts)/60);
-      if(idx>=0&&idx<48)buckets[idx]+=e.billed;
+      var ts0=e.ts0?new Date(e.ts0).getTime()/1000:ts;
+      if(!(ts0>0)||ts0>ts)ts0=ts;
+      var lo=47-Math.floor((t-ts)/60), hi=47-Math.floor((t-ts0)/60);
+      if(hi<lo){var sw=lo;lo=hi;hi=sw;}
+      lo=Math.max(0,lo);hi=Math.min(47,hi);
+      if(hi<0||lo>47||hi<lo){ if(lo>=0&&lo<48)buckets[lo]+=e.billed; return; }
+      var span=hi-lo+1, share=e.billed/span;
+      for(var i=lo;i<=hi;i++)buckets[i]+=share;
     });
     var mx=Math.max.apply(null,buckets.concat([1]));
     // TOKENS OUT per minute, grown from the bottom baseline, with the sustainable
@@ -1839,6 +1849,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const s = await store.load(h);
       const events = s.events.slice(-n).reverse().map((e) => ({
         surface: e.surface, root: e.root, ts: new Date(e.ts * 1000).toISOString(),
+        ts0: new Date((e.ts0 || e.ts) * 1000).toISOString(),
         billed: e.billed, output: e.output || 0,
         project: e.project || null, name: e.name || null, branch: e.branch || null,
         by_model: e.by_model || {}, turns: e.turns || 0, tool_calls: e.tool_calls || 0,

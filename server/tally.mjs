@@ -64,6 +64,11 @@ export function applyEnvelope(store, env) {
       surface,
       root: s.root,
       ts: sec(s.last_ts) || sec(env.emitted_at),
+      // when the batch STARTED. The emitter ships a per-session delta covering every
+      // turn since its cursor, so without this the whole batch lands in the single
+      // minute it finished — which is what made the 48-minute chart show 30M "in one
+      // minute". Kept so consumers can spread a batch across the minutes it spans.
+      ts0: sec(s.first_ts) || sec(s.last_ts) || sec(env.emitted_at),
       billed: s.billed || 0,
       output: s.output || 0,
       by_model: s.by_model || {},
