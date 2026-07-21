@@ -3,7 +3,7 @@
 // memory store (no live servers — see HANDOFF gotchas). Run: `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { emptyStore, addDirective, pendingDirectives } from "./tally.mjs";
+import { emptyStore, addDirective, pendingDirectives, autoAdvise } from "./tally.mjs";
 import { createHandler } from "./handler.mjs";
 import { createMemoryStore } from "./store.mjs";
 
@@ -101,4 +101,33 @@ test("handler MCP: maxx_directive listed and callable", async () => {
   const res = JSON.parse(call.result.content[0].text);
   assert.equal(res.ok, true);
   assert.equal(res.action, "pause");
+});
+
+// ---- watchdog: maxx acting on its own -------------------------------------
+test("watchdog advises /clear on a past-wall session that is actually burning", () => {
+  const s = emptyStore();
+  const T = 1_800_000_000;
+  // weekly anchor so sustainable_per_min is real
+  s.anchors.push({ ts: T - 60, five_pct: 0.2, week_pct: 0.3, five_reset: T + 3600, week_reset: T + 2 * 86400 });
+  // a fat session burning hard in the last 5 minutes
+  for (let i = 0; i < 5; i++)
+    s.events.push({ surface: "laptop:a", root: "sess-hot", ts: T - 60 * i, billed: 20e6, ctx: 430e3, name: "hot session" });
+  const sent = autoAdvise(s, T);
+  assert.equal(sent.length, 1, `one advisory, got ${JSON.stringify(sent)}`);
+  assert.equal(sent[0].session, "sess-hot");
+  const d = s.directives.find((x) => x.session === "sess-hot");
+  assert.ok(d && d.action === "clear" && d.auto === true, "auto clear directive queued");
+  assert.match(d.note, /past the .* wall/);
+  // cooldown: a second run inside the window must not nag again
+  assert.equal(autoAdvise(s, T + 60).length, 0, "cooldown suppresses repeat");
+});
+
+test("watchdog stays quiet on a big but idle context", () => {
+  const s = emptyStore();
+  const T = 1_800_000_000;
+  s.anchors.push({ ts: T - 60, five_pct: 0.2, week_pct: 0.3, five_reset: T + 3600, week_reset: T + 2 * 86400 });
+  // huge context, but the burn is old — nothing in the last 5 minutes
+  s.events.push({ surface: "laptop:a", root: "sess-idle", ts: T - 3000, billed: 40e6, ctx: 460e3, name: "idle whale" });
+  assert.equal(autoAdvise(s, T).length, 0, "idle session is not urgent");
+  assert.equal((s.directives || []).length, 0, "no directive queued");
 });

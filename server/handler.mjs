@@ -14,7 +14,7 @@
  * The Netlify function and a local node http server are both thin wrappers.
  */
 import { randomBytes } from "node:crypto";
-import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives, logOp } from "./tally.mjs";
+import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives, logOp, autoAdvise } from "./tally.mjs";
 
 const TOOLS = [
   {
@@ -1413,8 +1413,13 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     const s = await store.load(handle);
     const res = applyEnvelope(s, env || {});
     settle(handle, s);
+    // Watchdog runs on the ingest path because that is the one thing guaranteed to
+    // fire while a session is burning: every interactive turn ships an emit.
+    const advised = autoAdvise(s, now());
+    for (const a of advised)
+      logOp(s, "watchdog", `advised /clear → ${(a.name || a.session).slice(0, 32)} · ctx ${Math.round(a.ctx / 1e3)}k · ${Math.round(a.rate / 1e3)}k/min`, now());
     await store.save(handle, s);
-    return res;
+    return advised.length ? { ...res, advised: advised.length } : res;
   }
   async function budget(handle) {
     const s = await store.load(handle);

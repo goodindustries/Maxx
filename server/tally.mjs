@@ -353,6 +353,53 @@ export function addDirective(store, d, now) {
   return { ok: true, id: dir.id, action, session, expires: dir.expires };
 }
 
+// ---- watchdog: the one place maxx acts without being asked ----------------
+// A session past the context wall re-bills its entire context every turn, so a
+// 450k-context session costs ~450k before it does any work. That is how a 10x
+// pace burn happens with nobody noticing. The dash paints it red, but only for
+// someone already looking at the dash.
+//
+// This queues a `clear` directive against the offending session, which gate.mjs
+// delivers as injected context on that session's next tool call. Advisory only:
+// it never pauses or denies, because interrupting a working session on a
+// heuristic is a worse failure than overspending.
+const CTX_WALL = 250e3;
+const WATCH_COOLDOWN = 30 * 60; // never nag the same session more than twice an hour
+const kf = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`);
+
+export function autoAdvise(store, now) {
+  const b = computeBudget(store, now);
+  const pace = b.sustainable_per_min;
+  if (!pace || pace <= 0) return [];
+  const burnPerMin = (b.burn_5m || 0) / 5;
+  if (burnPerMin < 3 * pace) return []; // not hot enough to interrupt anyone over
+  pruneDirectives(store, now);
+  store.watched = store.watched || {};
+  const sent = [];
+  for (const t of b.top_burners || []) {
+    const rate = (t.rate_5m || 0) / 5;
+    // must be BOTH past the wall and actually burning — a big idle context is not urgent
+    if (!(t.ctx > CTX_WALL) || rate < pace || !t.session) continue;
+    const last = store.watched[t.session];
+    if (last && now - last < WATCH_COOLDOWN) continue;
+    const r = addDirective(store, {
+      session: t.session,
+      action: "clear",
+      note:
+        `ctx ${kf(t.ctx)} is past the ${kf(CTX_WALL)} wall and this session is burning ` +
+        `${kf(rate)}/min against a sustainable ${kf(pace)}/min — every turn re-bills the whole context`,
+      ttl_sec: 3600,
+    }, now);
+    if (r.ok) {
+      const dir = store.directives.find((d) => d.id === r.id);
+      if (dir) dir.auto = true;
+      store.watched[t.session] = Math.round(now);
+      sent.push({ session: t.session, name: t.name || t.project || null, ctx: t.ctx, rate });
+    }
+  }
+  return sent;
+}
+
 /**
  * Directives pending for one session; reading IS consuming (unless peek).
  * clear → delivered once per session; pause → sticky until expiry/resume.
