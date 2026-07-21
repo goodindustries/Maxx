@@ -283,8 +283,8 @@ function nazi(wantJSON) {
   }
   const L = [machine, "", `token nazi — hourly posture  ·  verdict: ${verdict.toUpperCase()}`, "",
     `  week          ${num(W.headroom)} left  ·  ${W.usedPct || 0}% used  ·  resets ${W.resetIn || "?"}`,
-    sessOver ? `  session       ${num(S.over)} over your paced share  ·  ease off (tank refuels as usage ages out)  ·  ${S.resetIn || "?"}`
-             : `  session       ${num(S.toSpend)} tokens  ·  ~${num(S.spendPerMin)}/min even burn  ·  rolling 5h`,
+    sessOver ? `  session       ${num(S.over)} over your paced share  ·  ease off — future windows recover it  ·  ${S.resetIn || "?"}`
+             : `  session       ${num(S.toSpend)} safe to spend  ·  weekly-paced, capped at the 5h wall  ·  ${S.resetIn || "?"}`,
     `  burn          ${tk(burn1h)}/hr now  ·  ${tk(burn6h)} last 6h  ·  ${trend}`, ""];
   if (drains.length) { L.push("  biggest drains (highest leverage first):"); for (const d of drains) L.push(`    · ${d.sink.padEnd(9)} ${d.detail}  →  ${d.lever}`); }
   else L.push("  no standout drains — cache warm, context light, single session.");

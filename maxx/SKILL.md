@@ -49,11 +49,13 @@ Reads only token/usage metadata — never prompt or message content.
    gives the full per-root breakdown (own / subagents / workflow split, live
    children). Show the human the card verbatim.
 
-   **Token budget — read before interpreting `session`.** "Session tokens" = weekly
-   tokens-LEFT ÷ the 5h windows left this week, over a ROLLING 5h window, capped at the
-   raw 5h wall. NOT the raw 5h cap — maxing that every window burns the week out days
-   early. It's a tank: burning drains it, and it recovers as old usage ages out of the
-   rolling window (bank by chilling). `maxx session` delegates to `render.mjs --session`
+   **Token budget — read before interpreting `session`.** "Session safe" = weekly
+   tokens-LEFT ÷ the 5h windows left this week, capped at the raw 5h wall — the number
+   to PLAN work against. NOT the raw 5h cap (`burst`), which you can physically reach but
+   which burns the week out days early. Future windows keep giving fair shares, so an
+   overspend now is recovered later — you don't claw it back this window. `net` = the
+   sustainable weekly pace (weekly-left ÷ time-to-reset) minus recent burn: + under pace,
+   − over. `maxx session` delegates to `render.mjs --session`
    (the only place with the weekly rate-limit data). Its fields: `toSpend` (= tokens good
    to burn) / `over` / `spendPerMin` = the actionable numbers; `capKind` = `weekly-paced`
    or `5h-cap`; `RAW_5H_*` = Anthropic's actual fixed 5h wall, exposed separately so

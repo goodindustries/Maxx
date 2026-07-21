@@ -54,7 +54,7 @@ async function frame() {
   L.push(C.dim + "─".repeat(74) + C.rst);
   // vs /usage anchor
   L.push(` ${C.b}WEEK${C.rst}   ${bar(b.week)}  ${C.b}${pct(b.week)}${C.rst} used  ${C.dim}·${C.rst}  ${C.cyn}${fmt(b.weekly_left_tokens)} left${C.rst}  ${C.dim}·${C.rst}  reset ${dur(b.week_reset ? b.week_reset - Date.now() / 1000 : 0)}  ${C.dim}·${C.rst}  verdict ${vColor}${b.verdict}${C.rst}`);
-  L.push(` ${C.b}5h  ${C.rst}   ${bar(b.quota)}  ${C.b}${pct(b.quota)}${C.rst} used  ${C.dim}·${C.rst}  spend this window: ${C.cyn}${fmt(b.session_to_spend)}${C.rst}`);
+  L.push(` ${C.b}5h  ${C.rst}   ${bar(b.quota)}  ${C.b}${pct(b.quota)}${C.rst} used  ${C.dim}·${C.rst}  safe: ${C.cyn}${fmt(b.session_to_spend)}${C.rst}${b.session_burst != null ? `${C.dim} · burst ${C.rst}${fmt(b.session_burst)}${C.dim} to 5h wall${C.rst}` : ""}`);
   L.push(` ${C.dim}running total: ${fmt(b.week_billed)} billed this week · ${fmt(b.five_billed)} in 5h · summed across all surfaces${C.rst}`);
   L.push(C.dim + "─".repeat(74) + C.rst);
   // surfaces

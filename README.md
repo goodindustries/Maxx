@@ -48,7 +48,7 @@ In Claude Code:
 Then type `/maxx` any time:
 
 - `/maxx`: total tokens, tokens/day, cache-hit rate, and streak
-- `/maxx session`: how much to burn this rolling 5h window
+- `/maxx session`: how much you can safely spend now (weekly-paced, capped at the 5h wall) + the hard burst ceiling
 
 ## You've been flying blind. Here's the math.
 

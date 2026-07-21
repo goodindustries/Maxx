@@ -148,31 +148,27 @@ function sessionBrief(st) {
   const s = st.session, w = st.weekly || {};
   const toSpend = s.toSpend != null ? s.toSpend : Math.max(0, (s.cap || 0) - (s.used || 0));
   const over = s.over != null ? s.over : Math.max(0, (s.used || 0) - (s.cap || 0));
-  // even burn = the budget spread over a ROLLING 5h (300 min). Anchored to the rolling window, not the
-  // time-to-fixed-reset — so it never divides by zero (the old "~0/min" bug at the reset boundary).
-  const perMin = toSpend > 0 ? Math.round(toSpend / 300) : 0;
+  const burst = s.rawHeadroom || 0;                                    // hard 5h ceiling right now
+  const sustainable = w.minLeft > 0 ? Math.round((w.headroom || 0) / w.minLeft) : 0; // weekly pace /min
+  const net = st.netPerMin != null ? st.netPerMin : 0;                 // sustainable − recent burn
   const sess = st.sessionsLeftInWeek;
   // short, glanceable magnitudes: 18.2M, 457M, 61k. The raw counts stay in the machine line above.
   const abbr = (n) => { n = Math.round(Math.abs(n || 0)); return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : "" + n; };
   const row = (label, val, ctx) => `  ${label.padEnd(11)}${String(val).padEnd(14)}${ctx}`;
   const out = [];
-  // machine line: session.cap is realMax (weekly-paced), NOT the 5h wall — RAW_* are the real 5h window.
-  out.push(`SPEND_THIS_SESSION=${toSpend} SPEND_PER_MIN=${perMin} OVER=${over} SESSION_RESETS_IN=${s.resetIn || "?"} SESSION_RESETS_IN_MIN=${s.minLeft ?? "?"} CAP_KIND=${s.capKind || "?"} RAW_5H_CAP=${s.rawCap ?? "?"} RAW_5H_USED_PCT=${s.rawUsedPct ?? "?"} RAW_5H_LEFT=${s.rawHeadroom ?? "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
+  // machine line: SAFE is weekly-paced (plan against it); BURST is the hard 5h ceiling.
+  out.push(`SESSION_SAFE=${toSpend} SESSION_BURST=${burst} NET_PER_MIN=${net} SUSTAINABLE_PER_MIN=${sustainable} OVER=${over} SESSION_RESETS_IN_MIN=${s.minLeft ?? "?"} RAW_5H_CAP=${s.rawCap ?? "?"} RAW_5H_USED_PCT=${s.rawUsedPct ?? "?"} WEEKLY_LEFT=${w.headroom || 0} WEEKLY_RESETS_IN=${w.resetIn || "?"} SESSIONS_LEFT_WEEK=${sess ?? "?"}`);
   out.push("");
   out.push("maxx · this session");
   out.push("");
-  if (over <= 0) {
-    out.push(row("budget", abbr(toSpend), "to spend this rolling 5h window"));
-    out.push(row("even burn", "~" + abbr(perMin) + "/min", "spreads it evenly"));
-  } else {
-    out.push(row("over", abbr(over), "past your share — ease off, the tank refuels as usage ages out"));
-  }
+  out.push(row("safe", abbr(toSpend), "plan against this — weekly budget ÷ windows left, capped at the 5h wall"));
+  out.push(row("burst", abbr(burst), "hard 5h ceiling — reachable now, but it borrows from future windows"));
+  out.push(row("net", (net >= 0 ? "+" : "−") + abbr(net) + "/min", net >= 0 ? "under weekly pace — the week will last" : "over weekly pace — easing off recovers it"));
   out.push(row("week", abbr(w.headroom || 0) + " left", `· ${sess ?? "?"} windows left · resets in ${w.resetIn || "?"}`));
-  out.push(row("5h wall", (s.rawUsedPct ?? "?") + "% used", `· ${abbr(s.rawHeadroom || 0)} until Anthropic's hard lockout`));
   out.push("");
-  out.push("  Budget = your weekly tokens ÷ the 5h windows left this week. Stay under it and the");
-  out.push("  week lasts; max the raw 5h wall instead and you're locked out in days. Idle and the");
-  out.push("  tank refuels as old usage ages out — bank by chilling.");
+  out.push("  SAFE = your weekly tokens ÷ the 5h windows left this week. Plan work against it: future");
+  out.push("  windows keep giving fair shares, so an overspend now is recovered later — you don't have to");
+  out.push("  claw it back this window. BURST past pace reaches the hard 5h wall but eats into future weeks.");
   return out.join("\n");
 }
 
