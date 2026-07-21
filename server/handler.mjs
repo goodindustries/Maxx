@@ -758,6 +758,31 @@ td b{font-weight:700}
 .sessrow .nm{min-width:0}
 table{font-size:12px}
 }
+/* Dark mode — additive: only overrides glaring light surfaces, so light mode is
+   untouched. Structural colors ride the vars; the neutral panel/track fills and
+   status tints get dark equivalents. Data-viz gradients read fine on both. */
+@media(prefers-color-scheme:dark){
+:root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-25:#929cb0;--ink-3:#727c93;--line:#29334c;--accent:#8079f2}
+.card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
+.bars{background:#1e2740}
+.bar .track{background:#2c3652}
+.pace{background:#1b2333}
+.gauge .track{background:#2c3652}
+.srow .tr{background:#262f47}
+.sessrow{border-top-color:#232c40}
+.sessrow .tr{background:#262f47}
+.sessrow .chip{background:#232c40}
+.chart48 .zero{border-top-color:#39435e}
+.chart48 .cols div{filter:none}
+td{border-bottom-color:#222b40}
+.foot{border-top-color:#29334c}
+.badge{background:#231f4d}
+.badge.over{background:#3a1f24}.badge.stale{background:#382f1a}
+.livepill{background:#16281d}
+.walert.red{background:#331b1e;color:#f0a0a0}
+.walert.amber{background:#33291a;color:#e6c07a}
+.walert.ok{background:#16281d;color:#63d29a}
+}
 </style></head><body>
 <div class="wrap">
 <div class="card">
