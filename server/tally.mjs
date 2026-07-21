@@ -52,8 +52,17 @@ export function logOp(store, op, detail = "", now) {
  * Merge one envelope into the store. Idempotent on (surface, cursor, root).
  * Returns { accepted, deduped }.
  */
-export function applyEnvelope(store, env) {
+export function applyEnvelope(store, env, now = Math.floor(Date.now() / 1000)) {
   let accepted = 0, deduped = 0;
+  // A sender may ship neither first_ts/last_ts nor emitted_at, and Date.parse turns a
+  // malformed one into NaN. Either way the old `sec(a) || sec(b)` chain stored ts 0 (or
+  // NaN), and every window test in windowedBilled is `e.ts > lo` — so that spend became
+  // INVISIBLE to the 5h and weekly gates while still counting in the lifetime odometer.
+  // The budget then read higher than the account really had. Observed in production:
+  // surface "cloud:mcloud-dispatch-20260721-1650" billed 8,000,000 stamped 1970-01-01.
+  // Receipt time is the safe fallback: a slightly late timestamp is a rounding error,
+  // an uncounted 8M is a blown budget.
+  const at = (...vals) => { for (const v of vals) { const n = sec(v); if (Number.isFinite(n) && n > 0) return n; } return now; };
   const surface = env.surface || "unknown";
   const cursor = String(env.cursor ?? "");
   for (const s of env.sessions || []) {
@@ -63,12 +72,12 @@ export function applyEnvelope(store, env) {
     store.events.push({
       surface,
       root: s.root,
-      ts: sec(s.last_ts) || sec(env.emitted_at),
+      ts: at(s.last_ts, env.emitted_at),
       // when the batch STARTED. The emitter ships a per-session delta covering every
       // turn since its cursor, so without this the whole batch lands in the single
       // minute it finished — which is what made the 48-minute chart show 30M "in one
       // minute". Kept so consumers can spread a batch across the minutes it spans.
-      ts0: sec(s.first_ts) || sec(s.last_ts) || sec(env.emitted_at),
+      ts0: at(s.first_ts, s.last_ts, env.emitted_at),
       billed: s.billed || 0,
       output: s.output || 0,
       by_model: s.by_model || {},

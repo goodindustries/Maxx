@@ -2,7 +2,7 @@
 // from before the wall reset must not count against the fresh window.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { emptyStore, computeBudget } from "./tally.mjs";
+import { emptyStore, computeBudget, applyEnvelope } from "./tally.mjs";
 
 const T = 1_800_000_000, H = 3600;
 
@@ -134,4 +134,31 @@ test("wall reset since last anchor: only post-reset burn counts, sl session fiel
   assert.ok(b.session_to_spend > 0, `fresh window has allowance, got ${b.session_to_spend}`);
   // week fields still ride the anchor (weekly window survives 5h resets)
   assert.equal(b.week_billed, 120e6 + 3e6);
+});
+
+// An emit whose sessions carry no first_ts/last_ts, in an envelope with no emitted_at,
+// used to store ts: 0. Zero fails every `e.ts > lo` test in windowedBilled, so the spend
+// vanished from the 5h and weekly windows while still landing in the lifetime odometer —
+// the gate reported MORE headroom than the account actually had. Observed in production:
+// surface "cloud:mcloud-dispatch-20260721-1650" billed 8,000,000 at ts 1970-01-01.
+test("an emit with no timestamps is stamped at receipt, not dropped into 1970", () => {
+  const s = emptyStore();
+  applyEnvelope(s, { surface: "cloud:dispatch", cursor: "c1", sessions: [{ root: "r1", billed: 8e6 }] }, T);
+  assert.equal(s.events[0].ts, T, "ts falls back to receipt time");
+  assert.equal(s.events[0].ts0, T, "ts0 falls back to receipt time");
+
+  // No anchor: five_billed is then the raw ledger window, which is exactly what the
+  // ts fallback has to land inside. With the old ts 0 this read 0 — the spend was real
+  // but the 5h gate could not see a token of it.
+  const b = computeBudget(s, T);
+  assert.equal(b.five_billed, 8e6, "the spend is visible to the 5h gate");
+  assert.equal(b.lifetime_billed, 8e6, "and is not double-counted in lifetime");
+});
+
+// Garbage timestamps must not poison ts with NaN, which fails every comparison silently.
+test("unparseable timestamps fall back to receipt time rather than NaN", () => {
+  const s = emptyStore();
+  applyEnvelope(s, { surface: "s", cursor: "c", emitted_at: "not-a-date", sessions: [{ root: "r", billed: 1e6, last_ts: "garbage" }] }, T);
+  assert.equal(s.events[0].ts, T);
+  assert.ok(Number.isFinite(s.events[0].ts0));
 });

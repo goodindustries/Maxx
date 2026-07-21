@@ -1469,7 +1469,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
 
   async function ingest(handle, env) {
     const s = await store.load(handle);
-    const res = applyEnvelope(s, env || {});
+    const res = applyEnvelope(s, env || {}, now());
     settle(handle, s);
     // Watchdog runs on the ingest path because that is the one thing guaranteed to
     // fire while a session is burning: every interactive turn ships an emit.
