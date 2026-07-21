@@ -820,10 +820,16 @@ function main() {
   if (hist.length >= 3) {
     const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     const last3 = avg(hist.slice(-3));
-    const prev3 = hist.length >= 6 ? avg(hist.slice(-6, -3)) : null;
-    const rising = prev3 != null && last3 > prev3 * 1.25;
+    // the average says what a turn costs; the delta says which way it is going. Compare
+    // the newest turn against the 3-turn mean rather than against the single previous
+    // turn, which is noisy enough to flip sign on nothing.
+    const delta = hist[hist.length - 1] - last3;
     const turnCol = last3 >= 500e3 ? RED : last3 >= 200e3 ? AMBER : DIM;
-    metaRow += fg(DIM, "  ·  3t ") + fg(turnCol, tkf(last3) + (rising ? " ▲" : ""));
+    const dPct = last3 > 0 ? delta / last3 : 0;
+    const dCol = dPct >= 0.35 ? RED : dPct >= 0.12 ? AMBER : dPct <= -0.12 ? GREEN : DIM;
+    metaRow += fg(DIM, "  ·  ") + fg(turnCol, tkf(last3))
+      + fg(DIM, "/") + fg(dCol, (delta >= 0 ? "+" : "−") + tkf(delta))
+      + fg(DIM, " turn");
   }
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
