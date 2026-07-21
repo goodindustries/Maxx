@@ -162,3 +162,40 @@ test("unparseable timestamps fall back to receipt time rather than NaN", () => {
   assert.equal(s.events[0].ts, T);
   assert.ok(Number.isFinite(s.events[0].ts0));
 });
+
+// STALE means "no signal". It was firing while the server still held a perfectly good
+// weekly cap, because the anchor's sl block — which carries that cap — was gated on
+// `fresh` (45m). Past 45m the cap was discarded and re-derived from week_pct, and
+// week_pct <= 0.005 (early in a week, or just after a wall reset) yields no cap at all,
+// so session_to_spend went null and degradable collapsed to stale. A laptop napping a
+// couple of hours then stopped the entire cloud fleet.
+const SL = { five_used: 40e6, five_cap: 500e6, to_spend: 60e6, over: 0, week_used: 300e6, week_cap: 1500e6, bank: 20e6, net_per_min: 300000 };
+
+test("a 2.7h-old anchor with a tiny week_pct degrades, it does not go stale", () => {
+  const s = emptyStore();
+  s.events.push({ surface: "laptop:a", root: "r1", ts: T - 3 * H, billed: 5e6 });
+  s.anchors.push({ ts: T - 9613, five_pct: 0.001, week_pct: 0.001, five_reset: T + 2 * H, week_reset: T + 3 * 86400, sl: SL });
+  const b = computeBudget(s, T);
+  assert.equal(b.verdict, "degraded", `expected degraded, got ${b.verdict}`);
+  assert.ok(b.weekly_left_tokens > 0, `weekly standing must survive, got ${b.weekly_left_tokens}`);
+  assert.ok(b.session_to_spend != null, "session_to_spend must be computable from the weekly wall");
+});
+
+test("an anchor older than the 12h degrade window is still stale", () => {
+  const s = emptyStore();
+  s.anchors.push({ ts: T - 13 * H, five_pct: 0.2, week_pct: 0.3, five_reset: T + 2 * H, week_reset: T + 3 * 86400, sl: SL });
+  assert.equal(computeBudget(s, T).verdict, "stale");
+});
+
+test("no anchor at all is still stale", () => {
+  assert.equal(computeBudget(emptyStore(), T).verdict, "stale");
+});
+
+test("a fresh anchor is unaffected and still reads ok", () => {
+  const s = emptyStore();
+  s.events.push({ surface: "laptop:a", root: "r1", ts: T - 600, billed: 1e6 });
+  s.anchors.push({ ts: T - 300, five_pct: 0.1, week_pct: 0.2, five_reset: T + 2 * H, week_reset: T + 3 * 86400, sl: SL });
+  const b = computeBudget(s, T);
+  assert.equal(b.verdict, "ok");
+  assert.ok(b.session_to_spend > 0);
+});

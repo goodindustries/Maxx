@@ -190,11 +190,17 @@ export function computeBudget(store, now) {
   // interactive turn, so the drift window is small (and the % anchor path above remains
   // the fallback for old emitters / stale sl).
   let slSpend = null, slOver = 0, slBank = null, slNet = null;
-  if (a && fresh && a.sl) {
+  // A CAP is a capacity, not a reading: the weekly wall does not decay because the
+  // laptop stopped reporting. This block used to be gated on `fresh`, so at 46 minutes
+  // the server discarded a weekly cap it already knew and fell back to deriving one
+  // from week_pct — and week_pct <= 0.005 (early in a week, or right after a wall
+  // reset) derives nothing. No cap meant no weekly standing, no session_to_spend, and
+  // `degradable` collapsed to STALE, which is a hard stop for every cloud routine.
+  // A laptop napping ~3h therefore halted the whole fleet while the ledger was intact.
+  // Caps and the weekly standing now survive to the 12h degrade horizon; only the
+  // freshness-sensitive readings below stay behind `fresh`.
+  if (a && a.sl && anchorAge <= ANCHOR_DEGRADE_SEC) {
     const since = windowedBilled(store.events, now, WEEK, a.ts);
-    // weekly even-pace bank: spend-since-anchor eats it, elapsed-time creep refills it
-    if (a.sl.bank != null) slBank = Math.round(a.sl.bank - since + (a.sl.week_cap * anchorAge) / (7 * 24 * 3600));
-    if (a.sl.net_per_min != null) slNet = a.sl.net_per_min;
     // 5h-window fields are only valid while the window the anchor described is still
     // current (fr ahead of now) — after a wall reset they describe a dead window and
     // the fixed-window sum above (events since fr) is the truth until the next anchor.
@@ -203,14 +209,21 @@ export function computeBudget(store, now) {
     weekCap = a.sl.week_cap;
     week = a.sl.week_used + since;
     quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
-    weekPct = Math.min(1, week / weekCap);
-    // the CLI's roll-session numbers are the governor's — reconstruct its realMax
-    // (five_used + toSpend − over covers both sides of the share) and re-derive
-    // toSpend/over at NOW, so the gate and the bars agree with the CLI exactly
-    if (windowCurrent) {
-      const realMax = a.sl.five_used + a.sl.to_spend - (a.sl.over || 0);
-      slSpend = Math.max(0, realMax - five);
-      slOver = Math.max(0, five - realMax);
+    weekPct = weekCap > 0 ? Math.min(1, week / weekCap) : weekPct;
+    if (fresh) {
+      // weekly even-pace bank: spend-since-anchor eats it, elapsed-time creep refills it
+      if (a.sl.bank != null) slBank = Math.round(a.sl.bank - since + (a.sl.week_cap * anchorAge) / (7 * 24 * 3600));
+      if (a.sl.net_per_min != null) slNet = a.sl.net_per_min;
+      // the CLI's roll-session numbers are the governor's — reconstruct its realMax
+      // (five_used + toSpend − over covers both sides of the share) and re-derive
+      // toSpend/over at NOW, so the gate and the bars agree with the CLI exactly.
+      // Stays behind `fresh`: an aged anchor's to_spend describes a window that has
+      // since moved on, and must not govern the live one.
+      if (windowCurrent) {
+        const realMax = a.sl.five_used + a.sl.to_spend - (a.sl.over || 0);
+        slSpend = Math.max(0, realMax - five);
+        slOver = Math.max(0, five - realMax);
+      }
     }
   }
 
