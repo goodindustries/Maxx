@@ -402,6 +402,16 @@ async function runOnce({ quiet = false } = {}) {
     const body = await res.text().catch(() => "");
     if (res.ok) {
       writeFileSync(CURSOR, JSON.stringify({ lastTs: Math.round(maxTs), at: iso(nowSec) }));
+      // Cache the ACCOUNT-WIDE budget so the local statusline can show the account net
+      // (not just this machine's). The watcher is the network-talking component; gate.mjs
+      // writes the same {at,b} file on gate checks, but only agent spawns trigger that —
+      // this keeps it fresh every batch so render.mjs never falls back to a local-only net.
+      try {
+        const br = await fetch(`${base}/api/u/${encodeURIComponent(handle)}/budget`,
+          { headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(8000) });
+        if (br.ok) writeFileSync(path.join(HOME, ".maxx", "gate-cache.json"),
+          JSON.stringify({ at: Date.now() / 1000, b: await br.json() }));
+      } catch {}
       console.log(`  sent ✓ ${res.status} +${fmtK(totalBilled)} · ${localT(maxTs)} · ${body.slice(0, 120)}`);
       // who/what per session, so a tail of this log is attributable on its own:
       // billed · project — session name [branch] (model mix)
