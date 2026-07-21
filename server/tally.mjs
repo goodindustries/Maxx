@@ -417,7 +417,9 @@ export function autoAdvise(store, now) {
       : `ctx ${kf(t.ctx)} is past the ${kf(CTX_WALL)} wall`;
     const r = addDirective(store, {
       session: t.session,
-      surface: t.surface || null,
+      // full channel key when we know the project, so the dash pins it exactly instead
+      // of falling back to "busiest channel on that machine"
+      surface: t.surface ? (t.project ? `${t.surface} · ${t.project}` : t.surface) : null,
       action: "clear",
       note:
         `${why}. Burning ${kf(rate)}/min against a sustainable ${kf(pace)}/min — ` +

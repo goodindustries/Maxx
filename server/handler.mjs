@@ -1253,14 +1253,19 @@ if(location.search)history.replaceState(null,'',location.pathname);
         (d.auto?' · auto':'')+(d.delivered?' · delivered':' · waiting')+'</span>'+
         (d.note?'<br><span style="color:var(--ink-3)">'+esc(d.note)+'</span>':'')+'</td></tr>';
     };
+    // Exactly ONE home per directive. An exact "surface · project" match wins; a bare
+    // surface (what top_burners gives the watchdog) falls to the busiest channel on that
+    // machine — rows are billed-sorted, so find() picks it. Without this a bare surface
+    // matched every project on the box and one order rendered three times.
+    var assign={};
+    dirs.forEach(function(d){
+      if(!d.surface)return;
+      var exact=rows.filter(function(c){return c.surface===d.surface})[0];
+      var pre=exact||rows.filter(function(c){return c.surface.indexOf(d.surface+' · ')===0})[0];
+      if(pre){assign[d.id]=pre.surface;placed[d.id]=1;}
+    });
     var body=rows.map(function(c){
-      // channel keys are "surface · project" but a directive carries the bare surface
-      // (top_burners has no project), so match the machine prefix too or every
-      // auto-raised directive falls into the unpinned bucket it was meant to escape
-      var mine=dirs.filter(function(d){
-        return d.surface&&(d.surface===c.surface||c.surface.indexOf(d.surface+' · ')===0);
-      });
-      mine.forEach(function(d){placed[d.id]=1});
+      var mine=dirs.filter(function(d){return assign[d.id]===c.surface});
       return '<tr><td class="mono">'+esc(c.surface)+'</td>'+
         '<td>'+(c.last?ago(Math.max(0,t-c.last))+' ago':'—')+'</td>'+
         '<td class="num">'+(c.h1>0?'<b>+'+hum(c.h1)+'</b>':'idle')+'</td>'+
