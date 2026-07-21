@@ -40,6 +40,34 @@ test("statusline passthrough: sl numbers become the ruler, extrapolated since an
   assert.equal(b.session_to_spend, 28e6);
 });
 
+test("net_per_min = refill − recent burn (the one net every surface shows)", () => {
+  const s = emptyStore();
+  // 28.5M burned 50m ago (inside the 5h window, outside the 5m burn window) and
+  // 1.5M burned 100s ago (inside both). five=30M, burn_5m=1.5M.
+  s.events.push(
+    { surface: "laptop:a", root: "r1", ts: T - 3000, billed: 28.5e6 },
+    { surface: "laptop:a", root: "r2", ts: T - 100, billed: 1.5e6 },
+  );
+  s.anchors.push({ ts: T - 600, five_pct: 0.1, week_pct: 0.2, five_reset: T + 4 * H, week_reset: T + 3 * 86400 });
+  const b = computeBudget(s, T);
+  assert.equal(b.five_billed, 30e6);
+  assert.equal(b.burn_5m, 1.5e6);
+  // refill 30M/300 = 100k/min · burn 1.5M/5 = 300k/min · net = −200k (burning)
+  assert.equal(b.net_per_min, -200000);
+});
+
+test("net_per_min invariant: always equals round(five/300 − burn_5m/5)", () => {
+  for (const [old_, recent] of [[9e6, 0], [40e6, 900e3], [6e6, 5e6], [0, 250e3]]) {
+    const s = emptyStore();
+    if (old_) s.events.push({ surface: "laptop:a", root: "ro", ts: T - 3000, billed: old_ });
+    if (recent) s.events.push({ surface: "laptop:a", root: "rr", ts: T - 60, billed: recent });
+    s.anchors.push({ ts: T - 600, five_pct: 0.1, week_pct: 0.2, five_reset: T + 4 * H, week_reset: T + 3 * 86400 });
+    const b = computeBudget(s, T);
+    const derived = Math.round(b.five_billed / 300 - b.burn_5m / 5);
+    assert.equal(b.net_per_min, derived, `old=${old_} recent=${recent}`);
+  }
+});
+
 test("wall reset since last anchor: only post-reset burn counts, sl session fields ignored", () => {
   const s = emptyStore();
   s.events.push(
