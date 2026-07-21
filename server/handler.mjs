@@ -1444,7 +1444,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const s = await store.load(h);
       if (!s.events.length) return mc[2]
         ? json(404, { error: "no data" })
-        : { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co">claim your handle</a>.</p>` };
+        : { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co/install">install the tracker</a>.</p>` };
       const budget = computeBudget(s, now());
       // live.json — PUBLIC, counts-only poll target for the card's live feed: lifetime odometer,
       // availability, and the last events as {ago_sec, surface CLASS, tokens}. Never session/project
@@ -1608,9 +1608,8 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         feed_url: `${base}/api/u/${h}/feed`,
         next: [
           "SAVE the secret — it is shown once and not recoverable.",
+          `Install: curl -fsSL https://meetmaxx.co/install | MAXX_HANDLE=${h} MAXX_SECRET=${secret} bash`,
           `Cloud (optional): open https://claude.ai/settings/connectors → Add custom connector → name "Maxx", URL = mcp_url above. Every agent with it gets the budget-gate rules automatically. NOTE: it auto-attaches to NEW routines only — add it to pre-existing routines by hand.`,
-          "Laptop: curl -fsSL https://raw.githubusercontent.com/goodindustries/Maxx/main/maxx/install.sh | bash",
-          `Then: node ~/.claude/skills/maxx/emit.mjs --signup ${h}  (already done if you signed up via emit) and node ~/.claude/skills/maxx/emit.mjs --install-agent`,
         ],
       });
     }
