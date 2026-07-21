@@ -73,6 +73,50 @@ test("session_burst = the hard 5h ceiling (≥ the paced safe-to-spend)", () => 
   assert.ok(b.session_burst >= b.session_to_spend, `burst ${b.session_burst} >= safe ${b.session_to_spend}`);
 });
 
+// A sleeping laptop is the only thing that stops /usage anchors — it must not blind the
+// account, because the server owns the full billed ledger and the weekly caps it
+// calibrated move on a 7-day window.
+test("aged anchor degrades (weekly standing live) instead of going stale", () => {
+  const s = emptyStore();
+  s.events.push(
+    { surface: "laptop:a", root: "r1", ts: T - 5 * H, billed: 40e6 },
+    { surface: "cloud:mcloud", root: "r2", ts: T - 600, billed: 2e6 },
+  );
+  // anchor 3h old — past the 45m trust window, well inside the 12h degrade window
+  s.anchors.push({
+    ts: T - 3 * H, five_pct: 0.1, week_pct: 0.2, five_reset: T - 2 * H, week_reset: T + 3 * 86400,
+    sl: { five_used: 8e6, five_cap: 80e6, to_spend: 30e6, week_used: 120e6, week_cap: 1300e6 },
+  });
+  const b = computeBudget(s, T);
+  assert.equal(b.verdict, "degraded");
+  assert.equal(b.fresh, false);
+  assert.ok(b.anchor_age_sec >= 3 * H - 1, `anchor age reported, got ${b.anchor_age_sec}`);
+  // the weekly numbers callers are told to steer by are real, not null
+  assert.ok(b.weekly_left_tokens > 0, `weekly tank readable, got ${b.weekly_left_tokens}`);
+  assert.ok(b.session_to_spend > 0, `paced standing readable, got ${b.session_to_spend}`);
+});
+
+test("degraded still yields to the weekly wall (over beats degraded)", () => {
+  const s = emptyStore();
+  // 99%+ of the anchored weekly cap already billed
+  s.events.push({ surface: "laptop:a", root: "r1", ts: T - 4 * H, billed: 99e6 });
+  s.anchors.push({ ts: T - 3 * H, five_pct: 0.5, week_pct: 0.99, five_reset: T + H, week_reset: T + 86400 });
+  assert.equal(computeBudget(s, T).verdict, "over");
+});
+
+test("anchor past the degrade window is genuinely blind → stale", () => {
+  const s = emptyStore();
+  s.events.push({ surface: "laptop:a", root: "r1", ts: T - 600, billed: 2e6 });
+  s.anchors.push({ ts: T - 20 * H, five_pct: 0.1, week_pct: 0.2, five_reset: T - 19 * H, week_reset: T + 86400 });
+  assert.equal(computeBudget(s, T).verdict, "stale");
+});
+
+test("no anchor at all is still stale, never degraded", () => {
+  const s = emptyStore();
+  s.events.push({ surface: "cloud:mcloud", root: "r1", ts: T - 600, billed: 2e6 });
+  assert.equal(computeBudget(s, T).verdict, "stale");
+});
+
 test("wall reset since last anchor: only post-reset burn counts, sl session fields ignored", () => {
   const s = emptyStore();
   s.events.push(

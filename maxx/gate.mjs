@@ -220,7 +220,9 @@ if (paused)
 
 const b = await budget();
 
-// 1. signal health: stale/unreachable → fail per policy
+// 1. signal health: stale/unreachable → fail per policy. "degraded" (no fresh /usage
+// anchor, weekly standing still live off the server ledger) is NOT a stop — it falls
+// through to the weekly wall and standing checks below, which are the real limits.
 if (b.verdict === "stale" || b.verdict === "unreachable") {
   if (pol.fail === "open") allow(`fail-open, verdict=${b.verdict}`);
   deny(`budget signal ${b.verdict} (fail-closed). Tokens again: unknown until the signal returns`);

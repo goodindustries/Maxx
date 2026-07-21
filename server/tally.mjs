@@ -23,6 +23,13 @@
 const FIVE_H = 5 * 3600;
 const WEEK = 7 * 24 * 3600;
 const ANCHOR_TRUST_SEC = 45 * 60; // matches the routines' staleness gate
+// Past ANCHOR_TRUST_SEC the anchor no longer describes the live 5h window, but the
+// weekly caps it calibrated move on a 7-day window — hours-old calibration still
+// prices the weekly tank fine, and the server owns the full billed ledger from every
+// surface regardless. So an aged anchor DEGRADES (weekly standing only) instead of
+// blinding the account: only a laptop can read /usage, and a sleeping laptop used to
+// hard-block every cloud routine. Past this, calibration is genuinely too old → stale.
+const ANCHOR_DEGRADE_SEC = 12 * 3600;
 
 const sec = (iso) => (iso ? Date.parse(iso) / 1000 : 0);
 
@@ -208,9 +215,14 @@ export function computeBudget(store, now) {
   const reservedTokens = activeLeases.reduce((s, l) => s + l.tokens, 0);
   const spendAfterReserve = sessionToSpend != null ? Math.max(0, sessionToSpend - reservedTokens) : null;
 
+  // "degraded" = no fresh /usage anchor, but the weekly standing is still computable
+  // from our own ledger against the last known caps. Callers may proceed on it (weekly
+  // wall and standing still apply); "stale" stays a hard stop — genuinely no signal.
+  const degradable = anchorAge <= ANCHOR_DEGRADE_SEC && weekCap != null && spendAfterReserve != null;
   let verdict = "ok";
-  if (!a || !fresh) verdict = "stale";
+  if (!a || (!fresh && !degradable)) verdict = "stale";
   else if ((weekPct != null && weekPct >= 0.99) || (quota != null && quota >= 0.99) || spendAfterReserve === 0) verdict = "over";
+  else if (!fresh) verdict = "degraded";
 
   // Channel = surface × project: two CC instances on one laptop (different project
   // dirs) are distinct channels, not one blob. Events without a project (cloud

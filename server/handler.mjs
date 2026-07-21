@@ -47,7 +47,7 @@ const TOOLS = [
   },
   {
     name: "maxx_budget",
-    description: "Read the current omni-surface subscription budget from the central maxx tally: verdict (ok/over/stale), session_to_spend (tokens SAFE to use now — weekly-paced, capped at the 5h wall, nets reserves), session_burst (the HARD 5h ceiling you can physically spend to now, ≥ safe), net_per_min (sustainable weekly pace − recent burn: + = under pace, − = over pace), sustainable_per_min (weekly reserve ÷ time to reset), weekly_left_tokens, and the 5h/weekly reset clocks. Plan agent work against session_to_spend; session_burst is the ceiling if you must exceed pace (it eats future weeks). A negative net_per_min means you're spending faster than sustainable — re-check before each expensive step.",
+    description: "Read the current omni-surface subscription budget from the central maxx tally: verdict (ok/degraded/over/stale — degraded = no fresh /usage anchor, weekly standing still live, proceed on the weekly numbers), session_to_spend (tokens SAFE to use now — weekly-paced, capped at the 5h wall, nets reserves), session_burst (the HARD 5h ceiling you can physically spend to now, ≥ safe), net_per_min (sustainable weekly pace − recent burn: + = under pace, − = over pace), sustainable_per_min (weekly reserve ÷ time to reset), weekly_left_tokens, and the 5h/weekly reset clocks. Plan agent work against session_to_spend; session_burst is the ceiling if you must exceed pace (it eats future weeks). A negative net_per_min means you're spending faster than sustainable — re-check before each expensive step.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: { handle: { type: "string" } },
@@ -670,7 +670,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .livepill .dot{width:8px;height:8px;border-radius:50%;background:#2fb768;animation:pulse 1.6s ease-in-out infinite}
 .badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 13px;font-size:13.5px;font-weight:600;background:#ecebfb;color:var(--accent)}
 .badge.over{background:#fdeeee;color:var(--red)}
-.badge.stale{background:#fdf6e7;color:var(--amber)}
+.badge.stale,.badge.degraded{background:#fdf6e7;color:var(--amber)}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
 .bars{margin-top:20px;background:#f0f0fa;border-radius:14px;padding:15px 18px;font-family:var(--mono);font-size:13.5px;display:flex;flex-direction:column;gap:12px}
 .bar{display:grid;grid-template-columns:60px minmax(100px,1fr) 335px;gap:14px;align-items:center}
@@ -804,7 +804,7 @@ table{font-size:12px}
 td{border-bottom-color:#222b40}
 .foot{border-top-color:#29334c}
 .badge{background:#231f4d}
-.badge.over{background:#3a1f24}.badge.stale{background:#382f1a}
+.badge.over{background:#3a1f24}.badge.stale,.badge.degraded{background:#382f1a}
 .livepill{background:#16281d}
 .walert.red{background:#331b1e;color:#f0a0a0}
 .walert.amber{background:#33291a;color:#e6c07a}
@@ -1131,7 +1131,8 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // WARNINGS — the left pane's deterministic alert list. Fixed rules, fixed
     // vocabulary; only numbers change. Empty = one green all-clear line.
     var warns=[];
-    if(b.verdict!=='ok')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
+    if(b.verdict==='degraded')warns.push({s:'amber',t:'signal <b>degraded</b> · no /usage anchor · weekly numbers only'});
+    else if(b.verdict!=='ok')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
     if(b.session_to_spend!=null&&b.session_to_spend<=0)warns.push({s:'red',t:'session over by <b>'+hum(b.session_over||0)+'</b> · ease off'});
     // context warnings are TRAJECTORY-based, not size-based: a session holding at
     // 105k is fine (no warn); one climbing shows +k/turn and turns-to-wall. Most
@@ -1395,7 +1396,9 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     s.leases = (s.leases || []).filter((l) => l.expires > t);
     const b = computeBudget(s, t);
     const avail = b.session_to_spend ?? 0;
-    if (b.verdict !== "ok" || tokens > avail)
+    // degraded (no fresh /usage anchor, weekly standing still live) still grants —
+    // otherwise a sleeping laptop leaves fan-outs unreserved and unguarded.
+    if (!(b.verdict === "ok" || b.verdict === "degraded") || tokens > avail)
       return { granted: false, remaining: avail, verdict: b.verdict };
     const lease = { id: randomBytes(8).toString("hex"), tokens, expires: Math.round(t + Math.min(Math.max(ttl_sec, 60), 6 * 3600)), label };
     s.leases.push(lease);
@@ -1793,7 +1796,10 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             "BUDGET GATE — before any token-expensive work (spawning agents/subagents, long " +
             "generations, builds, large batches) you MUST first call `maxx_budget`. It returns the " +
             "whole account's live budget (all machines + cloud combined). STOP if: verdict is " +
-            "\"over\" or \"stale\", or session_to_spend <= 0. If verdict is \"ok\", plan your work against " +
+            "\"over\" or \"stale\", or session_to_spend <= 0. \"degraded\" means no machine has read " +
+            "/usage recently (a laptop asleep) — the weekly standing is still live from the ledger, so " +
+            "PROCEED, but against the weekly numbers (weekly_left_tokens, session_to_spend) and re-check " +
+            "more often; do not trust the 5h window fields. If verdict is \"ok\", plan your work against " +
             "session_to_spend — the SAFE envelope: weekly budget paced across the remaining 5h windows " +
             "(so future windows keep giving you fair shares), capped at the 5h wall, net of reserves. " +
             "session_burst is the HARD 5h ceiling you can physically spend to now — use it only if you " +
@@ -1826,7 +1832,9 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             const bb = await budget(h);
             try {
               const so = await store.load(h);
-              logOp(so, "mcp:budget", bb.verdict === "ok" ? "gate check · ok" : `gate check · ${String(bb.verdict).toUpperCase()} — spend held`, now());
+              logOp(so, "mcp:budget", bb.verdict === "ok" ? "gate check · ok"
+                : bb.verdict === "degraded" ? `gate check · DEGRADED — no anchor ${bb.anchor_age_sec}s, weekly standing rules`
+                : `gate check · ${String(bb.verdict).toUpperCase()} — spend held`, now());
               await store.save(h, so);
             } catch {}
             return rpcOk(id, { content: [{ type: "text", text: JSON.stringify(bb) }] });
