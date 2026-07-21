@@ -284,12 +284,18 @@ function lastTurns(tp, n) {
 // the current cost but never enough to show a TREND. Rather than read further back on
 // every tick (slow), we remember: each render appends whatever turns it has not seen
 // before, keyed by request id, and keeps the last 12.
-function turnHistory(sid, fresh) {
+function turnHistory(sid, fresh, ctxNow) {
   const p = path.join(HOME, ".maxx", "turns.json");
   let db = {};
   try { db = JSON.parse(readFileSync(p, "utf8")) || {}; } catch {}
   const key = sid || "unknown";
-  const cur = db[key] || { ids: [], costs: [] };
+  let cur = db[key] || { ids: [], costs: [], ctx: 0 };
+  // /clear and /compact start the turn cost over from nothing, so carrying the old
+  // ring across makes the first cheap turns of a fresh context look like a saving and
+  // hides the real climb. Claude Code keeps the session id, so the tell is the context
+  // itself collapsing: a drop to under half of what it was is a reset, not a turn.
+  if (ctxNow > 0 && cur.ctx > 0 && ctxNow < cur.ctx * 0.5) cur = { ids: [], costs: [], ctx: 0 };
+  if (ctxNow > 0) cur.ctx = ctxNow;
   for (const t of fresh) {
     if (cur.ids.includes(t.id)) continue;
     cur.ids.push(t.id); cur.costs.push(Math.round(t.cost));
@@ -816,7 +822,7 @@ function main() {
   // meters answer "how much is left"; this answers "what is each turn costing me right
   // now", which is the number that moves first when a context starts re-billing itself.
   // ▲ when the last 3 turns are meaningfully dearer than the 3 before them.
-  const hist = turnHistory(sid, lastTurns(p.transcript_path, 6));
+  const hist = turnHistory(sid, lastTurns(p.transcript_path, 6), total);
   if (hist.length >= 3) {
     const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     const last3 = avg(hist.slice(-3));

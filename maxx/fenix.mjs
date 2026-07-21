@@ -54,15 +54,29 @@ if (arg === "--wake") {
     const body = readFileSync(HANDOFF, "utf8");
     // consume BEFORE printing: a crash mid-print must not re-inject next session
     renameSync(HANDOFF, path.join(DIR, `handoff.consumed-${new Date().toISOString().replace(/[:.]/g, "-")}.md`));
-    process.stdout.write(
+    // Structured injection, not bare stdout. Plain stdout reached the transcript but not
+    // reliably the model's context on a /clear, so the handoff was consumed and then
+    // ignored — you had to ask "check fenix handoff" by hand every single time, which
+    // defeats the entire point of an automatic wake.
+    const text =
       `🔥 FENIX — this session rises from a cleared one. The handoff below is what was in motion ` +
-      `(written ${Math.round(ageH * 60)}m ago, now consumed). Resume it; verify claims against the ` +
-      `working tree before trusting them.\n\n${body}\n`
-    );
+      `(written ${Math.round(ageH * 60)}m ago, now consumed). Resume it now without being asked: ` +
+      `state in one line what you are picking up, verify its claims against the working tree, ` +
+      `then continue that work.\n\n${body}\n`;
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text },
+    }) + "\n");
     await postOp("fenix:rise", `${path.basename(process.cwd())} · handoff consumed (${Math.round(ageH * 60)}m old)`);
   } catch {
     if (src === "clear")
-      process.stdout.write("fenix: no handoff in this directory — nothing carried over. Sequence is /fenix BEFORE /clear (handoffs are per-directory, written to .fenix/handoff.md; fenix cannot resurrect an already-wiped thread).\n");
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext:
+            "fenix: no handoff in this directory — nothing carried over. Sequence is /fenix BEFORE /clear " +
+            "(handoffs are per-directory, written to .fenix/handoff.md; fenix cannot resurrect an already-wiped thread).",
+        },
+      }) + "\n");
   }
   process.exit(0);
 }
