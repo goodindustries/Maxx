@@ -47,7 +47,7 @@ const TOOLS = [
   },
   {
     name: "maxx_budget",
-    description: "Read the current omni-surface subscription budget from the central maxx tally: verdict (ok/over/stale), session_to_spend (tokens safe to use now — nets reserves, refills as usage ages out), net_per_min (positive = banking, negative = burning faster than refill), weekly_left_tokens, and the 5h/weekly reset clocks. Use this to gate spend instead of any single machine's local signal. A positive session_to_spend that is net-negative is still draining — re-check before each expensive step.",
+    description: "Read the current omni-surface subscription budget from the central maxx tally: verdict (ok/over/stale), session_to_spend (tokens SAFE to use now — weekly-paced, capped at the 5h wall, nets reserves), session_burst (the HARD 5h ceiling you can physically spend to now, ≥ safe), net_per_min (sustainable weekly pace − recent burn: + = under pace, − = over pace), sustainable_per_min (weekly reserve ÷ time to reset), weekly_left_tokens, and the 5h/weekly reset clocks. Plan agent work against session_to_spend; session_burst is the ceiling if you must exceed pace (it eats future weeks). A negative net_per_min means you're spending faster than sustainable — re-check before each expensive step.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: { handle: { type: "string" } },
@@ -382,7 +382,7 @@ ${CHART_JS}
   // IDENTICAL semantics + geometry to the dash renderBudget — session is the netBar
   // (green from left = banked standing, red from right = over), week is the fuel tank
   // (fill = what's LEFT, ╎ even-pace tick). Numbers: signed STANDING (available, not
-  // used) + net rate (refill − recent burn, sign follows the NET). One ruler everywhere.
+  // used) + net rate (sustainable weekly pace − recent burn, sign follows the NET). One ruler.
   var GRAD={green:'linear-gradient(90deg,#9be3b0,#4fbe7e 55%,#159a52)',amber:'linear-gradient(90deg,#f4d9a6,#e0a93e 55%,#c98a12)'};
   function renderBars(d){
     var bar=function(lab,spec,num){
@@ -1082,8 +1082,8 @@ if(location.search)history.replaceState(null,'',location.pathname);
     if(werrs>0)warns.push({s:'amber',t:'<b>'+werrs+'</b> token error'+(werrs===1?'':'s')+' · last hour'});
     var wheld=(window.__ops||[]).filter(function(o){return /held|OVER|pause/i.test((o.op||'')+' '+(o.d||''))&&o.ts>t-1800}).sort(function(x,y){return y.ts-x.ts})[0];
     if(wheld)warns.push({s:'amber',t:'🛡 gate held spend · '+ago(Math.max(0,t-wheld.ts))+' ago'});
-    var wBurn=b.burn_5m!=null?b.burn_5m/5:0,wRefill=(b.five_billed||0)/300;
-    if(wBurn>=5e5&&wBurn>2*wRefill)warns.push({s:'amber',t:'burn <b>'+hum(wBurn)+'/min</b> · refill '+hum(wRefill)+'/min'});
+    var wBurn=b.burn_5m!=null?b.burn_5m/5:0,wPace=b.sustainable_per_min||0;
+    if(wBurn>=5e5&&wPace>0&&wBurn>2*wPace)warns.push({s:'amber',t:'burn <b>'+hum(wBurn)+'/min</b> · '+(Math.round(wBurn/wPace*10)/10)+'× weekly pace'});
     if(b.anchor_age_sec!=null&&b.anchor_age_sec>90)warns.push({s:'amber',t:'anchor <b>'+b.anchor_age_sec+'s</b> old'});
     document.getElementById('warns').innerHTML=(warns.length?warns:[{s:'ok',t:'all clear'}]).map(function(w){
       return '<div class="walert '+w.s+'">'+w.t+'</div>';
@@ -1727,14 +1727,15 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             "BUDGET GATE — before any token-expensive work (spawning agents/subagents, long " +
             "generations, builds, large batches) you MUST first call `maxx_budget`. It returns the " +
             "whole account's live budget (all machines + cloud combined). STOP if: verdict is " +
-            "\"over\" or \"stale\", or session_to_spend <= 0. If verdict is \"ok\", session_to_spend is " +
-            "the tokens you may safely use — it already nets active reserves and refills as old usage " +
-            "ages out. Two things it does NOT mean on its own: (1) A positive session_to_spend can " +
-            "still be DRAINING — check net_per_min; if it's negative you're burning faster than the " +
-            "tank refills, so re-check the gate before each expensive step, not just once at the start. " +
-            "(2) Before a FAN-OUT (spawning multiple agents at once) call `maxx_reserve` for the tokens " +
-            "you'll need FIRST — otherwise every concurrent agent sees the same full allowance and the " +
-            "fleet can overspend it. This is a hard gate, not a suggestion — check it every run.",
+            "\"over\" or \"stale\", or session_to_spend <= 0. If verdict is \"ok\", plan your work against " +
+            "session_to_spend — the SAFE envelope: weekly budget paced across the remaining 5h windows " +
+            "(so future windows keep giving you fair shares), capped at the 5h wall, net of reserves. " +
+            "session_burst is the HARD 5h ceiling you can physically spend to now — use it only if you " +
+            "must exceed pace, it eats into future weeks. Two cautions: (1) net_per_min is sustainable " +
+            "pace − recent burn; if negative you're spending faster than the week can sustain, so re-check " +
+            "before each expensive step, not just once. (2) Before a FAN-OUT (spawning multiple agents at " +
+            "once) call `maxx_reserve` for the tokens you'll need FIRST — otherwise every concurrent agent " +
+            "sees the same full allowance and the fleet can overspend it. Hard gate — check it every run.",
         });
       }
       if (rm === "notifications/initialized" || rm === "notifications/cancelled")
