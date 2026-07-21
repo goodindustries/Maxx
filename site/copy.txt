@@ -22,9 +22,12 @@ Sub: Claude shows you a 5-hour window. Your real limit is the week. maxx puts bo
 Install line: curl -fsSL https://meetmaxx.co/install | bash
 Hint: Install /maxx
 
-DEMO CAPTION
-------------
-It sits in your Claude Code statusline and updates every second.
+HERO VISUALS (in order)
+-----------------------
+1. Dashboard screenshot (card-hero.png)
+   Caption: Your dashboard: every machine and cloud agent on one page, live. See a real one -> meetmaxx.co/u/reif_tgp
+2. Statusline recording (maxx-live-session.gif)
+   Caption: And the same numbers in your Claude Code statusline, updated every second.
 
 SECTION: THE WRONG NUMBER
 -------------------------

@@ -97,6 +97,8 @@
   .term .dots{display:flex;gap:7px;padding:4px 6px 12px}
   .term .dots i{width:11px;height:11px;border-radius:50%;display:block;background:var(--track)}
   .term img{width:100%;display:block;border-radius:9px}
+  .shot{border-radius:var(--radius);overflow:hidden;box-shadow:0 24px 60px hsl(266 50% 30% / .18);border:1px solid var(--line)}
+  .shot img{width:100%;display:block}
   .caption{text-align:center;color:var(--dim);font-size:14px;margin-top:14px}
 
   /* sections */
@@ -204,11 +206,18 @@
 </header>
 
 <div class="wrap demo">
+  <div class="shot">
+    <img src="card-hero.png" alt="A maxx dashboard: 1,571,920,589 lifetime tokens, a usage chart across all machines and cloud, and the session and week rails showing what is left" width="1400" height="986">
+  </div>
+  <p class="caption">Your dashboard: every machine and cloud agent on one page, live. <a href="https://meetmaxx.co/u/reif_tgp">See a real one →</a></p>
+</div>
+
+<div class="wrap demo" style="margin-top:34px">
   <div class="term">
     <div class="dots"><i></i><i></i><i></i></div>
     <img src="maxx-live-session.gif" alt="maxx statusline live under a real Claude Code session: numbers rolling, both rails banking green" loading="lazy">
   </div>
-  <p class="caption">It sits in your Claude Code statusline and updates every second.</p>
+  <p class="caption">And the same numbers in your Claude Code statusline, updated every second.</p>
 </div>
 
 <section class="wrap" id="lie">
