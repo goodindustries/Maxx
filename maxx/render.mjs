@@ -613,7 +613,7 @@ function main() {
     session: sStat, weekly: wStat,
     sessionsLeftInWeek: Math.round(sessionsLeft * 10) / 10, // 5h windows remaining until the weekly resets
     burn5m: burn5 != null ? Math.round(burn5) : null,       // gross tokens spent in the last 5 min (≥ 0)
-    netPerMin: refuelPerMin - burn60,                       // the bar's ±/min: refuel − live burn
+    netPerMin: refuelPerMin - Math.round((burn5 || 0) / 5), // refuel − recent(5m) burn — one net, every surface
   };
   try { writeFileSync(path.join(HOME, ".maxx", "status.json"), JSON.stringify(status)); } catch {}
   if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
@@ -712,12 +712,14 @@ function main() {
         const over_ = standK < 0;
         const d = fg(DIM, "  ") + fg(over_ ? zoneCol(u, e) : INK, (over_ ? "−" : "+") + kstr(standK));
         if (fits(s, d)) s += d;
-        // trailing rate: the SIGN and COLOR follow your STANDING, not the raw rate — a positive cushion
-        // must never read as "minus". Banked → green "+Xk/min"; over → red "−Xk/min". (refuel goes to ~0
-        // when you're deep in the black, so a rate-signed arrow would flip to ↓ on any activity — wrong.)
-        const prog = refuelPerMin - burn60;
+        // trailing rate = refill − recent (5-MIN) burn, SIGN and COLOR follow the NET itself.
+        // This is the one net every surface shows (dash, card, agent budget all use
+        // five/300 − burn_5m/5). NOT burn60/standing-signed: a 60-second window flips to
+        // "+banking" on a single quiet second while the 5-min trend is still burning, and
+        // signing by standing hid a real burn behind a positive cushion. Honest > cushioned.
+        const prog = refuelPerMin - Math.round((burn5 || 0) / 5);
         if (Math.abs(prog) >= 500) {
-          const pos = standK > 0; // match the DISPLAYED sign (odometer standK), so number + rate never disagree
+          const pos = prog >= 0;
           const pr = fg(DIM, "  ·  ") + fg(pos ? GREEN : RED, (pos ? "+" : "−") + tkf(prog) + "/min");
           if (fits(s, pr)) s += pr;
         }
