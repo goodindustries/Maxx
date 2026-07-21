@@ -718,9 +718,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
    minute crosses the sustainable pace line. (Was: net = pace − out, which pegged
    every idle minute at the ceiling and left the whole lower half of the box empty.) */
 .chart48 .col .bar{position:absolute;left:0;right:0;bottom:0;border-radius:2px 2px 0 0;background:linear-gradient(0deg,#bfdbfe,#3b82f6);transition:height .6s ease}
-.chart48 .col .bar.over{background:linear-gradient(0deg,#fcd9bd,#f0873c)}
+.chart48 .col .bar.idle{background:#dfe3ec}
 .chart48 .col.live .bar{background:linear-gradient(0deg,#93c5fd,#2563eb)}
-.chart48 .col.live .bar.over{background:linear-gradient(0deg,#f59e5b,#ea580c)}
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
 /* Sits INSIDE the chart box. It used to be translate(-50%,-110%) off top:36px, which
    lifted it clear out of the chart and over the "TOKENS / MIN" heading above. */
@@ -1060,17 +1059,26 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // forever. The chart is titled TOKENS / MIN; now it plots tokens per minute.
     var pace=b.sustainable_per_min!=null?b.sustainable_per_min:(b.five_billed||0)/300;
     var H=140,BOX=170;
-    var sc=function(v){return v<=0?0:Math.max(2,Math.sqrt(v/mx)*H)};
+    var sc=function(v){return v<=0?0:Math.max(3,Math.sqrt(v/mx)*H)};
+    // Work is bursty: any minute you are actually working sits far above a per-minute
+    // sustainable rate, so colouring each bar over/under pace marked every non-idle
+    // minute red and carried no information. Bars are one colour; the judgement is the
+    // WINDOW AVERAGE against pace, drawn as the dashed line. Idle minutes keep a 2px
+    // stub so the 48-minute timeline still reads as continuous.
     document.getElementById('cols').innerHTML=buckets.map(function(v,i){
       var live=i===47?' live':'';
-      var over=v>pace?' over':'';
-      return '<div class="col'+live+'"><div class="bar'+over+'" style="height:'+sc(v).toFixed(0)+'px"></div></div>';
+      return '<div class="col'+live+'">'+(v>0
+        ? '<div class="bar" style="height:'+sc(v).toFixed(0)+'px"></div>'
+        : '<div class="bar idle" style="height:2px"></div>')+'</div>';
     }).join('');
+    var winAvg=buckets.reduce(function(a,v){return a+v},0)/48;
+    var hotAvg=winAvg>pace;
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    var paceY=BOX-Math.min(H,sc(pace));
-    al.style.display='block';al.style.top=paceY.toFixed(0)+'px';al.style.borderTopColor='#8ec5ff';
-    ab.style.display='block';ab.style.top=Math.max(0,paceY-14).toFixed(0)+'px';ab.style.color='#2563eb';ab.textContent='pace';
-    document.getElementById('chartMeta').textContent='tokens out per minute · over the line = faster than the week sustains · pace '+hum(pace)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    var avgY=BOX-Math.min(H,Math.max(2,sc(winAvg)));
+    al.style.display='block';al.style.top=avgY.toFixed(0)+'px';al.style.borderTopColor=hotAvg?'#e8853a':'#8ec5ff';
+    ab.style.display='block';ab.style.top=Math.max(0,avgY-14).toFixed(0)+'px';ab.style.color=hotAvg?'#c2703a':'#2563eb';
+    ab.textContent='48m avg '+hum(winAvg)+'/min'+(hotAvg?' · over pace':' · under pace');
+    document.getElementById('chartMeta').textContent='tokens out per minute · 48m avg '+hum(winAvg)+'/min vs sustainable '+hum(pace)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
