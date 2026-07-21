@@ -290,8 +290,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .chart .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;color:var(--ink-3);font-size:14.5px;margin-top:8px}
 .chart .cap span:nth-child(2){color:var(--ink-25)}
 .peak{position:absolute;top:6px;right:4px;font-size:14.5px;color:var(--ink);font-weight:600;white-space:nowrap;z-index:2}
-.bars{margin-top:20px;background:#f0f0fa;border-radius:14px;padding:18px 20px;font-family:var(--mono);font-size:14.5px;display:flex;flex-direction:column;gap:14px}
-.bar{display:grid;grid-template-columns:64px minmax(120px,1fr) auto;gap:15px;align-items:center}
+/* ONE grid for both rows (bars are display:contents) so the session and week
+   tracks share column widths — sized per-row, the longer number string shrank
+   its own track and the two rails no longer lined up. */
+.bars{margin-top:20px;background:#f0f0fa;border-radius:14px;padding:18px 20px;font-family:var(--mono);font-size:14.5px;display:grid;grid-template-columns:64px minmax(120px,1fr) auto;gap:14px 15px;align-items:center}
+.bar{display:contents}
 .bar .lab{color:#8a93a5}
 .bar .track{height:16px;background:#e3e2f4;border-radius:5px;position:relative;overflow:hidden}
 .bar.hot .track{border-right:5px solid #d23b3b}
@@ -328,8 +331,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .hero .n{font-size:34px}.badge{font-size:12.5px;padding:5px 12px}.peak{display:none}
 .card{padding:26px 20px 22px}
 .chart .cap span:nth-child(2){display:none}
-.bars{padding:12px 14px;font-size:12px}
-.bar{grid-template-columns:52px minmax(60px,1fr);gap:10px}
+.bars{padding:12px 14px;font-size:12px;grid-template-columns:52px minmax(60px,1fr);gap:10px}
 .bar .num{grid-column:1/-1;white-space:normal}
 }
 @media(prefers-color-scheme:dark){
