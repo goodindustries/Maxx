@@ -709,17 +709,22 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .trio .big .u{font-size:19px;font-weight:600;color:#8a93a5}
 .trio .sub{font-family:var(--mono);font-size:13.5px;color:#8a93a5;margin-top:7px}
 .chart48{position:relative;height:170px;margin-top:12px}
-.chart48 .zero{position:absolute;left:0;right:0;top:44px;border-top:1.5px solid #d4d7e2;z-index:1}
+.chart48 .zero{position:absolute;left:0;right:0;bottom:0;border-top:1.5px solid #d4d7e2;z-index:1}
 .chart48 .avgline{position:absolute;left:0;right:0;border-top:1.5px dashed #e8b58a;z-index:2}
 .chart48 .avglab{position:absolute;left:0;font-family:var(--mono);font-size:11px;color:#c2703a;background:#fff;padding:0 4px;z-index:3}
 .chart48 .cols{position:absolute;inset:0;display:flex;gap:3px}
 .chart48 .col{position:relative;flex:1}
-.chart48 .col .up{position:absolute;left:0;right:0;bottom:126px;border-radius:2px 2px 0 0;background:linear-gradient(0deg,#bfdbfe,#3b82f6);transition:height .6s ease}
-.chart48 .col .dn{position:absolute;left:0;right:0;top:44px;border-radius:0 0 2px 2px;background:linear-gradient(180deg,#fcd9bd,#f0873c);transition:height .6s ease}
-.chart48 .col.live .up{background:linear-gradient(0deg,#93c5fd,#2563eb)}
-.chart48 .col.live .dn{background:linear-gradient(180deg,#f59e5b,#ea580c)}
+/* Bars are TOKENS OUT per minute, grown from the bottom baseline. Orange once a
+   minute crosses the sustainable pace line. (Was: net = pace − out, which pegged
+   every idle minute at the ceiling and left the whole lower half of the box empty.) */
+.chart48 .col .bar{position:absolute;left:0;right:0;bottom:0;border-radius:2px 2px 0 0;background:linear-gradient(0deg,#bfdbfe,#3b82f6);transition:height .6s ease}
+.chart48 .col .bar.over{background:linear-gradient(0deg,#fcd9bd,#f0873c)}
+.chart48 .col.live .bar{background:linear-gradient(0deg,#93c5fd,#2563eb)}
+.chart48 .col.live .bar.over{background:linear-gradient(0deg,#f59e5b,#ea580c)}
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
-.tip48{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:12px;font-weight:500;padding:8px 12px;border-radius:9px;white-space:nowrap;transform:translate(-50%,-110%);top:36px;z-index:4;line-height:1.6}
+/* Sits INSIDE the chart box. It used to be translate(-50%,-110%) off top:36px, which
+   lifted it clear out of the chart and over the "TOKENS / MIN" heading above. */
+.tip48{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:12px;font-weight:500;padding:8px 12px;border-radius:9px;white-space:nowrap;transform:translate(-50%,0);top:6px;z-index:4;line-height:1.6}
 .tip48 .pr{color:#fbbf24}
 .axis48{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:#a3abba;margin-top:7px}
 .pace{display:flex;flex-direction:column;gap:15px;margin-top:22px;background:#f6f6fb;border-radius:16px;padding:18px 20px}
@@ -1045,27 +1050,27 @@ if(location.search)history.replaceState(null,'',location.pathname);
       if(idx>=0&&idx<48)buckets[idx]+=e.billed;
     });
     var mx=Math.max.apply(null,buckets.concat([1]));
-    // NET per minute = sustainable weekly PACE − usage OUT that minute. One bar per
-    // column off the zero line: ABOVE (blue) = that minute was under pace (banking toward
-    // the reset — idle minutes bank the full pace), BELOW (orange) = over pace. The pace
-    // line is the weekly-sustainable rate, the real budget. Shared √ scale on |net|.
+    // TOKENS OUT per minute, grown from the bottom baseline, with the sustainable
+    // weekly pace drawn across as the reference line. A bar taller than the line is a
+    // minute that spent faster than the week can sustain, and turns orange.
+    //
+    // This used to plot net = pace − out off a zero line 44px from the top. Under pace,
+    // every idle minute produced net = pace (the maximum), so all 48 bars clipped at the
+    // 42px ceiling — a flat wall — while the 126px "over" half of the box stayed empty
+    // forever. The chart is titled TOKENS / MIN; now it plots tokens per minute.
     var pace=b.sustainable_per_min!=null?b.sustainable_per_min:(b.five_billed||0)/300;
-    var nets=buckets.map(function(v){return pace-v});
-    var mxAbs=Math.max(1,Math.max.apply(null,nets.map(Math.abs)));
-    var HD=124,HU=42;
-    var sc=function(v){return Math.max(2,Math.sqrt(Math.abs(v)/mxAbs)*HD)};
-    document.getElementById('cols').innerHTML=nets.map(function(n,i){
+    var H=140,BOX=170;
+    var sc=function(v){return v<=0?0:Math.max(2,Math.sqrt(v/mx)*H)};
+    document.getElementById('cols').innerHTML=buckets.map(function(v,i){
       var live=i===47?' live':'';
-      return '<div class="col'+live+'">'+(n>=0
-        ? '<div class="up" style="height:'+Math.min(HU,sc(n)).toFixed(0)+'px"></div>'
-        : '<div class="dn" style="height:'+sc(n).toFixed(0)+'px"></div>')+'</div>';
+      var over=v>pace?' over':'';
+      return '<div class="col'+live+'"><div class="bar'+over+'" style="height:'+sc(v).toFixed(0)+'px"></div></div>';
     }).join('');
-    var avgNet=nets.reduce(function(a,v){return a+v},0)/48;
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
-    var atop=avgNet>=0?44-Math.min(HU,sc(avgNet)):44+sc(avgNet);
-    al.style.display='block';al.style.top=atop.toFixed(0)+'px';al.style.borderTopColor=avgNet>=0?'#8ec5ff':'#e8b58a';
-    ab.style.display='block';ab.style.top=(avgNet>=0?atop-14:atop+2).toFixed(0)+'px';ab.style.color=avgNet>=0?'#2563eb':'#c2703a';ab.textContent='avg net';
-    document.getElementById('chartMeta').textContent='net vs weekly pace · ↑ under ↓ over · pace '+hum(pace)+'/min · peak out '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    var paceY=BOX-Math.min(H,sc(pace));
+    al.style.display='block';al.style.top=paceY.toFixed(0)+'px';al.style.borderTopColor='#8ec5ff';
+    ab.style.display='block';ab.style.top=Math.max(0,paceY-14).toFixed(0)+'px';ab.style.color='#2563eb';ab.textContent='pace';
+    document.getElementById('chartMeta').textContent='tokens out per minute · over the line = faster than the week sustains · pace '+hum(pace)+'/min · peak '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
@@ -1281,9 +1286,10 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
       var ts=new Date((st.t-(47-idx)*60)*1000);
       var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
-      var netv=(st.pace||0)-st.buckets[idx],up=netv>=0;
-      var html=esc(hh)+' · <span style="color:'+(up?'#60a5fa':'#f0873c')+'">'+(up?'▲ +':'▼ −')+esc(hum(Math.abs(netv)))+(up?' under':' over')+'</span>'+
-        '<br><span style="color:#8a93a5">pace '+esc(hum(st.pace||0))+' · out '+esc(hum(st.buckets[idx]))+'</span>';
+      var out=st.buckets[idx],pc=st.pace||0,over=out>pc;
+      var html=esc(hh)+' · <span style="color:'+(over?'#f0873c':'#60a5fa')+'">'+esc(hum(out))+' out</span>'+
+        '<br><span style="color:#8a93a5">pace '+esc(hum(pc))+'/min · '+
+        (over?'+'+esc(hum(out-pc))+' over':esc(hum(pc-out))+' banked')+'</span>';
       var m=st.ops[idx];
       if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
       tip.style.display='block';
