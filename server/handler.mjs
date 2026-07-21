@@ -1058,7 +1058,13 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var lo=47-Math.floor((t-ts)/60), hi=47-Math.floor((t-ts0)/60);
       if(hi<lo){var sw=lo;lo=hi;hi=sw;}
       lo=Math.max(0,lo);hi=Math.min(47,hi);
-      if(hi<0||lo>47||hi<lo){ if(lo>=0&&lo<48)buckets[lo]+=e.billed; return; }
+      // No overlap with the window: drop it. This used to fold the record's WHOLE billed
+      // into buckets[lo], and lo had already been clamped up to 0 — so every record that
+      // merely aged past the 48-minute edge piled onto the -48m bar instead of scrolling
+      // off. Measured live: 1.7M heaped on one bar from 36 expired records, making it the
+      // tallest bar, setting the peak, and pushing the window average from 307k (under
+      // pace) to 342k (over pace). The oldest bar was a garbage bin, not a minute.
+      if(hi<0||lo>47||hi<lo)return;
       var span=hi-lo+1, share=e.billed/span;
       for(var i=lo;i<=hi;i++)buckets[i]+=share;
     });
