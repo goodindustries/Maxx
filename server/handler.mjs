@@ -719,9 +719,13 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
    every idle minute at the ceiling and left the whole lower half of the box empty.) */
 .chart48 .col .bar{position:absolute;left:0;right:0;bottom:0;border-radius:2px 2px 0 0;background:linear-gradient(0deg,#bfdbfe,#3b82f6);transition:height .6s ease}
 .chart48 .col .bar.idle{background:#dfe3ec}
+/* signed against pace: banked above the line, spent-over below it */
+.chart48 .col .bar.pos{background:linear-gradient(0deg,#a7f3d0,#22c55e)}
+.chart48 .col .bar.neg{background:linear-gradient(180deg,#fed7aa,#f97316);border-radius:0 0 2px 2px}
 /* outside the fetched range — no baseline stub, so "no data" never reads as "idle" */
 .chart48 .col.nodata{background:repeating-linear-gradient(135deg,transparent,transparent 5px,#eef0f5 5px,#eef0f5 6px);opacity:.65}
-.chart48 .col.live .bar{background:linear-gradient(0deg,#93c5fd,#2563eb)}
+/* the live minute is marked by outline, not colour — colour now carries the sign */
+.chart48 .col.live .bar{outline:1.5px solid #64748b;outline-offset:1px}
 .chart48 .marks span{position:absolute;top:-2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);z-index:2}
 /* Sits INSIDE the chart box. It used to be translate(-50%,-110%) off top:36px, which
    lifted it clear out of the chart and over the "TOKENS / MIN" heading above. */
@@ -864,7 +868,7 @@ td{border-bottom-color:#222b40}
 
  <div style="margin-top:24px">
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-   <span class="klabel">TOKENS / MIN · LAST 48 MIN</span>
+   <span class="klabel">BANKED / SPENT-OVER · LAST 48 MIN</span>
    <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="chartMeta"></span>
   </div>
   <div class="chart48" id="chart48">
@@ -1080,48 +1084,54 @@ if(location.search)history.replaceState(null,'',location.pathname);
     ev.forEach(function(e){var x=new Date(e.ts0||e.ts).getTime()/1000;if(x>0&&x<oldest)oldest=x});
     var covLo=ev.length>=200?Math.max(0,Math.min(47,47-Math.floor((t-oldest)/60))):0,cov=48-covLo;
     var mx=Math.max.apply(null,buckets.concat([1]));
-    // TOKENS OUT per minute, grown from the bottom baseline, with the sustainable
-    // weekly pace drawn across as the reference line. A bar taller than the line is a
-    // minute that spent faster than the week can sustain, and turns orange.
-    //
-    // This used to plot net = pace − out off a zero line 44px from the top. Under pace,
-    // every idle minute produced net = pace (the maximum), so all 48 bars clipped at the
-    // 42px ceiling — a flat wall — while the 126px "over" half of the box stayed empty
-    // forever. The chart is titled TOKENS / MIN; now it plots tokens per minute.
     var pace=b.sustainable_per_min!=null?b.sustainable_per_min:(b.five_billed||0)/300;
     var H=140,BOX=170;
-    var sc=function(v){return v<=0?0:Math.max(3,Math.sqrt(v/mx)*H)};
-    // Work is bursty: any minute you are actually working sits far above a per-minute
-    // sustainable rate, so colouring each bar over/under pace marked every non-idle
-    // minute red and carried no information. Bars are one colour; the judgement is the
-    // WINDOW AVERAGE against pace, drawn as the dashed line. Idle minutes keep a 2px
-    // stub so the 48-minute timeline still reads as continuous.
-    document.getElementById('cols').innerHTML=buckets.map(function(v,i){
-      var live=i===47?' live':'';
-      // Beyond the data's reach: render nothing at all. A 2px idle stub here would be a
-      // claim we cannot make — that the minute was quiet.
+    // SIGNED against pace. Every minute grants one pace-worth: spend less and the
+    // difference is BANKED (bar up, green); spend more and you are DOWN by it (bar
+    // down, orange). Use 200k against a 342k allowance and you are +142k. This is
+    // the same arithmetic the tooltip has always shown — the bars just say it too.
+    var nets=buckets.map(function(v){return pace-v});
+    var posMax=0,negMax=0;
+    for(var ni=covLo;ni<48;ni++){var nv=nets[ni];if(nv>0){if(nv>posMax)posMax=nv}else if(-nv>negMax)negMax=-nv}
+    // An earlier attempt at this gave the positive half a fixed 42px, so every idle
+    // minute — net = exactly pace, the largest positive value there is — clipped flat
+    // against the ceiling and the whole thing was reverted as "a flat wall". That was
+    // the scaling, not the idea. Here ONE scale serves both directions (shared
+    // denominator, sqrt compression) and the box is split in proportion to how far
+    // each side actually reaches, so whichever side reaches furthest defines the
+    // split and neither can clip.
+    var M=Math.max(posMax,negMax,1);
+    var pn=Math.sqrt(posMax/M),nn=Math.sqrt(negMax/M),sum=(pn+nn)||1;
+    var posH=H*pn/sum,negH=H*nn/sum;
+    var barH=function(v){return Math.max(2,Math.sqrt(Math.abs(v)/M)*H/sum)};
+    document.getElementById('cols').innerHTML=nets.map(function(nv,i){
+      // Beyond the data's reach: render nothing at all. A stub here would be a claim
+      // we cannot make — that the minute was quiet.
       if(i<covLo)return '<div class="col nodata"></div>';
-      return '<div class="col'+live+'">'+(v>0
-        ? '<div class="bar" style="height:'+sc(v).toFixed(0)+'px"></div>'
-        : '<div class="bar idle" style="height:2px"></div>')+'</div>';
+      var live=i===47?' live':'';
+      var h=barH(nv);
+      return nv>=0
+        ? '<div class="col'+live+'"><div class="bar pos" style="bottom:'+negH.toFixed(0)+'px;height:'+h.toFixed(0)+'px"></div></div>'
+        : '<div class="col'+live+'"><div class="bar neg" style="bottom:'+Math.max(0,negH-h).toFixed(0)+'px;height:'+h.toFixed(0)+'px"></div></div>';
     }).join('');
     var winTot=buckets.reduce(function(a,v){return a+v},0);
     var al=document.getElementById('avgline'),ab=document.getElementById('avglab');
+    var covLab=cov>=48?'48m':'last '+cov+'m';
+    // The line is the PACE line — net zero, where spending exactly the allowance lands.
+    // Above it you banked that minute, below it you were down. It sits wherever the
+    // split put it rather than at a fixed height.
+    var zeroY=BOX-negH;
+    var netAvg=pace-(winTot/cov);
+    var banking=netAvg>=0;
+    al.style.display='block';al.style.top=zeroY.toFixed(0)+'px';al.style.borderTopColor='#9aa3b2';
+    ab.style.display='block';ab.style.top=Math.max(0,zeroY-14).toFixed(0)+'px';ab.style.color=banking?'#15803d':'#c2703a';
+    ab.textContent='pace '+hum(pace)+'/min · '+covLab+' net '+(banking?'+':'−')+hum(Math.abs(netAvg))+'/min · '+(banking?'banking':'over');
     if(winTot<=0){
-      // An idle window is a real state, not a zero to plot. "48m avg 0/min · peak 1"
-      // over an empty box reads as broken, and that peak is just the max(…,1) floor
-      // leaking into the UI. Say what is true instead.
-      al.style.display='none';ab.style.display='none';
-      document.getElementById('chartMeta').textContent='nothing spent in the last 48 minutes · sustainable '+hum(pace)+'/min'+(window.__perTurn?' · '+window.__perTurn:'');
+      // An idle window is a real state, not a zero to plot. Every minute banked the
+      // full allowance, which the bars now say on their own.
+      document.getElementById('chartMeta').textContent='nothing spent in the last 48 minutes · banking the full '+hum(pace)+'/min'+(window.__perTurn?' · '+window.__perTurn:'');
     }else{
-      var winAvg=winTot/cov;
-      var hotAvg=winAvg>pace;
-      var covLab=cov>=48?'48m':'last '+cov+'m';
-      var avgY=BOX-Math.min(H,Math.max(2,sc(winAvg)));
-      al.style.display='block';al.style.top=avgY.toFixed(0)+'px';al.style.borderTopColor=hotAvg?'#e8853a':'#8ec5ff';
-      ab.style.display='block';ab.style.top=Math.max(0,avgY-14).toFixed(0)+'px';ab.style.color=hotAvg?'#c2703a':'#2563eb';
-      ab.textContent=covLab+' avg '+hum(winAvg)+'/min'+(hotAvg?' · over pace':' · under pace');
-      document.getElementById('chartMeta').textContent='tokens out per minute · '+covLab+' avg '+hum(winAvg)+'/min vs sustainable '+hum(pace)+'/min · peak '+hum(mx)+' · √'
+      document.getElementById('chartMeta').textContent='banked (up) vs spent-over (down) per minute · '+covLab+' net '+(banking?'+':'−')+hum(Math.abs(netAvg))+'/min vs pace '+hum(pace)+'/min · worst minute −'+hum(Math.max(0,mx-pace))+' · √'
         +(cov<48?' · older minutes not fetched (feed caps at 200 events)':'')
         +(window.__perTurn?' · '+window.__perTurn:'');
     }
@@ -1408,10 +1418,10 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
       var ts=new Date((st.t-(47-idx)*60)*1000);
       var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
+      // lead with the signed number the bar is drawing, then the arithmetic behind it
       var out=st.buckets[idx],pc=st.pace||0,over=out>pc;
-      var html=esc(hh)+' · <span style="color:'+(over?'#f0873c':'#60a5fa')+'">'+esc(hum(out))+' out</span>'+
-        '<br><span style="color:#8a93a5">pace '+esc(hum(pc))+'/min · '+
-        (over?'+'+esc(hum(out-pc))+' over':esc(hum(pc-out))+' banked')+'</span>';
+      var html=esc(hh)+' · <span style="color:'+(over?'#f0873c':'#4ade80')+'">'+(over?'−':'+')+esc(hum(Math.abs(pc-out)))+(over?' over':' banked')+'</span>'+
+        '<br><span style="color:#8a93a5">'+esc(hum(out))+' out of '+esc(hum(pc))+'/min allowance</span>';
       var m=st.ops[idx];
       if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
       tip.style.display='block';
