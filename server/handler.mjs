@@ -738,35 +738,6 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .tip48 .mut{color:#98a1b0}
 .guide48{position:absolute;top:0;bottom:0;width:1.5px;background:#c7c3f2;display:none;pointer-events:none;z-index:1}
 .axis48{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:#a3abba;margin-top:7px}
-.pace{display:flex;flex-direction:column;gap:15px;margin-top:22px;background:#f6f6fb;border-radius:16px;padding:18px 20px}
-.gauge{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:15px}
-.gauge .lab{font-family:var(--mono);font-size:15px;color:#5a6478;font-weight:600}
-.gauge .track{position:relative;height:18px;border-radius:6px;background:#e6e5f2}
-.gauge .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#9be3b0,#4fbe7e 55%,#159a52);border-radius:6px;transition:width .6s ease}
-.gauge .mark{position:absolute;top:-3px;bottom:-3px;width:2px;background:#152036}
-.gauge .num{font-family:var(--mono);font-size:14.5px;text-align:right;white-space:nowrap;color:#8a93a5}
-.gauge .num b{font-weight:700}
-.legend{font-family:var(--mono);font-size:12px;color:#a3abba;display:flex;align-items:center;gap:16px}
-.legend .sw{display:inline-block;width:12px;height:8px;border-radius:2px;background:linear-gradient(90deg,#9be3b0,#159a52);vertical-align:middle;margin-right:5px}
-.legend .mk{display:inline-block;width:2px;height:12px;background:#152036;vertical-align:middle;margin-right:5px}
-.split{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:24px}
-.srow{display:grid;grid-template-columns:140px 1fr auto;align-items:center;gap:12px;margin-top:12px}
-.srow .nm{font-family:var(--mono);font-size:14px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.srow .tr{height:11px;border-radius:4px;background:#eeeef6;overflow:hidden}
-.srow .fl{height:100%;border-radius:4px;transition:width .6s ease}
-.srow .vv{font-family:var(--mono);font-size:13.5px;text-align:right;white-space:nowrap;color:#8a93a5}
-.srow .vv b{color:var(--ink);font-weight:700}
-.sess{margin-top:24px}
-.sessrow{display:grid;grid-template-columns:18px minmax(140px,240px) 1fr auto;align-items:center;gap:13px;padding:10px 0;border-top:1px solid #f0f1f6}
-.sessrow .dot{width:9px;height:9px;border-radius:50%;background:#c4cad4}
-.sessrow .dot.on{background:#2fb768;animation:pulse 1.6s ease-in-out infinite}
-.sessrow .nm{display:flex;align-items:center;gap:9px;min-width:0}
-.sessrow .nm .t{font-family:var(--mono);font-size:14.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sessrow .chip{font-family:var(--mono);font-size:11px;font-weight:600;background:#f4f5fa;padding:2px 7px;border-radius:5px;flex-shrink:0}
-.sessrow .tr{height:8px;border-radius:3px;background:#f0f1f6;overflow:hidden}
-.sessrow .fl{height:100%;border-radius:3px;transition:width .6s ease}
-.sessrow .vv{font-family:var(--mono);font-size:13.5px;text-align:right;white-space:nowrap;color:#8a93a5}
-.sessrow .vv b{font-weight:700}
 table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px}
 th{text-align:left;color:var(--ink-3);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line);font-family:var(--mono)}
 td{padding:8px;border-bottom:1px solid #f0f1f6;font-variant-numeric:tabular-nums}
@@ -801,16 +772,10 @@ tr.dirrow td{background:#faf8f2;border-bottom:1px solid #f0f1f6;padding-left:22p
 .trio{grid-template-columns:1fr}
 .trio>div{border-right:none;border-bottom:1px solid var(--line)}
 .trio>div:last-child{border-bottom:none}
-.split{grid-template-columns:1fr}
 .bar{grid-template-columns:52px minmax(60px,1fr);gap:10px}
 .bar .num{grid-column:1/-1;white-space:normal}
 /* source/model/session splits: drop the decorative track bar, let values wrap —
    the fixed name + nowrap value column was pushing the page past the viewport */
-.srow{grid-template-columns:1fr auto;gap:10px}
-.sessrow{grid-template-columns:14px 1fr auto;gap:9px}
-.srow .tr,.sessrow .tr{display:none}
-.srow .vv,.sessrow .vv{white-space:normal;text-align:right}
-.sessrow .nm{min-width:0}
 table{font-size:12px}
 }
 /* Dark mode — additive: only overrides glaring light surfaces, so light mode is
@@ -821,12 +786,6 @@ table{font-size:12px}
 .card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
 .bars{background:#1e2740}
 .bar .track{background:#2c3652}
-.pace{background:#1b2333}
-.gauge .track{background:#2c3652}
-.srow .tr{background:#262f47}
-.sessrow{border-top-color:#232c40}
-.sessrow .tr{background:#262f47}
-.sessrow .chip{background:#232c40}
 .chart48 .zero{border-top-color:#39435e}
 .chart48 .cols div{filter:none}
 td{border-bottom-color:#222b40}
@@ -887,28 +846,6 @@ td{border-bottom-color:#222b40}
   </div>
   <div class="axis48"><span>-48m</span><span>-24m</span><span>now</span></div>
   <div class="tip48" id="tip48"></div>
- </div>
-
- <div class="pace">
-  <div class="klabel">PACE vs EVEN BURN</div>
-  <div id="gauges"></div>
-  <div class="legend"><span><span class="sw"></span>used</span><span><span class="mk"></span>even-pace mark</span></div>
- </div>
-
- <div class="split">
-  <div>
-   <div class="klabel">BY SOURCE · 5H WINDOW</div>
-   <div id="sources"><div class="empty">…</div></div>
-  </div>
-  <div>
-   <div class="klabel">BURN BY MODEL · LAST HOUR</div>
-   <div id="models"><div class="empty">…</div></div>
-  </div>
- </div>
-
- <div class="sess">
-  <div class="klabel">ACTIVE SESSIONS · LAST HOUR</div>
-  <div id="sessions"><div class="empty">…</div></div>
  </div>
 
  <div style="margin-top:24px">
@@ -1157,66 +1094,6 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var m=opsMin[i];
       return '<span style="left:'+((+i+0.5)/48*100).toFixed(1)+'%;background:'+(m.prot?'#d23b3b':'#e0a13a')+'"></span>';
     }).join('');
-
-    // pace vs even burn: used% vs elapsed% of each fixed window
-    var mkG=function(lab,usedPct,resetIn,winSec,leftTok){
-      if(usedPct==null)return '';
-      var evenPct=resetIn!=null?Math.max(0,Math.min(1,(winSec-resetIn)/winSec)):null;
-      var d=evenPct>0?(usedPct-evenPct)/evenPct*100:0;
-      // Said in words, not in a sign. "-71% vs even" meant "spent 71% LESS than an even
-      // burn" — good news wearing a minus, while the chart right above it uses minus for
-      // OVERspending. Same screen, opposite meaning for the same sign, so neither read
-      // clearly. Words carry the direction now and colour agrees with them.
-      var over=d>=0;
-      return '<div class="gauge"><span class="lab">'+lab+'</span>'+
-        '<span class="track"><span class="fill" style="width:'+(usedPct*100).toFixed(1)+'%"></span>'+
-        (evenPct!=null?'<span class="mark" style="left:'+(evenPct*100).toFixed(1)+'%"></span>':'')+'</span>'+
-        '<span class="num"><b style="color:'+(over?'var(--red)':'var(--green)')+'">'+Math.abs(d).toFixed(0)+'% '+(over?'over':'under')+' even pace</b> · '+
-        (leftTok!=null?hum(leftTok)+' left':'—')+'</span></div>';
-    };
-    document.getElementById('gauges').innerHTML=
-      mkG('session',b.quota,b.five_reset_in_sec,FIVE_H,b.session_to_spend)+
-      mkG('week',b.week,b.week_reset_in_sec,WEEK,b.weekly_left_tokens);
-
-    // by source (cli vs cloud) from the 5h surfaces split
-    var sf=b.surfaces||[];
-    var srcSum={cli:0,cloud:0};
-    sf.forEach(function(x){srcSum[String(x.surface).indexOf('cloud')===0?'cloud':'cli']+=x.billed_5h});
-    var tot=srcSum.cli+srcSum.cloud;
-    var srcCols={cli:'#5b52e8',cloud:'#4fbe7e'};
-    document.getElementById('sources').innerHTML=tot>0?['cli','cloud'].map(function(k){
-      var share=srcSum[k]/tot;
-      return '<div class="srow"><span class="nm">'+(k==='cli'?'Claude CLI':'claude.ai · cloud')+'</span>'+
-        '<span class="tr"><span class="fl" style="width:'+(share*100).toFixed(1)+'%;background:'+srcCols[k]+'"></span></span>'+
-        '<span class="vv"><b>'+(share*100).toFixed(0)+'%</b> · '+hum(srcSum[k])+'</span></div>';
-    }).join(''):'<div class="empty">no burn this window</div>';
-
-    // by model, last hour, from feed by_model
-    var mm={};
-    h1.forEach(function(e){var bm=e.by_model||{};Object.keys(bm).forEach(function(k){
-      var fam=/opus/i.test(k)?'Opus':/sonnet/i.test(k)?'Sonnet':/haiku/i.test(k)?'Haiku':/fable|mythos/i.test(k)?'Fable':'Other';
-      mm[fam]=(mm[fam]||0)+bm[k];});});
-    var mtot=Object.keys(mm).reduce(function(a,k){return a+mm[k]},0);
-    var mcols={Opus:'#5b52e8',Sonnet:'#4fbe7e',Haiku:'#e0a13a',Fable:'#7c74ee',Other:'#a3abba'};
-    document.getElementById('models').innerHTML=mtot>0?Object.keys(mm).sort(function(a,b2){return mm[b2]-mm[a]}).map(function(k){
-      var share=mm[k]/mtot;
-      return '<div class="srow"><span class="nm">Claude '+esc(k)+'</span>'+
-        '<span class="tr"><span class="fl" style="width:'+(share*100).toFixed(1)+'%;background:'+(mcols[k]||'#a3abba')+'"></span></span>'+
-        '<span class="vv"><b>'+(share*100).toFixed(0)+'%</b> · '+hum(mm[k])+'</span></div>';
-    }).join(''):'<div class="empty">no burn in the last hour</div>';
-
-    // active sessions from top_burners
-    var ag=(b.top_burners||[]).filter(function(a){return a.tokens_1h>0});
-    var mxS=Math.max.apply(null,ag.map(function(a){return a.tokens_1h}).concat([1]));
-    document.getElementById('sessions').innerHTML=ag.length?ag.map(function(a){
-      var on=a.rate_5m>0;
-      var cls=String(a.surface).indexOf('cloud')===0?'cloud':'cli';
-      return '<div class="sessrow"><span class="dot'+(on?' on':'')+'"></span>'+
-        '<span class="nm"><span class="t">'+esc(a.name||a.project||(a.session||'').slice(0,8))+'</span><span class="chip" style="color:'+srcCols[cls]+'">'+cls+'</span></span>'+
-        '<span class="tr"><span class="fl" style="width:'+(a.tokens_1h/mxS*100).toFixed(1)+'%;background:'+(on?srcCols[cls]:'#d3d7e0')+';opacity:'+(on?1:.6)+'"></span></span>'+
-        '<span class="vv"><b style="color:'+(on?'var(--ink)':'#a3abba')+'">'+(on?hum(a.rate_5m*12)+'/hr':'idle')+'</b> · '+hum(a.tokens_1h)+
-        (a.ctx?' · ctx'+hum(a.ctx):'')+'</span></div>';
-    }).join(''):'<div class="empty">nothing burning in the last hour</div>';
 
     // WARNINGS — the left pane's deterministic alert list. Fixed rules, fixed
     // vocabulary; only numbers change. Empty = one green all-clear line.
