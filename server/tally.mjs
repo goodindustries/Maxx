@@ -304,6 +304,15 @@ export function computeBudget(store, now) {
     burn_5m: burn5m, empties_at: emptiesAt,
     top_burners: topBurners,
     verdict, fresh,
+    // what is queued FOR each channel, so the dash can show a channel and the orders
+    // waiting on it in the same place instead of burying them in the feed
+    pending_directives: (store.directives || [])
+      .filter((d) => d.expires > now)
+      .map((d) => ({
+        id: d.id, session: d.session, surface: d.surface || null, action: d.action,
+        note: d.note || null, auto: !!d.auto, expires: d.expires,
+        delivered: (d.delivered_to || []).length,
+      })),
     anchor_age_sec: Number.isFinite(anchorAge) ? Math.round(anchorAge) : null,
     stored_at: new Date(now * 1000).toISOString(),
     five_billed: five, week_billed: week, lifetime_billed: lifetime,
@@ -367,6 +376,21 @@ const CTX_WALL = 250e3;
 const WATCH_COOLDOWN = 30 * 60; // never nag the same session more than twice an hour
 const kf = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`);
 
+// Cost per TURN for one session, and whether it is climbing. Every emit record
+// carries billed + turns, so this is free. Rising cost/turn is the leading signal:
+// it climbs continuously as the context grows, whereas "past the 250k wall" only
+// trips once you are already paying full freight on every turn.
+function perTurnSlope(store, root, now) {
+  const pts = store.events
+    .filter((e) => e.root === root && e.turns > 0 && e.billed > 0 && e.ts > now - 45 * 60)
+    .sort((a, b) => a.ts - b.ts)
+    .map((e) => e.billed / e.turns);
+  if (pts.length < 6) return null;
+  const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  const last3 = avg(pts.slice(-3)), prev3 = avg(pts.slice(-6, -3));
+  return { last3, prev3, rising: prev3 > 0 && last3 > prev3 * 1.5 };
+}
+
 export function autoAdvise(store, now) {
   const b = computeBudget(store, now);
   const pace = b.sustainable_per_min;
@@ -378,16 +402,26 @@ export function autoAdvise(store, now) {
   const sent = [];
   for (const t of b.top_burners || []) {
     const rate = (t.rate_5m || 0) / 5;
-    // must be BOTH past the wall and actually burning — a big idle context is not urgent
-    if (!(t.ctx > CTX_WALL) || rate < pace || !t.session) continue;
+    if (!t.session || rate < pace) continue;   // must actually be burning right now
+    const slope = perTurnSlope(store, t.session, now);
+    const pastWall = t.ctx > CTX_WALL;
+    // climbing catches it on the way UP; past-wall is the backstop for a session that
+    // was already fat when we started watching it
+    const climbing = !!(slope && slope.rising && slope.last3 >= 150e3);
+    if (!pastWall && !climbing) continue;
     const last = store.watched[t.session];
     if (last && now - last < WATCH_COOLDOWN) continue;
+    const why = climbing
+      ? `cost per turn is climbing — ${kf(slope.prev3)} → ${kf(slope.last3)} per turn over the last 6 turns` +
+        (pastWall ? `, and ctx ${kf(t.ctx)} is past the ${kf(CTX_WALL)} wall` : "")
+      : `ctx ${kf(t.ctx)} is past the ${kf(CTX_WALL)} wall`;
     const r = addDirective(store, {
       session: t.session,
+      surface: t.surface || null,
       action: "clear",
       note:
-        `ctx ${kf(t.ctx)} is past the ${kf(CTX_WALL)} wall and this session is burning ` +
-        `${kf(rate)}/min against a sustainable ${kf(pace)}/min — every turn re-bills the whole context`,
+        `${why}. Burning ${kf(rate)}/min against a sustainable ${kf(pace)}/min — ` +
+        `every turn re-bills the whole context`,
       ttl_sec: 3600,
     }, now);
     if (r.ok) {

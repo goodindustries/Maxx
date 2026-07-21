@@ -3,7 +3,7 @@
 // memory store (no live servers — see HANDOFF gotchas). Run: `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { emptyStore, addDirective, pendingDirectives, autoAdvise } from "./tally.mjs";
+import { emptyStore, addDirective, pendingDirectives, autoAdvise, computeBudget } from "./tally.mjs";
 import { createHandler } from "./handler.mjs";
 import { createMemoryStore } from "./store.mjs";
 
@@ -130,4 +130,32 @@ test("watchdog stays quiet on a big but idle context", () => {
   s.events.push({ surface: "laptop:a", root: "sess-idle", ts: T - 3000, billed: 40e6, ctx: 460e3, name: "idle whale" });
   assert.equal(autoAdvise(s, T).length, 0, "idle session is not urgent");
   assert.equal((s.directives || []).length, 0, "no directive queued");
+});
+
+test("watchdog fires on a climbing cost-per-turn before the wall", () => {
+  const s = emptyStore();
+  const T = 1_800_000_000;
+  s.anchors.push({ ts: T - 60, five_pct: 0.2, week_pct: 0.3, five_reset: T + 3600, week_reset: T + 2 * 86400 });
+  // under the 250k ctx wall the whole time, but cost/turn doubles across 6 emits
+  const perTurn = [80e3, 85e3, 82e3, 210e3, 240e3, 260e3];
+  perTurn.forEach((c, i) =>
+    s.events.push({ surface: "laptop:a", root: "sess-ramp", ts: T - (6 - i) * 60,
+      billed: c * 4, turns: 4, ctx: 180e3, name: "ramping session" }));
+  // and it is burning inside the last 5 minutes
+  s.events.push({ surface: "laptop:a", root: "sess-ramp", ts: T - 30, billed: 30e6, turns: 3, ctx: 190e3, name: "ramping session" });
+  const sent = autoAdvise(s, T);
+  assert.equal(sent.length, 1, `climbing session advised, got ${JSON.stringify(sent)}`);
+  const d = s.directives.find((x) => x.session === "sess-ramp");
+  assert.match(d.note, /cost per turn is climbing/);
+  assert.ok(!/past the/.test(d.note.split("Burning")[0]) || d.note.includes("climbing"), "leads with the climb, not the wall");
+});
+
+test("pending directives ride along in the budget payload", () => {
+  const s = emptyStore();
+  const T = 1_800_000_000;
+  addDirective(s, { session: "sess-x", surface: "laptop:a", action: "pause", note: "hold" }, T);
+  const b = computeBudget(s, T);
+  assert.equal(b.pending_directives.length, 1);
+  assert.equal(b.pending_directives[0].surface, "laptop:a");
+  assert.equal(b.pending_directives[0].delivered, 0);
 });

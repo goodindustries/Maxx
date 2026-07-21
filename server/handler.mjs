@@ -761,6 +761,8 @@ td{padding:8px;border-bottom:1px solid #f0f1f6;font-variant-numeric:tabular-nums
 td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-25)}
 td.num,th.num{text-align:right}
 td b{font-weight:700}
+/* a directive hangs under the channel it is waiting on, indented and quieter than the row above */
+tr.dirrow td{background:#faf8f2;border-bottom:1px solid #f0f1f6;padding-left:22px;font-size:12px;line-height:1.5}
 .empty{color:var(--ink-3);padding:10px;font-size:13.5px}
 .foot{margin-top:22px;border-top:1px solid #e7e9f0;padding-top:14px;color:var(--ink-3);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .foot .lt{font-family:var(--mono)}
@@ -1240,13 +1242,32 @@ if(location.search)history.replaceState(null,'',location.pathname);
     });
     var rows=Object.keys(by).map(function(k){return by[k]}).sort(function(a,b2){return b2.b5-a.b5});
     var max=Math.max.apply(null,[1].concat(rows.map(function(c){return c.b5})));
-    document.getElementById('channels').innerHTML=rows.length?rows.map(function(c){
+    // orders waiting on each channel, shown WITH the channel — a directive nobody
+    // can see is a directive nobody acts on
+    var dirs=b.pending_directives||[],placed={};
+    var dirRow=function(d){
+      var mark=d.action==='pause'?'⏸':d.action==='clear'?'⌫':'▶';
+      return '<tr class="dirrow"><td colspan="5" class="mono">'+
+        '<span style="color:'+(d.action==='pause'?'var(--red)':'var(--amber, #d08a2a)')+'">'+mark+' '+esc(d.action)+'</span>'+
+        ' <span style="color:var(--ink-3)">→ '+esc(d.session==='*'?'all sessions':d.session.slice(0,8))+
+        (d.auto?' · auto':'')+(d.delivered?' · delivered':' · waiting')+'</span>'+
+        (d.note?'<br><span style="color:var(--ink-3)">'+esc(d.note)+'</span>':'')+'</td></tr>';
+    };
+    var body=rows.map(function(c){
+      var mine=dirs.filter(function(d){return d.surface&&d.surface===c.surface});
+      mine.forEach(function(d){placed[d.id]=1});
       return '<tr><td class="mono">'+esc(c.surface)+'</td>'+
         '<td>'+(c.last?ago(Math.max(0,t-c.last))+' ago':'—')+'</td>'+
         '<td class="num">'+(c.h1>0?'<b>+'+hum(c.h1)+'</b>':'idle')+'</td>'+
         '<td class="num">'+hum(c.b5)+'</td>'+
-        '<td><div style="height:8px;border-radius:4px;background:#5b52e8;opacity:.65;width:'+Math.max(2,Math.round(c.b5/max*100))+'%"></div></td></tr>';
-    }).join(''):'<tr><td colspan="5" class="empty">no channels yet</td></tr>';
+        '<td><div style="height:8px;border-radius:4px;background:#5b52e8;opacity:.65;width:'+Math.max(2,Math.round(c.b5/max*100))+'%"></div></td></tr>'+
+        mine.map(dirRow).join('');
+    }).join('');
+    // broadcasts and anything we could not pin to a channel still have to be visible
+    var loose=dirs.filter(function(d){return !placed[d.id]});
+    document.getElementById('channels').innerHTML=(body||loose.length)
+      ? body+loose.map(dirRow).join('')
+      : '<tr><td colspan="5" class="empty">no channels yet</td></tr>';
   }
 
   // right pane: emits (green) + ops (amber) merged chronologically, viewer-local times
