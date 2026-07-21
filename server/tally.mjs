@@ -230,6 +230,20 @@ export function computeBudget(store, now) {
   // #5 burn rate (account-wide, last 5m) + time-to-empty at that rate
   const burn5m = store.events.reduce((s, e) => (e.ts > now - 300 && e.ts <= now + 60 ? s + e.billed : s), 0);
   const ratePerSec = burn5m / 300;
+
+  // The pace model: the WEEK is the budget. sustainable = the per-minute rate that
+  // spends exactly the weekly reserve by the time it resets. net = sustainable − recent
+  // burn: + = under weekly pace (you'll make the week), − = over (dry early). Replaces the
+  // 5h-refill proxy — the 5h cap resets in a cliff, so "refill/min" was a fiction; the
+  // weekly pace is the real constraint the standing is already derived from.
+  const weekMinLeft = wr && wr > now ? (wr - now) / 60 : null;
+  const sustainablePerMin = weeklyLeft != null && weekMinLeft ? weeklyLeft / weekMinLeft : null;
+  const netPerMinVal = sustainablePerMin != null
+    ? Math.round(sustainablePerMin - burn5m / 5)
+    : (five != null ? Math.round(five / (FIVE_H / 60) - burn5m / 5) : slNet);
+  // two ceilings: burst = the hard 5h wall you can physically spend to right now;
+  // safe = spendAfterReserve (weekly-paced). Burst > safe means you CAN overspend.
+  const fiveHeadroom = fiveCap != null ? Math.max(0, Math.round(fiveCap - five)) : null;
   const emptiesAt =
     ratePerSec > 3 && spendAfterReserve != null
       ? Math.round(now + spendAfterReserve / ratePerSec)
@@ -267,10 +281,12 @@ export function computeBudget(store, now) {
     weekly_left_tokens: weeklyLeft, session_to_spend: spendAfterReserve,
     session_over: slOver,
     week_bank: slBank,
-    // net_per_min = refill (rolling 5h tank ÷ 300) − recent burn (5m rate). One
-    // definition for every surface: the dash, the card, and an agent reading this
-    // all get the same net. Falls back to the statusline's own net when burn is absent.
-    net_per_min: five != null && burn5m != null ? Math.round(five / (FIVE_H / 60) - burn5m / 5) : slNet,
+    // net_per_min = sustainable weekly pace − recent (5m) burn. + under pace / − over.
+    // sustainable_per_min = weekly reserve ÷ minutes to week reset. session_burst = the
+    // hard 5h ceiling you can physically spend to now (≥ the paced session_to_spend).
+    net_per_min: netPerMinVal,
+    sustainable_per_min: sustainablePerMin != null ? Math.round(sustainablePerMin) : null,
+    session_burst: fiveHeadroom,
     session_safe: sessionSafe,
     reserved_tokens: reservedTokens, leases: activeLeases.length,
     burn_5m: burn5m, empties_at: emptiesAt,

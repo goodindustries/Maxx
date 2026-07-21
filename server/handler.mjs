@@ -214,7 +214,7 @@ function renderCard(h, s, b, setup = null) {
   const bars0 = JSON.stringify({
     five_billed: b.five_billed, available: b.session_to_spend, week: b.week, quota: b.quota,
     weekly_left: b.weekly_left_tokens, session_over: b.session_over, burn_5m: b.burn_5m,
-    week_billed: b.week_billed, week_bank: b.week_bank,
+    week_billed: b.week_billed, week_bank: b.week_bank, net_per_min: b.net_per_min,
     week_reset_in_sec: b.week_reset_in_sec, fresh: b.fresh, anchor_age_sec: b.anchor_age_sec,
   });
   // badge: "live" only when data actually flows; a retired handle says so
@@ -397,8 +397,8 @@ ${CHART_JS}
     };
     var stale=!d.fresh?(d.anchor_age_sec!=null?' · stale · anchored '+ago(d.anchor_age_sec)+' ago':' · stale'):'';
     var calib=d.week!=null&&d.week<0.05?' · calibrating':'';
-    var burnMin=d.burn_5m!=null?d.burn_5m/5:0,refuel=(d.five_billed||0)/300;
-    var prog=refuel-burnMin,up=prog>=0;
+    // net = sustainable weekly pace − burn (server-computed, one ruler with dash/statusline)
+    var prog=d.net_per_min!=null?d.net_per_min:0,up=prog>=0;
     var avail=d.available!=null?d.available:0,over=d.session_over||0,banked=avail>0;
     var sNum=(banked?'+'+kf(avail):'<span class="bad">−'+kf(over)+'</span>')+
       (Math.abs(prog)>=500?' · <span class="'+(up?'good':'bad')+'">'+(up?'+':'−')+kf(Math.abs(prog))+'/min</span>':'')+stale;
@@ -898,13 +898,10 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // rate = refuel − live burn (tank refills at rolling-5h-burn ÷ 300); its sign and
     // color follow the STANDING, never the raw rate. week = left · even-pace bank · reset.
     var burnMin=b.burn_5m!=null?b.burn_5m/5:0;
-    var refuel=(b.five_billed||0)/300;
-    // net rate MUST agree with the chart the user sees: refill − recent (5-min) burn,
-    // both live from the same budget. The statusline's net_per_min (refill − a 60s-decay
-    // burn) can read +banking while the chart's recent minutes are clearly burning —
-    // that mismatch is the bug. Anchor net is fallback only when live burn is absent.
-    var prog=b.burn_5m!=null?refuel-burnMin:(b.net_per_min!=null?b.net_per_min:0);
-    var up=prog>=0; // net RATE sign follows the net itself (banking vs burning), NOT the standing
+    // NET = sustainable weekly pace − recent burn (server-computed, one ruler). + under
+    // pace (you'll make the week) / − over pace (dry early). The 5h-refill model is gone.
+    var prog=b.net_per_min!=null?b.net_per_min:0;
+    var up=prog>=0;
     // live drift: standing moves at net/min, week reserve drains at burn/min
     var standing=(b.session_to_spend||0)-(b.session_over||0)+prog*drift/60;
     var toSpend=Math.max(0,standing),over=Math.max(0,-standing);
@@ -931,26 +928,25 @@ if(location.search)history.replaceState(null,'',location.pathname);
     document.getElementById('bars').innerHTML=bar('session',sSpec,sNum)+bar('week',{green:leftFrac,tick:wTick,col:wCol},wNum)+
       '<div style="font-size:11.5px;color:#a3abba">bar = what\\'s left · <span style="color:#152036">╎</span> = even pace</div>';
 
-    // trio mirrors the statusline: NET/MIN = refuel − burn (the CLI's +xxk/min),
-    // REMAINING = the rolling-session standing, AT PACE = where that net rate lands you.
+    // NET / MIN = sustainable weekly pace − recent burn. + under pace, − over pace.
     var netV=document.getElementById('netV'),netU=document.getElementById('netU'),netSub=document.getElementById('netSub');
     var nh=hum(Math.abs(prog));
     if(Math.abs(prog)<1000){netV.textContent='0';netU.textContent='/min';netV.style.color='var(--ink)';}
     else{netV.textContent=(up?'+':'−')+nh.slice(0,-1);netU.textContent=nh.slice(-1)+'/min';netV.style.color=up?'var(--green)':'var(--red)';}
-    netSub.textContent=up?'banking · refill > burn':'burning · burn > refill';
+    netSub.textContent=up?'under weekly pace':'over weekly pace';
     // WEEK LEFT: the weekly reserve, with the pace bank as context
     var remV=document.getElementById('remV'),remSub=document.getElementById('remSub');
     remV.textContent=hum(weekLeft);remV.style.color='var(--ink)';
     remSub.textContent=(bank!=null?(bank>=0?'+'+hum(bank)+' ahead of pace':hum(-bank)+' over pace'):'—')+
       (b.week_reset_in_sec!=null?' · resets '+ago(b.week_reset_in_sec):'');
-    // THIS SESSION: the signed rolling standing — what you can spend right now
+    // THIS SESSION: safe-to-spend (weekly-paced) with the hard 5h burst ceiling as context
     var runV=document.getElementById('runV'),runSub=document.getElementById('runSub');
     if(banked){
       runV.textContent='+'+hum(toSpend);runV.style.color='var(--ink)';
-      runSub.textContent='available · refills over 5h';
+      runSub.textContent='safe to spend'+(b.session_burst!=null?' · burst '+hum(b.session_burst)+' to 5h wall':'');
     }else{
       runV.textContent=over>0?'−'+hum(over):'0';runV.style.color='var(--red)';
-      runSub.textContent='over · refills over 5h';
+      runSub.textContent='over pace'+(b.session_burst!=null?' · burst '+hum(b.session_burst)+' to 5h wall':'');
     }
   }
 
@@ -972,12 +968,12 @@ if(location.search)history.replaceState(null,'',location.pathname);
       if(idx>=0&&idx<48)buckets[idx]+=e.billed;
     });
     var mx=Math.max.apply(null,buckets.concat([1]));
-    // NET per minute = refill IN − usage OUT. One bar per column off the zero line:
-    // ABOVE (blue) = banked that minute (refill outpaced burn — idle minutes bank the
-    // full refill), BELOW (orange) = net drain. Refill is the tank's regen (5h burn ÷
-    // 300, a slow 5h average → ~constant per min). Shared √ scale on |net|, up capped.
-    var refillNow=(b.five_billed||0)/300;
-    var nets=buckets.map(function(v){return refillNow-v});
+    // NET per minute = sustainable weekly PACE − usage OUT that minute. One bar per
+    // column off the zero line: ABOVE (blue) = that minute was under pace (banking toward
+    // the reset — idle minutes bank the full pace), BELOW (orange) = over pace. The pace
+    // line is the weekly-sustainable rate, the real budget. Shared √ scale on |net|.
+    var pace=b.sustainable_per_min!=null?b.sustainable_per_min:(b.five_billed||0)/300;
+    var nets=buckets.map(function(v){return pace-v});
     var mxAbs=Math.max(1,Math.max.apply(null,nets.map(Math.abs)));
     var HD=124,HU=42;
     var sc=function(v){return Math.max(2,Math.sqrt(Math.abs(v)/mxAbs)*HD)};
@@ -992,7 +988,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var atop=avgNet>=0?44-Math.min(HU,sc(avgNet)):44+sc(avgNet);
     al.style.display='block';al.style.top=atop.toFixed(0)+'px';al.style.borderTopColor=avgNet>=0?'#8ec5ff':'#e8b58a';
     ab.style.display='block';ab.style.top=(avgNet>=0?atop-14:atop+2).toFixed(0)+'px';ab.style.color=avgNet>=0?'#2563eb':'#c2703a';ab.textContent='avg net';
-    document.getElementById('chartMeta').textContent='net/min = in − out · ↑ banking ↓ burning · in '+hum(refillNow)+'/min · peak out '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
+    document.getElementById('chartMeta').textContent='net vs weekly pace · ↑ under ↓ over · pace '+hum(pace)+'/min · peak out '+hum(mx)+' · √'+(window.__perTurn?' · '+window.__perTurn:'');
     // intervention markers: red = gate held spend / pause delivered, amber = other maxx ops
     var opsMin={};
     (window.__ops||[]).forEach(function(o){
@@ -1003,7 +999,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
       m.items.push(o.op+(o.d?' · '+o.d:''));
       if(prot)m.prot=true;
     });
-    window.__chartMins={buckets:buckets,ops:opsMin,t:t,refill:refillNow};
+    window.__chartMins={buckets:buckets,ops:opsMin,t:t,pace:pace};
     document.getElementById('marks').innerHTML=Object.keys(opsMin).map(function(i){
       var m=opsMin[i];
       return '<span style="left:'+((+i+0.5)/48*100).toFixed(1)+'%;background:'+(m.prot?'#d23b3b':'#e0a13a')+'"></span>';
@@ -1207,9 +1203,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var idx=Math.max(0,Math.min(47,Math.floor((evt.clientX-r.left)/r.width*48)));
       var ts=new Date((st.t-(47-idx)*60)*1000);
       var hh=String(ts.getHours()).padStart(2,'0')+':'+String(ts.getMinutes()).padStart(2,'0');
-      var netv=(st.refill||0)-st.buckets[idx],up=netv>=0;
-      var html=esc(hh)+' · <span style="color:'+(up?'#60a5fa':'#f0873c')+'">'+(up?'▲ +':'▼ −')+esc(hum(Math.abs(netv)))+' net</span>'+
-        '<br><span style="color:#8a93a5">in '+esc(hum(st.refill||0))+' · out '+esc(hum(st.buckets[idx]))+'</span>';
+      var netv=(st.pace||0)-st.buckets[idx],up=netv>=0;
+      var html=esc(hh)+' · <span style="color:'+(up?'#60a5fa':'#f0873c')+'">'+(up?'▲ +':'▼ −')+esc(hum(Math.abs(netv)))+(up?' under':' over')+'</span>'+
+        '<br><span style="color:#8a93a5">pace '+esc(hum(st.pace||0))+' · out '+esc(hum(st.buckets[idx]))+'</span>';
       var m=st.ops[idx];
       if(m)m.items.slice(0,3).forEach(function(x){html+='<br><span class="pr">'+(m.prot?'🛡 ':'')+esc(x)+'</span>'});
       tip.style.display='block';
@@ -1416,7 +1412,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             // data as "available"; never names
             five_billed: budget.five_billed, week: budget.week, quota: budget.quota,
             weekly_left: budget.weekly_left_tokens, session_over: budget.session_over,
-            week_billed: budget.week_billed, week_bank: budget.week_bank,
+            week_billed: budget.week_billed, week_bank: budget.week_bank, net_per_min: budget.net_per_min,
             five_reset_in_sec: budget.five_reset_in_sec, week_reset_in_sec: budget.week_reset_in_sec,
             fresh: budget.fresh, anchor_age_sec: budget.anchor_age_sec, feed,
           }) };

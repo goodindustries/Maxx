@@ -451,14 +451,6 @@ function main() {
     burn60 = Math.round(decaySum(60 * 1000) * 2);
   }
 
-  // Net rate is ACCOUNT-WIDE, not this session's — the budget drains from every
-  // session on the account at once, and the dash/card/agent all show the account net.
-  // gate.mjs caches the server budget here on each gate check; use its net_per_min when
-  // fresh (<90s) so all surfaces agree, else fall back to this machine's local compute.
-  const gc = readJSON(path.join(HOME, ".maxx", "gate-cache.json"), null);
-  const gcFresh = gc && gc.at && Date.now() / 1000 - gc.at < 90 && gc.b && gc.b.net_per_min != null;
-  const netPerMin = gcFresh ? gc.b.net_per_min : refuelPerMin - Math.round((burn5 || 0) / 5);
-
   const usd = (p.cost || {}).total_cost_usd || 0;
   const fam = modelFamily((p.model || {}).display_name);
   const branch = gitBranch((p.workspace || {}).project_dir || "");
@@ -592,6 +584,15 @@ function main() {
   // pace gap (points): elapsed − used. + = behind even-burn (under-using), − = ahead. Cap-independent.
   sStat.elapsedPct = Math.round(e5 * 100); sStat.behindPts = Math.round((e5 - q5) * 100);
   wStat.elapsedPct = Math.round(e7 * 100); wStat.behindPts = Math.round((e7 - w7) * 100);
+  // Net rate = sustainable weekly PACE − recent burn, ACCOUNT-WIDE. gate.mjs (and the
+  // emit watcher) cache the server budget; use its net_per_min when fresh (<90s) so all
+  // surfaces agree. Local fallback (cache stale/idle): weekly headroom ÷ minutes-to-reset
+  // minus this machine's 5-min burn — the same pace model, just from local data.
+  const gc = readJSON(path.join(HOME, ".maxx", "gate-cache.json"), null);
+  const gcFresh = gc && gc.at && Date.now() / 1000 - gc.at < 90 && gc.b && gc.b.net_per_min != null;
+  const wMinLeft = wStat.secLeft > 0 ? wStat.secLeft / 60 : 0;
+  const localPace = wMinLeft > 0 ? wStat.headroom / wMinLeft : 0;
+  const netPerMin = gcFresh ? gc.b.net_per_min : Math.round(localPace - (burn5 || 0) / 5);
   // is the weekly the binding wall (realMax below the raw 5h cap)? = the session allowance is being
   // held down to protect the week. Kept for agents; no longer a separate tag on the bar.
   sStat.weeklyPaced = !!(haveWeek && cap5s && realMax < cap5s);

@@ -40,32 +40,37 @@ test("statusline passthrough: sl numbers become the ruler, extrapolated since an
   assert.equal(b.session_to_spend, 28e6);
 });
 
-test("net_per_min = refill − recent burn (the one net every surface shows)", () => {
+test("net_per_min = sustainable weekly pace − recent burn (the pace model)", () => {
   const s = emptyStore();
-  // 28.5M burned 50m ago (inside the 5h window, outside the 5m burn window) and
-  // 1.5M burned 100s ago (inside both). five=30M, burn_5m=1.5M.
+  const wr = T + 100000; // week resets in 100000s
   s.events.push(
-    { surface: "laptop:a", root: "r1", ts: T - 3000, billed: 28.5e6 },
-    { surface: "laptop:a", root: "r2", ts: T - 100, billed: 1.5e6 },
+    { surface: "laptop:a", root: "r1", ts: T - 3000, billed: 20e6 },  // in 5h window, not last 5m
+    { surface: "laptop:a", root: "r2", ts: T - 100, billed: 1.5e6 },  // last 5m → burn_5m
   );
-  s.anchors.push({ ts: T - 600, five_pct: 0.1, week_pct: 0.2, five_reset: T + 4 * H, week_reset: T + 3 * 86400 });
+  s.anchors.push({
+    ts: T - 600, five_pct: 0.1, week_pct: 0.2, five_reset: T + 4 * H, week_reset: wr,
+    sl: { five_used: 8e6, five_cap: 80e6, to_spend: 30e6, week_used: 100e6, week_cap: 1300e6 },
+  });
   const b = computeBudget(s, T);
-  assert.equal(b.five_billed, 30e6);
   assert.equal(b.burn_5m, 1.5e6);
-  // refill 30M/300 = 100k/min · burn 1.5M/5 = 300k/min · net = −200k (burning)
-  assert.equal(b.net_per_min, -200000);
+  // sustainable = weekly_left ÷ minutes-to-week-reset; net = sustainable − burn_5m/5
+  const sustainable = b.weekly_left_tokens / ((wr - T) / 60);
+  assert.equal(b.sustainable_per_min, Math.round(sustainable));
+  assert.equal(b.net_per_min, Math.round(sustainable - b.burn_5m / 5));
 });
 
-test("net_per_min invariant: always equals round(five/300 − burn_5m/5)", () => {
-  for (const [old_, recent] of [[9e6, 0], [40e6, 900e3], [6e6, 5e6], [0, 250e3]]) {
-    const s = emptyStore();
-    if (old_) s.events.push({ surface: "laptop:a", root: "ro", ts: T - 3000, billed: old_ });
-    if (recent) s.events.push({ surface: "laptop:a", root: "rr", ts: T - 60, billed: recent });
-    s.anchors.push({ ts: T - 600, five_pct: 0.1, week_pct: 0.2, five_reset: T + 4 * H, week_reset: T + 3 * 86400 });
-    const b = computeBudget(s, T);
-    const derived = Math.round(b.five_billed / 300 - b.burn_5m / 5);
-    assert.equal(b.net_per_min, derived, `old=${old_} recent=${recent}`);
-  }
+test("session_burst = the hard 5h ceiling (≥ the paced safe-to-spend)", () => {
+  const s = emptyStore();
+  s.events.push({ surface: "laptop:a", root: "r2", ts: T - 100, billed: 1.5e6 });
+  s.anchors.push({
+    ts: T - 600, five_pct: 0.1, week_pct: 0.2, five_reset: T + 4 * H, week_reset: T + 3 * 86400,
+    sl: { five_used: 8e6, five_cap: 80e6, to_spend: 30e6, week_used: 100e6, week_cap: 1300e6 },
+  });
+  const b = computeBudget(s, T);
+  // five = sl.five_used + since-anchor (1.5M) = 9.5M; burst = five_cap − five = 70.5M
+  assert.equal(b.session_burst, 80e6 - 9.5e6);
+  // the hard ceiling is never below the weekly-paced safe number
+  assert.ok(b.session_burst >= b.session_to_spend, `burst ${b.session_burst} >= safe ${b.session_to_spend}`);
 });
 
 test("wall reset since last anchor: only post-reset burn counts, sl session fields ignored", () => {
