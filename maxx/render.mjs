@@ -11,11 +11,12 @@
  * and the coach hook) — nothing extra to install, nothing to compile. A tiny ANSI
  * compositor stands in for lipgloss.
  */
-import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { weighUsage } from "./limit.mjs";
 
 // ─── color: one HSL→hex + an rgb→hsl round-trip for shading ────────────────────
 function hsl2hex(h, s, l) {
@@ -243,6 +244,63 @@ function sprintTimer(sp) {
   if (start === 0 || now - last > 300 || now - start >= 1800) start = now;
   sp.sess_start = start; sp.sess_last = now;
   return { left: Math.max(1, Math.round(30 - (now - start) / 60)), start };
+}
+
+// What the LAST FEW TURNS of this session actually cost. The 5-minute burn rate is
+// account-wide and lags; per-turn cost is the number that moves first when a session
+// starts going bad, because a turn re-bills the whole context. Reads only the tail of
+// the transcript (256KB), so it stays cheap on a render tick.
+function lastTurns(tp, n) {
+  if (!tp) return [];
+  let size; try { size = statSync(tp).size; } catch { return []; }
+  if (!size) return [];
+  const len = Math.min(size, 256 * 1024);
+  let text = "";
+  try {
+    const fd = openSync(tp, "r");
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, size - len);
+    closeSync(fd);
+    text = buf.toString("utf8");
+  } catch { return []; }
+  const lines = text.split("\n");
+  if (size > len) lines.shift();            // first line is probably a fragment
+  const costs = [];
+  const seen = new Set();                   // one request can appear several times in the
+  for (const line of lines) {               // transcript; count it once, same as limit.mjs
+    if (!line || line[0] !== "{") continue;
+    let r; try { r = JSON.parse(line); } catch { continue; }
+    const u = r?.message?.usage; if (!u) continue;
+    const id = r.requestId || r.uuid;
+    if (id) { if (seen.has(id)) continue; seen.add(id); }
+    const t = weighUsage(u, r?.message?.model || "");
+    if (t > 0) costs.push({ id: id || `t${costs.length}-${Math.round(t)}`, cost: t });
+  }
+  return costs.slice(-n);
+}
+
+// Keep a short history of per-turn costs per session in ~/.maxx/turns.json. A 256KB
+// transcript tail only reaches ~3 turns on a heavy session, which is enough to show
+// the current cost but never enough to show a TREND. Rather than read further back on
+// every tick (slow), we remember: each render appends whatever turns it has not seen
+// before, keyed by request id, and keeps the last 12.
+function turnHistory(sid, fresh) {
+  const p = path.join(HOME, ".maxx", "turns.json");
+  let db = {};
+  try { db = JSON.parse(readFileSync(p, "utf8")) || {}; } catch {}
+  const key = sid || "unknown";
+  const cur = db[key] || { ids: [], costs: [] };
+  for (const t of fresh) {
+    if (cur.ids.includes(t.id)) continue;
+    cur.ids.push(t.id); cur.costs.push(Math.round(t.cost));
+  }
+  cur.ids = cur.ids.slice(-12); cur.costs = cur.costs.slice(-12);
+  db[key] = cur;
+  // don't let the file grow forever: keep the 12 most recently touched sessions
+  const keys = Object.keys(db);
+  if (keys.length > 12) for (const k of keys.slice(0, keys.length - 12)) delete db[k];
+  try { writeFileSync(p, JSON.stringify(db)); } catch {}
+  return cur.costs;
 }
 
 // YOUR concurrent sessions: transcripts across ~/.claude/projects touched in the last
@@ -753,6 +811,20 @@ function main() {
   const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
   let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
     + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
+
+  // per-turn cost, averaged over the last 3 turns of THIS session. The 5h and weekly
+  // meters answer "how much is left"; this answers "what is each turn costing me right
+  // now", which is the number that moves first when a context starts re-billing itself.
+  // ▲ when the last 3 turns are meaningfully dearer than the 3 before them.
+  const hist = turnHistory(sid, lastTurns(p.transcript_path, 6));
+  if (hist.length >= 3) {
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const last3 = avg(hist.slice(-3));
+    const prev3 = hist.length >= 6 ? avg(hist.slice(-6, -3)) : null;
+    const rising = prev3 != null && last3 > prev3 * 1.25;
+    const turnCol = last3 >= 500e3 ? RED : last3 >= 200e3 ? AMBER : DIM;
+    metaRow += fg(DIM, "  ·  3t ") + fg(turnCol, tkf(last3) + (rising ? " ▲" : ""));
+  }
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
   // the right of the stats line.

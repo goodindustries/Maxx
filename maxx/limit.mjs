@@ -60,13 +60,20 @@ const modelWeight = m => {
   for (const fam in PRICE_W) if (m.includes(fam)) return PRICE_W[fam];
   return PRICE_W.sonnet;   // unknown/synthetic → baseline
 };
+// One request's usage → weighted tokens. Exported so the statusline can price a
+// single turn with the SAME formula the scanner uses, instead of a second copy of
+// the weights drifting out of sync with this one.
+export function weighUsage(u, model = "") {
+  if (!u) return 0;
+  return ((u.input_tokens || 0) + (u.output_tokens || 0) * 5
+        + (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1)
+        * modelWeight(model);
+}
 function parseLine(line, seen) {
   if (!line || line[0] !== "{") return null;
   let r; try { r = JSON.parse(line); } catch { return null; }
   const u = r?.message?.usage; if (!u) return null;
-  const tok = ((u.input_tokens || 0) + (u.output_tokens || 0) * 5
-            + (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1)
-            * modelWeight(r?.message?.model || "");
+  const tok = weighUsage(u, r?.message?.model || "");
   if (!tok) return null;
   const id = r.requestId || r.uuid; if (id && seen) { if (seen.has(id)) return null; seen.add(id); }
   const ts = r.timestamp ? Date.parse(r.timestamp) : NaN;
