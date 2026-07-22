@@ -1148,7 +1148,10 @@ if(location.search)history.replaceState(null,'',location.pathname);
     if(b.verdict==='degraded')warns.push({s:'amber',t:'signal <b>degraded</b> · no /usage anchor · weekly numbers only'});
     else if(b.verdict==='calibrating')warns.push({s:'amber',t:'<b>calibrating</b> · open a Claude Code session on a linked machine to anchor your caps'});
     else if(b.verdict!=='ok')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
-    if(b.verdict!=='calibrating'&&b.session_to_spend!=null&&b.session_to_spend<=0)warns.push({s:'red',t:'session over by <b>'+hum(b.session_over||0)+'</b> · ease off'});
+    // the 5h wall itself (burst exhausted): Claude has stopped you anyway — offer the view
+    if(b.verdict!=='calibrating'&&b.session_burst!=null&&b.session_burst<=0)
+      warns.push({s:'red',t:'you hit the session wall — sorry. time for some contemplation → <a href="https://www.youtube.com/watch?v=linlz7-Pnvw" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Swiss Alps in 8K</a>'+(b.five_reset_in_sec!=null?' · back in '+ago(b.five_reset_in_sec):'')});
+    else if(b.verdict!=='calibrating'&&b.session_to_spend!=null&&b.session_to_spend<=0)warns.push({s:'red',t:'session over by <b>'+hum(b.session_over||0)+'</b> · ease off'});
     // context warnings are TRAJECTORY-based, not size-based: a session holding at
     // 105k is fine (no warn); one climbing shows +k/turn and turns-to-wall. Most
     // urgent (soonest wall) first. window.__ctxS is set at the top of renderAll.

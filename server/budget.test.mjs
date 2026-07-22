@@ -155,6 +155,22 @@ test("an emit with no timestamps is stamped at receipt, not dropped into 1970", 
   assert.equal(b.lifetime_billed, 8e6, "and is not double-counted in lifetime");
 });
 
+// A brand-new account's FIRST anchor: /usage says 1%/4% but the CLI's local cap
+// extrapolation (burned ÷ pct) is degenerate — its sl block carries five_used 0,
+// to_spend 0. That zero must not govern (it read as "over" and hard-blocked a
+// user who had barely spent anything); weekly pacing takes over instead.
+test("first anchor with a degenerate sl share falls back to weekly pacing, not 'over'", () => {
+  const s = emptyStore();
+  s.events.push({ surface: "laptop:new", root: "r1", ts: T - 300, billed: 15e3 });
+  s.anchors.push({
+    ts: T - 60, five_pct: 0.01, week_pct: 0.04, five_reset: T + 4 * H, week_reset: T + 6 * 86400,
+    sl: { five_used: 0, five_cap: 0, to_spend: 0, over: 0, week_used: 15e3, week_cap: 3e6 },
+  });
+  const b = computeBudget(s, T);
+  assert.equal(b.verdict, "ok", `fresh barely-used account must not read over, got ${b.verdict}`);
+  assert.ok(b.session_to_spend > 0, `weekly-paced share governs, got ${b.session_to_spend}`);
+});
+
 // A brand-new account has events (maybe) but has NEVER seen a /usage anchor. That is
 // "calibrating" — a setup state — not "stale" (a signal that died). Pages render it
 // neutral instead of as red deficits; agents still treat it as a hard stop.

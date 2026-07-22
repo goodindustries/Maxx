@@ -224,8 +224,14 @@ export function computeBudget(store, now) {
       // since moved on, and must not govern the live one.
       if (windowCurrent) {
         const realMax = a.sl.five_used + a.sl.to_spend - (a.sl.over || 0);
-        slSpend = Math.max(0, realMax - five);
-        slOver = Math.max(0, five - realMax);
+        // realMax 0 is a DEGENERATE share, not a verdict: a first anchor from a
+        // barely-used account extrapolates cap = burned ÷ pct ≈ 0 and ships
+        // to_spend 0, which read as "over" and hard-blocked a brand-new user.
+        // Only a positive share may govern; otherwise weekly pacing takes over.
+        if (realMax > 0) {
+          slSpend = Math.max(0, realMax - five);
+          slOver = Math.max(0, five - realMax);
+        }
       }
     }
   }
