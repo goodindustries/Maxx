@@ -253,7 +253,9 @@ function zoneCol(u, e) {
 // (green shrinks from the right), and for the roll-session the rolling window REFILLS it as old usage
 // ages out — so banking visibly GAINS fuel. A pace tick marks the fuel you'd have at even burn: tank
 // past the tick = ahead/banked (green), short of it = burning too fast (amber → red near empty).
-function fuelMeter(fuelFrac, e, w) {
+function fuelMeter(fuelFrac, e, w, glyph = "█") {
+  // glyph "▄" = half-height rail: the week tank slims down so the stacked pair reads as two
+  // distinct bars (session full, week slim) instead of one fused blob.
   fuelFrac = Math.max(0, Math.min(1, fuelFrac));
   const fuelN = Math.round(fuelFrac * w);
   const paceFuel = Math.max(0, Math.min(1, 1 - e));            // fuel remaining if spending at even burn
@@ -265,7 +267,7 @@ function fuelMeter(fuelFrac, e, w) {
     const cell = i < fuelN ? shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5) : null;
     if (i === paceN) s += cell ? esc("#ffffff", cell, "╎")           // in the fill: thin white line on the fuel color
                               : fg(BORDER, "╎");                     // in the drained zone: the thin marker
-    else s += cell ? fg(cell, "█") : fg(TRACK, "█");
+    else s += cell ? fg(cell, glyph) : fg(TRACK, glyph);
   }
   return s + fg(WALL, "▌"); // empty end
 }
@@ -858,7 +860,7 @@ function main() {
     const overRoom = isSession && stat ? Math.max(1, (stat.rawCap || stat.cap || 0) - (stat.cap || 0)) : 1;
     let s = fg(DIM, label) + (isSession && stat && stat.cap
       ? netBar(standing, stat.cap, overRoom, mwid)
-      : fuelMeter(1 - u, e, mwid));
+      : fuelMeter(1 - u, e, mwid, isSession ? "█" : "▄"));
     if (stat && stat.cap) {
       if (isSession) {
         // signed standing: banked → "+Xk" (ink), over → "−Xk" (red). The sign IS the meaning — no "over"
