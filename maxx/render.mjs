@@ -253,9 +253,7 @@ function zoneCol(u, e) {
 // (green shrinks from the right), and for the roll-session the rolling window REFILLS it as old usage
 // ages out — so banking visibly GAINS fuel. A pace tick marks the fuel you'd have at even burn: tank
 // past the tick = ahead/banked (green), short of it = burning too fast (amber → red near empty).
-function fuelMeter(fuelFrac, e, w, glyph = "█") {
-  // glyph "▄" = half-height rail: the week tank slims down so the stacked pair reads as two
-  // distinct bars (session full, week slim) instead of one fused blob.
+function fuelMeter(fuelFrac, e, w) {
   fuelFrac = Math.max(0, Math.min(1, fuelFrac));
   const fuelN = Math.round(fuelFrac * w);
   const paceFuel = Math.max(0, Math.min(1, 1 - e));            // fuel remaining if spending at even burn
@@ -267,7 +265,7 @@ function fuelMeter(fuelFrac, e, w, glyph = "█") {
     const cell = i < fuelN ? shade(col, fuelN > 1 ? i / (fuelN - 1) : 0.5) : null;
     if (i === paceN) s += cell ? esc("#ffffff", cell, "╎")           // in the fill: thin white line on the fuel color
                               : fg(BORDER, "╎");                     // in the drained zone: the thin marker
-    else s += cell ? fg(cell, glyph) : fg(TRACK, glyph);
+    else s += cell ? fg(cell, "█") : fg(TRACK, "█");
   }
   return s + fg(WALL, "▌"); // empty end
 }
@@ -850,7 +848,7 @@ function main() {
   // a wall's row, plain-language. SESSION: "X to spend" — your sustainable allowance for THIS window
   // (realMax − used); counts down as you burn, climbs back after a break. Negative → "over — ease
   // off" (you're starting to eat future weeks). WEEKLY: "X left" — the reserve. + time left.
-  const meterContent = (label, u, e, uv, isSession, stat, mwid = mw, maxw = W) => {
+  const meterContent = (label, u, e, uv, isSession, stat, mwid = mw, maxw = W, bar = true) => {
     // SESSION bar IS the directional standing fill (one bar: green-from-left when banked, red-from-right
     // when over). WEEK keeps the fuel tank (bar = weekly reserve LEFT, draining as you spend).
     const fits = (s, add) => dispWidth(s) + dispWidth(add) <= maxw; // shadow: budget THIS pane, not the rail
@@ -858,9 +856,9 @@ function main() {
     // red scales to the hard 5h wall: over-room = rawCap − realMax (paced share → lockout). Falls back to
     // the paced share when there's no soft buffer (realMax already == the raw wall).
     const overRoom = isSession && stat ? Math.max(1, (stat.rawCap || stat.cap || 0) - (stat.cap || 0)) : 1;
-    let s = fg(DIM, label) + (isSession && stat && stat.cap
+    let s = fg(DIM, label) + (!bar ? "" : isSession && stat && stat.cap
       ? netBar(standing, stat.cap, overRoom, mwid)
-      : fuelMeter(1 - u, e, mwid, isSession ? "█" : "▄"));
+      : fuelMeter(1 - u, e, mwid));
     if (stat && stat.cap) {
       if (isSession) {
         // signed standing: banked → "+Xk" (ink), over → "−Xk" (red). The sign IS the meaning — no "over"
@@ -953,16 +951,19 @@ function main() {
   // the stretch between a meter and its right-side text gets a faint painted rule (TRACK — a
   // shade off the panel) so the two zones read as separate, not one run-on line.
   const sep = (w) => (w >= 8 ? blank(3) + fg(TRACK, "╌".repeat(w - 6)) + blank(3) : blank(w));
+  // ONE bar: the session meter is the graphic; the week reserve rides below as a plain text
+  // line (its numbers — left / banked·over / reset — carry the signal without a second bar
+  // fusing into the first).
   const out = wide
     ? [
         (() => { const s = meterContent("session  ", q5, e5, qv, true, sStat, mw, W - mMeta - 3);
                  return row(s + sep(W - dispWidth(s) - mMeta) + metaRow); })(),
-        (() => { const s = meterContent("week     ", w7, e7, wv, false, wStat, mw, W - mFoot - 3);
+        (() => { const s = meterContent("week    ", w7, e7, wv, false, wStat, mw, W - mFoot - 3, false);
                  return row(s + sep(W - dispWidth(s) - mFoot) + footStr); })(),
       ]
     : [
         row(meterContent("session  ", q5, e5, qv, true, sStat)),
-        row(meterContent("week     ", w7, e7, wv, false, wStat)),
+        row(meterContent("week    ", w7, e7, wv, false, wStat, mw, W, false)),
         row(metaFull),
       ];
   // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
