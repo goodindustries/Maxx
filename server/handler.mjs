@@ -730,6 +730,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .walert.red{background:#fdeeee;color:#b02f2f}
 .walert.amber{background:#fdf6e7;color:#8f660e}
 .walert.ok{background:#eaf7ef;color:#178a4e}
+/* the wall row carries a link — it must never truncate into an unclickable ellipsis */
+.walert.wrap{white-space:normal;overflow:visible;text-overflow:clip}
+.walert.wrap a{text-decoration:underline}
 .trio{display:grid;grid-template-columns:1.25fr 1fr 1fr;margin-top:20px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .trio>div{padding:18px 22px;border-right:1px solid var(--line)}
 .trio>div:last-child{border-right:none}
@@ -1152,7 +1155,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     else if(b.verdict!=='ok'&&b.verdict!=='over')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
     // the 5h wall itself (burst exhausted): Claude has stopped you anyway — offer the view
     if(b.verdict!=='calibrating'&&b.session_burst!=null&&b.session_burst<=0)
-      warns.push({s:'red',t:'you hit the session wall — sorry. time for some contemplation → <a href="https://www.youtube.com/watch?v=linlz7-Pnvw" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Swiss Alps in 8K</a>'+(b.five_reset_in_sec!=null?' · back in '+ago(b.five_reset_in_sec):'')});
+      warns.push({s:'red wrap',t:'you hit the session wall — sorry. time for some contemplation → <a href="https://www.youtube.com/watch?v=linlz7-Pnvw" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Swiss Alps in 8K</a>'+(b.five_reset_in_sec!=null?' · back in '+ago(b.five_reset_in_sec):'')});
     else if(b.verdict!=='calibrating'&&b.session_to_spend!=null&&b.session_to_spend<=0)warns.push({s:'red',t:'session over by <b>'+hum(b.session_over||0)+'</b> · ease off'});
     // context warnings are TRAJECTORY-based, not size-based: a session holding at
     // 105k is fine (no warn); one climbing shows +k/turn and turns-to-wall. Most

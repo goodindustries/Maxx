@@ -884,6 +884,12 @@ function main() {
     row(meterContent("session  ", q5, e5, qv, true, sStat)),
     row(""), // one air line so the two rails don't fuse into one blob
     row(meterContent("week     ", w7, e7, wv, false, wStat)),
+    // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
+    ...(haveQuota && quota >= 0.99 ? [row(
+      fg(RED, "you hit the session wall — time for some contemplation → ")
+      + link("https://www.youtube.com/watch?v=linlz7-Pnvw", fg(BRAND, "Swiss Alps in 8K"))
+      + (sStat.resetIn ? fg(DIM, " · back in " + sStat.resetIn) : ""),
+    )] : []),
     row(metaFull),
   ];
   try { writeFileSync(odoPath, JSON.stringify(odo)); } catch {} // persist the odometer counters for next render
