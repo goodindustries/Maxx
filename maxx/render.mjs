@@ -848,16 +848,17 @@ function main() {
   // a wall's row, plain-language. SESSION: "X to spend" — your sustainable allowance for THIS window
   // (realMax − used); counts down as you burn, climbs back after a break. Negative → "over — ease
   // off" (you're starting to eat future weeks). WEEKLY: "X left" — the reserve. + time left.
-  const meterContent = (label, u, e, uv, isSession, stat) => {
+  const meterContent = (label, u, e, uv, isSession, stat, mwid = mw, maxw = W) => {
     // SESSION bar IS the directional standing fill (one bar: green-from-left when banked, red-from-right
     // when over). WEEK keeps the fuel tank (bar = weekly reserve LEFT, draining as you spend).
+    const fits = (s, add) => dispWidth(s) + dispWidth(add) <= maxw; // shadow: budget THIS pane, not the rail
     const standing = isSession && stat && stat.cap ? Math.round(stat.cap - stat.used) : 0;
     // red scales to the hard 5h wall: over-room = rawCap − realMax (paced share → lockout). Falls back to
     // the paced share when there's no soft buffer (realMax already == the raw wall).
     const overRoom = isSession && stat ? Math.max(1, (stat.rawCap || stat.cap || 0) - (stat.cap || 0)) : 1;
     let s = fg(DIM, label) + (isSession && stat && stat.cap
-      ? netBar(standing, stat.cap, overRoom, mw)
-      : fuelMeter(1 - u, e, mw));
+      ? netBar(standing, stat.cap, overRoom, mwid)
+      : fuelMeter(1 - u, e, mwid));
     if (stat && stat.cap) {
       if (isSession) {
         // signed standing: banked → "+Xk" (ink), over → "−Xk" (red). The sign IS the meaning — no "over"
@@ -940,12 +941,25 @@ function main() {
     ? metaRow + blank(W - dispWidth(metaRow) - dispWidth(footStr)) + footStr
     : metaRow;
 
+  // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
+  // when you go light). "week" — the weekly reserve. Wide rail → both meters share ONE line
+  // (session left, week right-aligned, half the rail each); narrow → stacked. No air line either
+  // way — vertical space is the scarce thing the bar sits in.
+  const meterLines = (() => {
+    if (W >= 110) {
+      const half = Math.floor((W - 4) / 2); // 4 = the gap between the two panes
+      const mws = Math.max(16, Math.min(Math.round(half * 0.45), 44));
+      const s1 = meterContent("session  ", q5, e5, qv, true, sStat, mws, half);
+      const s2 = meterContent("week  ", w7, e7, wv, false, wStat, mws, half);
+      return [row(s1 + blank(W - dispWidth(s1) - dispWidth(s2)) + s2)];
+    }
+    return [
+      row(meterContent("session  ", q5, e5, qv, true, sStat)),
+      row(meterContent("week     ", w7, e7, wv, false, wStat)),
+    ];
+  })();
   const out = [
-    // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
-    // when you go light). "week" — the weekly reserve. Labels padded to equal width so the bars align.
-    row(meterContent("session  ", q5, e5, qv, true, sStat)),
-    row(""), // one air line so the two rails don't fuse into one blob
-    row(meterContent("week     ", w7, e7, wv, false, wStat)),
+    ...meterLines,
     // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
     ...(haveQuota && quota >= 0.99 ? [row(
       fg(RED, "you hit the session wall — time for some contemplation → ")
