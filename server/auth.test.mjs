@@ -25,6 +25,19 @@ test("login: wrong secret 401, right secret sets HttpOnly cookie", async () => {
   assert.match(ok.headers["set-cookie"], /SameSite=Lax/);
 });
 
+// A freshly web-claimed handle has a secret but zero events until the first emit
+// lands. The installer prints the card and dash URLs immediately — they must
+// render (empty), not 404, or every new user's first click is a dead link.
+// Unregistered names still 404 (no enumeration of arbitrary pages).
+test("registered handle with zero events: card + dash render, unregistered 404s", async () => {
+  const { h } = mkHandler();
+  assert.equal((await h(get("/u/testy"))).status, 200, "card renders before first emit");
+  assert.equal((await h(get("/u/testy/dash"))).status, 200, "dash renders before first emit");
+  assert.equal((await h(get("/u/testy/live.json"))).status, 200, "live.json serves zeros");
+  assert.equal((await h(get("/u/nobody"))).status, 404, "unregistered handle still 404s");
+  assert.equal((await h(get("/u/nobody/dash"))).status, 404);
+});
+
 test("dash: no auth → shared (redacted) view; ?login=1 → login form; cookie → owner dash; ?k= → cookie", async () => {
   const { h } = mkHandler();
   // seed one event so the public dash renders instead of 404ing

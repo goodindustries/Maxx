@@ -1525,7 +1525,10 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     if (mc && method === "GET") {
       const h = mc[1];
       const s = await store.load(h);
-      if (!s.events.length) return mc[2]
+      // No events yet: a REGISTERED handle (freshly web-claimed, first emit still in
+      // flight) renders the page empty — the installer prints these URLs immediately
+      // and they must not be dead links. Only unregistered names 404.
+      if (!s.events.length && !((await store.getSecret?.(h)) || (await secretFor(h)))) return mc[2]
         ? json(404, { error: "no data" })
         : { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co/install">install the tracker</a>.</p>` };
       const budget = computeBudget(s, now());
@@ -1625,7 +1628,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         // the owner's way in from the shared page.
         if (url.searchParams.get("login"))
           return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
-        if (!s.events.length)
+        if (!s.events.length && !((await store.getSecret?.(h)) || (await secretFor(h))))
           return { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co/install">install the tracker</a>.</p>` };
         return dashPage(null, false);
       }
