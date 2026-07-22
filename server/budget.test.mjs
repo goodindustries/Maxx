@@ -155,6 +155,17 @@ test("an emit with no timestamps is stamped at receipt, not dropped into 1970", 
   assert.equal(b.lifetime_billed, 8e6, "and is not double-counted in lifetime");
 });
 
+// The emit reply is what a chat session shows its human — counts of batches alone
+// ("accepted: 1") say nothing. It must echo the billed tokens it just recorded,
+// and dedupes must not re-count.
+test("applyEnvelope returns the billed sum it accepted", () => {
+  const s = emptyStore();
+  const r1 = applyEnvelope(s, { surface: "cloud:chat", cursor: "c1", sessions: [{ root: "a", billed: 12000 }, { root: "b", billed: 5000 }] }, T);
+  assert.equal(r1.billed, 17000, "sum of accepted sessions");
+  const r2 = applyEnvelope(s, { surface: "cloud:chat", cursor: "c1", sessions: [{ root: "a", billed: 12000 }] }, T);
+  assert.equal(r2.billed, 0, "deduped batch re-counts nothing");
+});
+
 // Garbage timestamps must not poison ts with NaN, which fails every comparison silently.
 test("unparseable timestamps fall back to receipt time rather than NaN", () => {
   const s = emptyStore();

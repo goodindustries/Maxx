@@ -679,7 +679,7 @@ function publicAnon() {
 function renderDash(h, s, { owner = true } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>@${h} — ${owner ? "cockpit" : "live usage"} · Maxx</title>
+<title>@${h} — ${owner ? "dash" : "live usage"} · Maxx</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -823,7 +823,7 @@ td{border-bottom-color:#222b40}
 <div class="wrap">
 <div class="card">
  <div class="top">
-  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · ${owner ? "cockpit" : "live usage"}</span></div>
+  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · ${owner ? "dash" : "live usage"}</span></div>
   <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
    ${owner
      ? `<a href="/u/${h}/settings">⚙ settings</a>`

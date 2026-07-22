@@ -50,10 +50,12 @@ export function logOp(store, op, detail = "", now) {
 
 /**
  * Merge one envelope into the store. Idempotent on (surface, cursor, root).
- * Returns { accepted, deduped }.
+ * Returns { accepted, deduped, billed } — billed is the token sum actually
+ * recorded by THIS call (dedupes excluded), so the emitting session can show
+ * its human what just landed on the tally.
  */
 export function applyEnvelope(store, env, now = Math.floor(Date.now() / 1000)) {
-  let accepted = 0, deduped = 0;
+  let accepted = 0, deduped = 0, billed = 0;
   // A sender may ship neither first_ts/last_ts nor emitted_at, and Date.parse turns a
   // malformed one into NaN. Either way the old `sec(a) || sec(b)` chain stored ts 0 (or
   // NaN), and every window test in windowedBilled is `e.ts > lo` — so that spend became
@@ -96,6 +98,7 @@ export function applyEnvelope(store, env, now = Math.floor(Date.now() / 1000)) {
       cost_per_action: s.cost_per_action || 0,
     });
     accepted++;
+    billed += s.billed || 0;
   }
   if (env.anchor && (env.anchor.five_pct != null || env.anchor.week_pct != null)) {
     store.anchors.push({
@@ -118,7 +121,7 @@ export function applyEnvelope(store, env, now = Math.floor(Date.now() / 1000)) {
       } : null,
     });
   }
-  return { accepted, deduped };
+  return { accepted, deduped, billed };
 }
 
 const latestAnchor = (store) =>

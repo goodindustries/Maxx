@@ -25,7 +25,7 @@ test("login: wrong secret 401, right secret sets HttpOnly cookie", async () => {
   assert.match(ok.headers["set-cookie"], /SameSite=Lax/);
 });
 
-test("dash: no auth → shared (redacted) view; ?login=1 → login form; cookie → cockpit; ?k= → cookie", async () => {
+test("dash: no auth → shared (redacted) view; ?login=1 → login form; cookie → owner dash; ?k= → cookie", async () => {
   const { h } = mkHandler();
   // seed one event so the public dash renders instead of 404ing
   await h(post("/api/u/testy/logs", { surface: "laptop:x", sessions: [{ root: "r1", billed: 5, name: "secret project name" }] },
@@ -40,13 +40,13 @@ test("dash: no auth → shared (redacted) view; ?login=1 → login form; cookie 
   const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
   const dash = await h(get("/u/testy/dash", { cookie }));
   assert.equal(dash.status, 200);
-  assert.match(dash.body, /cockpit/);
+  assert.match(dash.body, /· dash/);
   assert.ok(!dash.body.includes(SECRET), "secret must not be embedded in the page");
   // ?k= bridge: dash served directly + cookie set (no redirect — the Netlify proxy
   // re-appends the query string to Location headers, which would loop)
   const bridge = await h(get(`/u/testy/dash?k=${SECRET}`));
   assert.equal(bridge.status, 200);
-  assert.match(bridge.body, /cockpit/);
+  assert.match(bridge.body, /· dash/);
   assert.match(bridge.headers["set-cookie"], /^maxx_k=/);
 });
 
@@ -62,18 +62,18 @@ test("magic link: bearer-only mint, single-use, expires", async () => {
   const m = new URL(JSON.parse(mint.body).url).searchParams.get("m");
   const first = await h(get(`/u/testy/dash?m=${m}`));
   assert.equal(first.status, 200);
-  assert.match(first.body, /cockpit/);
+  assert.match(first.body, /· dash/);
   assert.match(first.headers["set-cookie"], /^maxx_k=/);
   // second use: consumed → falls to the shared view, and NEVER a cookie
   const again = await h(get(`/u/testy/dash?m=${m}`));
-  assert.doesNotMatch(again.body, /cockpit/);
+  assert.doesNotMatch(again.body, /· dash/);
   assert.ok(!again.headers["set-cookie"], "consumed magic token must not set a cookie");
   // expired token → shared view, no cookie
   const mint2 = await h(post("/api/u/testy/magic", {}, { authorization: `Bearer ${SECRET}` }));
   const m2 = new URL(JSON.parse(mint2.body).url).searchParams.get("m");
   t += 200;
   const late = await h(get(`/u/testy/dash?m=${m2}`));
-  assert.doesNotMatch(late.body, /cockpit/);
+  assert.doesNotMatch(late.body, /· dash/);
   assert.ok(!late.headers["set-cookie"], "expired magic token must not set a cookie");
 });
 
