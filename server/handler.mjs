@@ -228,7 +228,8 @@ function renderCard(h, s, b, setup = null) {
   const surfSplit = [...bySurf.entries()].sort((a, b2) => b2[1] - a[1])
     .map(([k, v]) => `${k} ${lifetime ? Math.round(v / lifetime * 100) : 0}% (${humanN(v)})`).join(" · ");
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
-  const url = `https://meetmaxx.co/u/${h}`;
+  // the SHAREABLE page is the dash — viewers without the secret get it name-redacted
+  const url = `https://meetmaxx.co/u/${h}/dash`;
   // owner-only setup panel (present when the page was opened with ?k=<secret>)
   const agoTxt = (sec) => sec == null ? "never" : sec < 90 ? `${sec}s ago` : sec < 5400 ? `${Math.round(sec / 60)}m ago` : sec < 172800 ? `${Math.round(sec / 3600)}h ago` : `${Math.round(sec / 86400)}d ago`;
   // ok: true | false | "warn" — "warn" is degraded-but-working (amber), so a tenant whose
@@ -654,10 +655,31 @@ if(location.search)history.replaceState(null,'',location.pathname);
 // (last 48 min), pace-vs-even gauges, source + model split, active sessions, channels.
 // RIGHT = the activity tail (emits + ops), CLI-style. Every panel renders from real
 // tally data (budget + feed + ops, 10s poll) — nothing simulated.
-function renderDash(h, s) {
+// PUBLIC (no-secret) reads of the dash data: magnitudes stay, content goes. Labels are
+// stable within one response (same session/surface → same anonymous name) so charts and
+// boards still line up; session/project names, branches, surface ids, and directive
+// text never leave without the secret.
+function publicAnon() {
+  const surf = new Map(); let mi = 0, ci = 0;
+  const sess = new Map(); let si = 0;
+  return {
+    surface: (x) => {
+      const k = String(x || "?");
+      if (!surf.has(k)) surf.set(k, k.split(":")[0] === "cloud" ? `cloud ${++ci}` : `machine ${++mi}`);
+      return surf.get(k);
+    },
+    root: (x) => {
+      const k = String(x || "?");
+      if (!sess.has(k)) sess.set(k, `session-${++si}`);
+      return sess.get(k);
+    },
+  };
+}
+
+function renderDash(h, s, { owner = true } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${h} — cockpit · Maxx</title>
+<title>@${h} — ${owner ? "cockpit" : "live usage"} · Maxx</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -801,9 +823,11 @@ td{border-bottom-color:#222b40}
 <div class="wrap">
 <div class="card">
  <div class="top">
-  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · cockpit</span></div>
+  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · ${owner ? "cockpit" : "live usage"}</span></div>
   <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-   <a href="/u/${h}/settings">⚙ settings</a>
+   ${owner
+     ? `<a href="/u/${h}/settings">⚙ settings</a>`
+     : `<span class="badge" title="Sessions and projects are anonymized on this shared view">shared view — names hidden</span> <a href="/u/${h}/dash?login=1">owner sign-in</a>`}
    <span class="badge" id="verdict">…</span>
    <span class="livepill"><span class="dot"></span> live · updates every 10s</span>
   </span>
@@ -856,7 +880,9 @@ td{border-bottom-color:#222b40}
 
  <div class="foot">
   <span class="lt">⌵ counted from session logs · anchored to Anthropic /usage · lifetime <span id="lifeF">—</span> · <span id="stamp"></span></span>
-  <a href="/u/${h}">shareable card (safe — no names) →</a>
+  ${owner
+    ? `<span><a href="/u/${h}/dash" onclick="navigator.clipboard.writeText(location.origin+'/u/${h}/dash');this.textContent='link copied';return false">share this dash (viewers see it name-redacted) →</a> · <a href="/u/${h}">compact card →</a></span>`
+    : `<a href="/u/${h}">compact card →</a>`}
  </div>
 </div>
 <div class="term">
@@ -1561,10 +1587,10 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       // address bar via history.replaceState — the token/secret URL never even survives
       // as a history entry.
       const s = await store.load(h);
-      const dashPage = (cookieVal) => ({
+      const dashPage = (cookieVal, owner = true) => ({
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(cookieVal ? { "set-cookie": setCookie(cookieVal) } : {}) },
-        body: renderDash(h, s),
+        body: renderDash(h, s, { owner }),
       });
       const mtok = url.searchParams.get("m");
       if (mtok) {
@@ -1581,8 +1607,16 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         } // invalid/expired → fall through to cookie check / login form
       }
       const tok = readTokenOf(headers, url);
-      if (!tok || !(await authed(h, tok)))
-        return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
+      if (!tok || !(await authed(h, tok))) {
+        // no secret → the dash IS the shareable card: same page, but every data
+        // endpoint it polls serves the redacted (names-hidden) view. ?login=1 is
+        // the owner's way in from the shared page.
+        if (url.searchParams.get("login"))
+          return { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }, body: renderLogin(h) };
+        if (!s.events.length)
+          return { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co/install">install the tracker</a>.</p>` };
+        return dashPage(null, false);
+      }
       // legacy ?k= link: convert the secret to the cookie; replaceState scrubs it client-side
       const qk = url.searchParams.get("k");
       return dashPage(qk || null);
@@ -1672,8 +1706,27 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     if (m && method === "GET") {
       const h = decodeURIComponent(m[1]);
       // cookie accepted: GET read, powers the owner dashboard
-      if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
-      return json(200, await budget(h));
+      const b = await budget(h);
+      if (await authed(h, readTokenOf(headers, url))) return json(200, b);
+      // PUBLIC read — feeds the shareable dash. Magnitudes/verdict stay; session and
+      // project names, surface ids, and directive text are anonymized or dropped.
+      const a = publicAnon();
+      const merged = new Map(); // surface keys can embed "· project" — strip + merge
+      for (const x of b.surfaces || []) {
+        const k = a.surface(String(x.surface).split(" · ")[0]);
+        merged.set(k, (merged.get(k) || 0) + (x.billed_5h || 0));
+      }
+      return {
+        status: 200,
+        headers: { "content-type": "application/json", "cache-control": "public, max-age=30" },
+        body: JSON.stringify({
+          ...b,
+          top_burners: (b.top_burners || []).map((t) => ({ ...t, surface: a.surface(t.surface), session: a.root(t.session), project: null, name: null })),
+          surfaces: [...merged].map(([surface, billed_5h]) => ({ surface, billed_5h })),
+          pending_directives: [],
+          public: true,
+        }),
+      };
     }
     // ---- webhooks (#1): register push consumers for state transitions ----
     m = p.match(/^\/api\/u\/([^/]+)\/webhooks$/);
@@ -1762,7 +1815,9 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     m = p.match(/^\/api\/u\/([^/]+)\/ops$/);
     if (m && method === "GET") {
       const h = decodeURIComponent(m[1]);
-      if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      // ops lines are free text (session names, directive notes, auth events) — the
+      // public dash gets an empty ring, not a 401, so the shared page renders clean.
+      if (!(await authed(h, readTokenOf(headers, url)))) return json(200, { ops: [], public: true });
       const n = Math.min(300, Math.max(1, Number(url.searchParams.get("n")) || 100));
       const s = await store.load(h);
       return json(200, { ops: (s.ops || []).slice(-n).reverse() });
@@ -1788,7 +1843,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     if (m && method === "GET") {
       const h = decodeURIComponent(m[1]);
       // cookie accepted: GET read, powers the owner dashboard
-      if (!(await authed(h, readTokenOf(headers, url)))) return json(401, { error: "unauthorized" });
+      const isOwner = await authed(h, readTokenOf(headers, url));
       const n = Math.min(200, Math.max(1, Number(url.searchParams.get("n")) || 30));
       const s = await store.load(h);
       // Absolute turn numbers per session. `turns` on an event is a per-batch DELTA, so
@@ -1809,7 +1864,18 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
         cache_read: e.cache_read || 0, cache_write: e.cache_write || 0,
         ctx: e.ctx || 0, cost_per_action: e.cost_per_action || 0,
       }));
-      return json(200, { count: s.events.length, events });
+      if (isOwner) return json(200, { count: s.events.length, events });
+      // PUBLIC read — feeds the shareable dash. Directive rows carry free text (their
+      // `name` IS the directive) so they're dropped entirely; everything else keeps
+      // magnitudes with names/projects/branches nulled and ids anonymized.
+      const a = publicAnon();
+      const pub = events.filter((e) => e.surface !== "directive")
+        .map((e) => ({ ...e, surface: a.surface(e.surface), root: a.root(e.root), project: null, name: null, branch: null }));
+      return {
+        status: 200,
+        headers: { "content-type": "application/json", "cache-control": "public, max-age=30" },
+        body: JSON.stringify({ count: s.events.length, events: pub, public: true }),
+      };
     }
 
     // ---- MCP (JSON-RPC 2.0 over Streamable HTTP) ----
@@ -1858,7 +1924,14 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
             "pace − recent burn; if negative you're spending faster than the week can sustain, so re-check " +
             "before each expensive step, not just once. (2) Before a FAN-OUT (spawning multiple agents at " +
             "once) call `maxx_reserve` for the tokens you'll need FIRST — otherwise every concurrent agent " +
-            "sees the same full allowance and the fleet can overspend it. Hard gate — check it every run.",
+            "sees the same full allowance and the fleet can overspend it. Hard gate — check it every run. " +
+            "BURN REPORT — the gate is half the contract; the other half is that YOUR burn appears in the " +
+            "tally. At the END of every run (and at checkpoints in a long one) you MUST call `maxx_emit` " +
+            "with surface \"cloud:<routine-name>\" and one sessions[] entry carrying your best-effort " +
+            "output-token count for this run (name it after the task so the owner's board can show WHO " +
+            "burned WHAT). Leave `anchor` unset — cloud cannot read /usage, and the laptop anchor trues " +
+            "totals up. A run that gates but never emits makes the whole account's budget read " +
+            "optimistically wrong for every other agent. A BLOCKED run emits nothing — that's fine.",
         });
       }
       if (rm === "notifications/initialized" || rm === "notifications/cancelled")

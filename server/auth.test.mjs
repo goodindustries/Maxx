@@ -25,11 +25,18 @@ test("login: wrong secret 401, right secret sets HttpOnly cookie", async () => {
   assert.match(ok.headers["set-cookie"], /SameSite=Lax/);
 });
 
-test("dash: no auth → login form; cookie → dashboard; ?k= → cookie + clean redirect", async () => {
+test("dash: no auth → shared (redacted) view; ?login=1 → login form; cookie → cockpit; ?k= → cookie", async () => {
   const { h } = mkHandler();
+  // seed one event so the public dash renders instead of 404ing
+  await h(post("/api/u/testy/logs", { surface: "laptop:x", sessions: [{ root: "r1", billed: 5, name: "secret project name" }] },
+    { authorization: `Bearer ${SECRET}` }));
   const anon = await h(get("/u/testy/dash"));
-  assert.equal(anon.status, 401);
-  assert.match(anon.body, /Paste your secret/);
+  assert.equal(anon.status, 200);
+  assert.match(anon.body, /shared view — names hidden/);
+  assert.ok(!anon.headers["set-cookie"], "public view must not set an auth cookie");
+  const form = await h(get("/u/testy/dash?login=1"));
+  assert.equal(form.status, 401);
+  assert.match(form.body, /Paste your secret/);
   const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
   const dash = await h(get("/u/testy/dash", { cookie }));
   assert.equal(dash.status, 200);
@@ -57,13 +64,17 @@ test("magic link: bearer-only mint, single-use, expires", async () => {
   assert.equal(first.status, 200);
   assert.match(first.body, /cockpit/);
   assert.match(first.headers["set-cookie"], /^maxx_k=/);
-  // second use: consumed → login form, no cookie
-  assert.equal((await h(get(`/u/testy/dash?m=${m}`))).status, 401);
-  // expired token → login form
+  // second use: consumed → falls to the shared view, and NEVER a cookie
+  const again = await h(get(`/u/testy/dash?m=${m}`));
+  assert.doesNotMatch(again.body, /cockpit/);
+  assert.ok(!again.headers["set-cookie"], "consumed magic token must not set a cookie");
+  // expired token → shared view, no cookie
   const mint2 = await h(post("/api/u/testy/magic", {}, { authorization: `Bearer ${SECRET}` }));
   const m2 = new URL(JSON.parse(mint2.body).url).searchParams.get("m");
   t += 200;
-  assert.equal((await h(get(`/u/testy/dash?m=${m2}`))).status, 401);
+  const late = await h(get(`/u/testy/dash?m=${m2}`));
+  assert.doesNotMatch(late.body, /cockpit/);
+  assert.ok(!late.headers["set-cookie"], "expired magic token must not set a cookie");
 });
 
 test("cookie works for GET reads, never for mutations", async () => {
@@ -71,7 +82,10 @@ test("cookie works for GET reads, never for mutations", async () => {
   const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
   assert.equal((await h(get("/api/u/testy/budget", { cookie }))).status, 200);
   assert.equal((await h(get("/api/u/testy/feed", { cookie }))).status, 200);
-  assert.equal((await h(get("/api/u/testy/budget"))).status, 401);
+  // no auth → still 200, but the PUBLIC (redacted) shape
+  const pub = await h(get("/api/u/testy/budget"));
+  assert.equal(pub.status, 200);
+  assert.equal(JSON.parse(pub.body).public, true);
   // mutating endpoints must ignore the cookie
   const env = { surface: "laptop:x", sessions: [{ root: "r", billed: 1 }] };
   assert.equal((await h(post("/api/u/testy/logs", env, { cookie }))).status, 401);
@@ -100,10 +114,46 @@ test("ops ring: auth + mcp + directives land in /ops, capped and owner-only", as
   await h(post("/api/u/testy/login", { secret: "wrong" }));
   const cookie = cookieOf(await h(post("/api/u/testy/login", { secret: SECRET })));
   await h(post("/api/u/testy/directive", { session: "*", action: "pause" }, { cookie, origin: "https://api.meetmaxx.co", host: "api.meetmaxx.co" }));
-  assert.equal((await h(get("/api/u/testy/ops"))).status, 401);
+  const anonOps = await h(get("/api/u/testy/ops"));
+  assert.equal(anonOps.status, 200);
+  assert.deepEqual(JSON.parse(anonOps.body).ops, [], "ops content is owner-only; public gets an empty ring");
   const r = await h(get("/api/u/testy/ops", { cookie }));
   assert.equal(r.status, 200);
   const ops = JSON.parse(r.body).ops.map((o) => `${o.op}:${o.d}`);
   assert.ok(ops.some((o) => o.startsWith("auth:login:FAILED")), "failed login logged");
   assert.ok(ops.some((o) => o.startsWith("directive:pause")), "directive logged");
+});
+
+test("public reads are redacted: no names, no session ids, no directive text, empty ops", async () => {
+  const { h } = mkHandler();
+  const bear = { authorization: `Bearer ${SECRET}` };
+  await h(post("/api/u/testy/logs", { surface: "laptop:mbp-13", sessions: [
+    { root: "8f3c2a1d-real-session-id", billed: 900000, name: "Acme prod incident debug", project: "acme-api", branch: "hotfix/oops" },
+  ] }, bear));
+  await h(post("/api/u/testy/logs", { surface: "cloud:reviewer", sessions: [
+    { root: "cloudroot-1", billed: 250000, name: "review PR #42" },
+  ] }, bear));
+  await h(post("/api/u/testy/directive", { session: "*", action: "pause", note: "secret ops note" },
+    { ...bear, origin: "https://api.meetmaxx.co", host: "api.meetmaxx.co" }));
+
+  const leak = /Acme|acme-api|hotfix|8f3c2a1d|mbp-13|reviewer|PR #42|secret ops note/;
+  const feed = await h(get("/api/u/testy/feed?n=50"));
+  assert.equal(feed.status, 200);
+  assert.doesNotMatch(feed.body, leak, "public feed leaked content");
+  const fj = JSON.parse(feed.body);
+  assert.ok(fj.events.length >= 2, "magnitudes must survive redaction");
+  assert.ok(fj.events.every((e) => /^(machine|cloud) \d+$/.test(e.surface)), "surfaces must be anonymized");
+  assert.ok(fj.events.every((e) => /^session-\d+$/.test(e.root)), "session ids must be anonymized");
+
+  const bud = await h(get("/api/u/testy/budget"));
+  assert.doesNotMatch(bud.body, leak, "public budget leaked content");
+  assert.equal(JSON.parse(bud.body).pending_directives.length, 0);
+
+  const ops = await h(get("/api/u/testy/ops"));
+  assert.equal(ops.status, 200);
+  assert.deepEqual(JSON.parse(ops.body).ops, []);
+
+  // owner still sees everything
+  const own = await h(get("/api/u/testy/feed?n=50", bear));
+  assert.match(own.body, /Acme prod incident debug/);
 });

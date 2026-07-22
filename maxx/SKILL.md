@@ -79,6 +79,31 @@ Reads only token/usage metadata — never prompt or message content.
 That's it — the script does the parsing and formatting. Do not re-implement the
 parse. If the script errors, report the error; don't guess the numbers.
 
+## Multi-login & config (for agents)
+
+One laptop can hold several Claude logins (default `~/.claude` + any
+`CLAUDE_CONFIG_DIR=~/.claude-*`). maxx keeps **everything per account**:
+
+- `~/.maxx/config.json` → `accounts: { <claude-account-uuid>: {handle, secret, email} }`
+  routes each login's burn to its own handle. The top-level `handle`/`secret` is the
+  default login's (auto-bound on first run).
+- **Onboard a new login:** run `node ~/.claude/skills/maxx/emit.mjs --signup` in a
+  session on that login (derives handle from the email; writes the map entry). Until
+  then that login's burn is skipped LOUDLY in `~/.maxx/emit.log` — never mixed into
+  another account's timeline. Fixing a skip = that one command.
+- **Per-login session files:** in a `CLAUDE_CONFIG_DIR` session every derived cache is
+  suffixed (`status-gmail.json`, `window-gmail.json`, `rl-gmail.json`,
+  `gate-cache-gmail.json`, …). Read the SUFFIXED file for this session's numbers; the
+  plain names belong to the default login. The suffix is
+  `basename($CLAUDE_CONFIG_DIR)` minus the `.claude-` prefix.
+- The statusline is signed `@handle` — that's whose numbers the bar shows.
+- **Cloud/routines:** the account-wide connector serves the contract on initialize —
+  gate on `maxx_budget`, and ALWAYS report burn with `maxx_emit`
+  (`surface:"cloud:<routine>"`, named sessions entry) at the end of a run. A routine
+  that gates but never emits makes the tally read optimistically wrong for everyone.
+- Numbers look wrong/stuck? `/maxx refresh` (clears this login's derived caches,
+  rebuilds). Settings: `/maxx config` (secrets masked).
+
 ## Live status (agent-readable)
 
 The statusline renderer writes a machine-readable snapshot every render tick to
