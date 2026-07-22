@@ -1147,7 +1147,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
     var warns=[];
     if(b.verdict==='degraded')warns.push({s:'amber',t:'signal <b>degraded</b> · no /usage anchor · weekly numbers only'});
     else if(b.verdict==='calibrating')warns.push({s:'amber',t:'<b>calibrating</b> · open a Claude Code session on a linked machine to anchor your caps'});
-    else if(b.verdict!=='ok')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
+    // 'over' is a LIVE verdict — the wall/over rows below carry it; only stale-class
+    // verdicts mean the numbers themselves are not live
+    else if(b.verdict!=='ok'&&b.verdict!=='over')warns.push({s:'red',t:'signal <b>'+esc(b.verdict)+'</b> · numbers not live'});
     // the 5h wall itself (burst exhausted): Claude has stopped you anyway — offer the view
     if(b.verdict!=='calibrating'&&b.session_burst!=null&&b.session_burst<=0)
       warns.push({s:'red',t:'you hit the session wall — sorry. time for some contemplation → <a href="https://www.youtube.com/watch?v=linlz7-Pnvw" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Swiss Alps in 8K</a>'+(b.five_reset_in_sec!=null?' · back in '+ago(b.five_reset_in_sec):'')});
