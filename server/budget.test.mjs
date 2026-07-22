@@ -111,10 +111,10 @@ test("anchor past the degrade window is genuinely blind → stale", () => {
   assert.equal(computeBudget(s, T).verdict, "stale");
 });
 
-test("no anchor at all is still stale, never degraded", () => {
+test("no anchor at all is calibrating (hard stop), never degraded", () => {
   const s = emptyStore();
   s.events.push({ surface: "cloud:mcloud", root: "r1", ts: T - 600, billed: 2e6 });
-  assert.equal(computeBudget(s, T).verdict, "stale");
+  assert.equal(computeBudget(s, T).verdict, "calibrating");
 });
 
 test("wall reset since last anchor: only post-reset burn counts, sl session fields ignored", () => {
@@ -153,6 +153,16 @@ test("an emit with no timestamps is stamped at receipt, not dropped into 1970", 
   const b = computeBudget(s, T);
   assert.equal(b.five_billed, 8e6, "the spend is visible to the 5h gate");
   assert.equal(b.lifetime_billed, 8e6, "and is not double-counted in lifetime");
+});
+
+// A brand-new account has events (maybe) but has NEVER seen a /usage anchor. That is
+// "calibrating" — a setup state — not "stale" (a signal that died). Pages render it
+// neutral instead of as red deficits; agents still treat it as a hard stop.
+test("never-anchored account reads calibrating, not stale", () => {
+  const s = emptyStore();
+  assert.equal(computeBudget(s, T).verdict, "calibrating", "empty account");
+  applyEnvelope(s, { surface: "laptop:new", cursor: "c", sessions: [{ root: "r", billed: 5e4 }] }, T);
+  assert.equal(computeBudget(s, T).verdict, "calibrating", "events but no anchor ever");
 });
 
 // The emit reply is what a chat session shows its human — counts of batches alone
@@ -198,8 +208,8 @@ test("an anchor older than the 12h degrade window is still stale", () => {
   assert.equal(computeBudget(s, T).verdict, "stale");
 });
 
-test("no anchor at all is still stale", () => {
-  assert.equal(computeBudget(emptyStore(), T).verdict, "stale");
+test("no anchor at all is calibrating, not stale", () => {
+  assert.equal(computeBudget(emptyStore(), T).verdict, "calibrating");
 });
 
 test("a fresh anchor is unaffected and still reads ok", () => {

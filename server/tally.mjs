@@ -250,7 +250,11 @@ export function computeBudget(store, now) {
   // wall and standing still apply); "stale" stays a hard stop — genuinely no signal.
   const degradable = anchorAge <= ANCHOR_DEGRADE_SEC && weekCap != null && spendAfterReserve != null;
   let verdict = "ok";
-  if (!a || (!fresh && !degradable)) verdict = "stale";
+  // never-anchored ≠ stale: a fresh account has no caps YET (nobody opened a Claude
+  // Code session), which is a setup state, not a dead signal. Callers still hard-stop
+  // on it, but pages can say "calibrating" instead of painting red deficits.
+  if (!a) verdict = "calibrating";
+  else if (!fresh && !degradable) verdict = "stale";
   else if ((weekPct != null && weekPct >= 0.99) || (quota != null && quota >= 0.99) || spendAfterReserve === 0) verdict = "over";
   else if (!fresh) verdict = "degraded";
 
