@@ -114,6 +114,14 @@
   @media(max-width:560px){
     .shot img{width:165%;max-width:none;margin-left:-6%}
   }
+
+  /* live embed — Reif's real public card, in an iframe */
+  .live-shot iframe{width:100%;height:1080px;border:0;display:block;background:#eceef3}
+  @media(max-width:700px){.live-shot iframe{height:1180px}}
+  .live-note{display:flex;align-items:flex-end;gap:8px;font-family:var(--mono);font-size:14px;font-weight:600;color:var(--brand)}
+  .live-note svg{flex:none;stroke:var(--brand);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .ln-top{justify-content:flex-end;margin:0 26px 6px 0;transform:rotate(-1.5deg)}
+  .ln-bottom{margin:8px 0 0 26px;transform:rotate(1deg);align-items:flex-start}
   .caption{text-align:center;color:var(--dim);font-size:14px;margin-top:14px}
 
   /* sections */
@@ -211,10 +219,17 @@
 </header>
 
 <div class="wrap demo">
-  <div class="shot">
-    <img src="card-hero.gif" alt="A maxx dashboard updating live: 1,571,920,589 lifetime tokens, a usage chart across all machines and cloud, and the session and week rails ticking as tokens are spent" width="1100" height="768">
+  <div class="live-note ln-top" aria-hidden="true">not a mockup — this is Reif's account, live
+    <svg width="26" height="30" viewBox="0 0 26 30"><path d="M4 2 C 16 6, 20 14, 17 25 M11 20 l6 6 6-7"/></svg>
   </div>
-  <p class="caption">Your dashboard: every machine and cloud agent on one page, live. <a href="https://meetmaxx.co/u/reif_tgp">See a real one →</a></p>
+  <div class="shot live-shot">
+    <iframe src="https://meetmaxx.co/u/reif_tgp" title="Reif's live maxx tally: lifetime tokens, usage chart, and session and week rails, updating as he works" loading="lazy"></iframe>
+  </div>
+  <div class="live-note ln-bottom" aria-hidden="true">
+    <svg width="26" height="30" viewBox="0 0 26 30"><path d="M22 28 C 10 24, 6 16, 9 5 M15 10 l-6-6 -6 7"/></svg>
+    those rails are Reif's session, right now
+  </div>
+  <p class="caption">Your dashboard: every machine and cloud agent on one page, live. <a href="https://meetmaxx.co/u/reif_tgp">Open Reif's →</a></p>
 </div>
 
 <div class="wrap demo" style="margin-top:34px">
