@@ -37,17 +37,14 @@ function hsl2hex(h, s, l) {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 const hsl = hsl2hex;
-// theme: `/maxx dark` / `/maxx light` writes cfg.theme (an explicit override); with no
-// override (`/maxx auto`) the bar matches the host CLI's own theme — each login's
-// .claude.json (default ~/.claude.json, or $CLAUDE_CONFIG_DIR/.claude.json, which the
-// statusline subprocess inherits) — so two logins side by side each match their CLI.
-// Same hues both ways — dark flips the panel family's lightness and brightens the
-// semantic colors just enough to read on a dark ground.
-const DARK = (() => {
-  try {
-    const t = JSON.parse(readFileSync(path.join(homedir(), ".maxx", "config.json"), "utf8")).theme;
-    if (t === "dark" || t === "light") return t === "dark";
-  } catch {}
+// theme: `/maxx dark` / `/maxx light` writes cfg.theme — an explicit override that pins
+// maxx's own purple palette. With no override (`/maxx auto`) the bar matches the terminal
+// it lives in: the ghostty theme's actual colors when detectable (background/foreground/
+// ANSI palette), else the host CLI's light/dark from its own .claude.json (default
+// ~/.claude.json, or $CLAUDE_CONFIG_DIR/.claude.json — the statusline inherits the env),
+// so two logins side by side each match their window.
+const CFG_THEME = (() => { try { return JSON.parse(readFileSync(path.join(homedir(), ".maxx", "config.json"), "utf8")).theme; } catch { return undefined; } })();
+const CLI_DARK = (() => {
   try {
     const state = process.env.CLAUDE_CONFIG_DIR
       ? path.join(process.env.CLAUDE_CONFIG_DIR, ".claude.json")
@@ -55,18 +52,69 @@ const DARK = (() => {
     return String(JSON.parse(readFileSync(state, "utf8")).theme || "").startsWith("dark");
   } catch { return false; }
 })();
+let DARK = CFG_THEME === "dark" || (CFG_THEME !== "light" && CLI_DARK);
 const T = (light, dark) => (DARK ? dark : light);
-const BG     = T(hsl(265, 0.62, 0.91), hsl(265, 0.32, 0.15)); // panel — baby purple / deep plum
-const INK    = T(hsl(266, 0.46, 0.26), hsl(266, 0.55, 0.88)); // primary text
-const DIM    = T(hsl(266, 0.24, 0.52), hsl(266, 0.20, 0.63)); // muted secondary text
-const BRAND  = T(hsl(264, 0.66, 0.54), hsl(264, 0.75, 0.70)); // vivid periwinkle accent
-const BORDER = T(hsl(266, 0.36, 0.66), hsl(266, 0.26, 0.42)); // meter caps / soft frame
-const TRACK  = T(hsl(266, 0.42, 0.82), hsl(266, 0.32, 0.23)); // the meter's unlit groove — a shade off the panel bg
-const GREEN  = T(hsl(150, 0.48, 0.37), hsl(150, 0.45, 0.48)); // sage = safe (dark spent fill; glint + cushion read off it)
-const AMBER  = T(hsl(38, 0.66, 0.53),  hsl(38, 0.72, 0.58));  // amber = elevated
-const RED    = T(hsl(354, 0.50, 0.58), hsl(354, 0.62, 0.64)); // rose = danger
-const START  = T(hsl(266, 0.40, 0.44), hsl(266, 0.38, 0.62)); // the start post (0)
-const WALL   = T(hsl(352, 0.62, 0.30), hsl(352, 0.68, 0.56)); // the finish post = the limit (reads past the overshoot)
+let BG     = T(hsl(265, 0.62, 0.91), hsl(265, 0.32, 0.15)); // panel — baby purple / deep plum
+let INK    = T(hsl(266, 0.46, 0.26), hsl(266, 0.55, 0.88)); // primary text
+let DIM    = T(hsl(266, 0.24, 0.52), hsl(266, 0.20, 0.63)); // muted secondary text
+let BRAND  = T(hsl(264, 0.66, 0.54), hsl(264, 0.75, 0.70)); // vivid periwinkle accent
+let BORDER = T(hsl(266, 0.36, 0.66), hsl(266, 0.26, 0.42)); // meter caps / soft frame
+let TRACK  = T(hsl(266, 0.42, 0.82), hsl(266, 0.32, 0.23)); // the meter's unlit groove — a shade off the panel bg
+let GREEN  = T(hsl(150, 0.48, 0.37), hsl(150, 0.45, 0.48)); // sage = safe (dark spent fill; glint + cushion read off it)
+let AMBER  = T(hsl(38, 0.66, 0.53),  hsl(38, 0.72, 0.58));  // amber = elevated
+let RED    = T(hsl(354, 0.50, 0.58), hsl(354, 0.62, 0.64)); // rose = danger
+let START  = T(hsl(266, 0.40, 0.44), hsl(266, 0.38, 0.62)); // the start post (0)
+let WALL   = T(hsl(352, 0.62, 0.30), hsl(352, 0.68, 0.56)); // the finish post = the limit (reads past the overshoot)
+
+// ─── terminal-match (the `auto` default): adopt the ghostty theme's own colors ─
+// Panel = the theme's background tinted toward its blue accent; text = its foreground;
+// safe/elevated/danger = its ANSI green/yellow-orange/red (bright variants on dark).
+(() => {
+  if (CFG_THEME === "dark" || CFG_THEME === "light") return; // explicit override wins
+  if (process.env.TERM_PROGRAM !== "ghostty" && !process.env.GHOSTTY_RESOURCES_DIR) return;
+  const hexrgb = (h) => { h = h.replace("#", ""); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const blend = (a, b, t) => { const A = hexrgb(a), B = hexrgb(b); return "#" + [0, 1, 2].map((i) => Math.round(A[i] + (B[i] - A[i]) * t).toString(16).padStart(2, "0")).join(""); };
+  const lum = (c) => { const [r, g, b] = hexrgb(c); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
+  const parse = (txt, out) => {
+    for (const raw of txt.split("\n")) {
+      const m = raw.trim().match(/^([a-z-]+)\s*=\s*(.+?)\s*$/);
+      if (!m) continue;
+      const [, k, v] = m;
+      if (k === "theme") out.theme = v;
+      else if (k === "background" || k === "foreground") { if (/^#?[0-9a-fA-F]{6}$/.test(v)) out[k] = v.startsWith("#") ? v : "#" + v; }
+      else if (k === "palette") { const p = v.match(/^(\d+)\s*=\s*#?([0-9a-fA-F]{6})$/); if (p) out.palette[+p[1]] = "#" + p[2]; }
+    }
+  };
+  const cfgDir = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), ".config"), "ghostty");
+  const user = { palette: {} };
+  try { parse(readFileSync(path.join(cfgDir, "config"), "utf8"), user); } catch {}
+  let name = user.theme || "";
+  if (name.includes(":")) { // theme = light:A,dark:B — take the host CLI's side
+    const side = Object.fromEntries(name.split(",").map((s) => s.split(":").map((x) => x.trim())));
+    name = (CLI_DARK ? side.dark : side.light) || "";
+  }
+  const themed = { palette: {} };
+  for (const dir of [path.join(cfgDir, "themes"), process.env.GHOSTTY_RESOURCES_DIR && path.join(process.env.GHOSTTY_RESOURCES_DIR, "themes"), "/Applications/Ghostty.app/Contents/Resources/ghostty/themes"].filter(Boolean)) {
+    if (!name) break;
+    try { parse(readFileSync(path.join(dir, name), "utf8"), themed); break; } catch {}
+  }
+  const bg = user.background || themed.background, fg = user.foreground || themed.foreground;
+  if (!bg || !fg) return; // no resolvable colors — keep the CLI light/dark palette
+  const pal = { ...themed.palette, ...user.palette };
+  DARK = lum(bg) < 0.5;
+  const t = (l, d) => (DARK ? d : l);
+  BRAND  = pal[t(4, 12)] || pal[4] || BRAND;                 // the theme's blue accent
+  BG     = blend(bg, BRAND, t(0.12, 0.16));                  // panel — bg tinted toward the accent
+  INK    = fg;
+  DIM    = blend(fg, bg, 0.38);
+  BORDER = blend(fg, bg, 0.58);
+  TRACK  = blend(BG, fg, 0.13);
+  GREEN  = pal[t(2, 10)] || GREEN;
+  AMBER  = pal[t(3, 11)] || AMBER;
+  RED    = pal[t(1, 9)]  || RED;
+  START  = blend(BRAND, t("#000000", "#ffffff"), 0.25);
+  WALL   = blend(RED,   t("#000000", "#ffffff"), t(0.4, 0.12));
+})();
 
 // ─── ANSI: every glyph carries the panel bg so the band stays unbroken ─────────
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

@@ -507,7 +507,7 @@ if (isMainModule()) {
       const cfg = (() => { try { return JSON.parse(readFileSync(cfgPath, "utf8")); } catch { return {}; } })();
       if (a.theme === "auto") delete cfg.theme; else cfg.theme = a.theme;
       writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-      w(`  theme → ${a.theme === "auto" ? "auto — each bar matches its own CLI's theme" : a.theme}. The bar repaints on the next statusline tick.`);
+      w(`  theme → ${a.theme === "auto" ? "auto — each bar adopts its own terminal's colors (ghostty theme; CLI light/dark elsewhere)" : a.theme}. The bar repaints on the next statusline tick.`);
     } else if (a.cmd === "config") {
       const cfgPath = path.join(CONFIG_DIR, "config.json");
       const cfg = (() => { try { return JSON.parse(readFileSync(cfgPath, "utf8")); } catch { return {}; } })();
