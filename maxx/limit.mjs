@@ -19,11 +19,18 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 const HOME = homedir();
-const PROJECTS = path.join(HOME, ".claude", "projects");
-const OUT = path.join(HOME, ".maxx", "window.json");
+// Per-login session scope: a CLAUDE_CONFIG_DIR session scans ITS OWN projects dir,
+// keys identity off ITS OWN .claude.json, and gets its own copies of the derived
+// caches (name suffix, e.g. window-gmail.json) — two logins rendering concurrently
+// must never fight over one file. Fleet-shared files (config, accounts) stay plain.
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, ".claude");
+const OAUTH = path.join(process.env.CLAUDE_CONFIG_DIR || HOME, ".claude.json");
+const SUF = process.env.CLAUDE_CONFIG_DIR ? "-" + path.basename(CLAUDE_DIR).replace(/^\.claude-?/, "") : "";
+const PROJECTS = path.join(CLAUDE_DIR, "projects");
+const OUT = path.join(HOME, ".maxx", `window${SUF}.json`);
 const CONFIG = path.join(HOME, ".maxx", "config.json");
-const RL = path.join(HOME, ".maxx", "rl.json");   // render drops the live %s here to anchor caps
-const CURSOR = path.join(HOME, ".maxx", "scan.json"); // per-file byte offsets for the incremental tail
+const RL = path.join(HOME, ".maxx", `rl${SUF}.json`);   // render drops the live %s here to anchor caps
+const CURSOR = path.join(HOME, ".maxx", `scan${SUF}.json`); // per-file byte offsets for the incremental tail
 const ACCOUNTS = path.join(HOME, ".maxx", "accounts.json"); // which Claude account owns which slice of the local logs
 const WINDOW_MS = 5 * 60 * 60 * 1000;     // Claude's ~5-hour limit window
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;  // the 7-day wall
@@ -158,17 +165,24 @@ function historicalPeak(pts, win = WINDOW_MS) {
 export function accountEpoch(now) {
   let uuid = null, email = null;
   try {
-    const oa = JSON.parse(readFileSync(path.join(HOME, ".claude.json"), "utf8")).oauthAccount || {};
+    const oa = JSON.parse(readFileSync(OAUTH, "utf8")).oauthAccount || {};
     uuid = oa.accountUuid || null; email = oa.emailAddress || null;
   } catch {}
   if (!uuid) return { uuid: null, since: 0 }; // can't tell → no clamp (pre-switch behavior)
   let led = readJSON(ACCOUNTS, {});
   if (!Array.isArray(led.accounts)) led = { accounts: [] };
+  led.dirs = led.dirs || {};
   let e = led.accounts.find((a) => a.uuid === uuid);
-  if (!e || led.current !== uuid) {
-    if (e) e.from = now;
-    else { e = { uuid, email, from: now }; led.accounts.push(e); }
-    led.current = uuid;
+  // The switch that poisons windows is a login change WITHIN one dir (its logs then
+  // interleave two accounts). Track current per CONFIG DIR: two logins running
+  // concurrently in separate dirs are both stably "current" in their own dir —
+  // the old global `current` flapped on every alternating render and restamped
+  // `from` to now, collapsing both accounts' windows to zero.
+  if (!e || led.dirs[CLAUDE_DIR] !== uuid) {
+    if (e && led.dirs[CLAUDE_DIR] && led.dirs[CLAUDE_DIR] !== uuid) e.from = now;
+    else if (!e) { e = { uuid, email, from: now }; led.accounts.push(e); }
+    led.dirs[CLAUDE_DIR] = uuid;
+    led.current = uuid; // legacy readers; last-active, no longer drives restamps
     try { mkdirSync(path.dirname(ACCOUNTS), { recursive: true }); writeFileSync(ACCOUNTS, JSON.stringify(led)); } catch {}
   }
   return { uuid, since: e.from };
@@ -246,7 +260,7 @@ function fileTok(p) { try { return Math.round(readFileSync(p, "utf8").length / 4
 function nazi(wantJSON) {
   const num = (x) => Math.round(x || 0).toLocaleString("en-US");
   const tk = (x) => Math.round(Math.abs(x || 0) / 1000).toLocaleString("en-US") + "k";
-  const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
+  const st = readJSON(path.join(HOME, ".maxx", `status${SUF}.json`), null);
   if (!st) {
     const msg = "token nazi — no status yet. Open Claude Code so the statusline writes ~/.maxx/status.json, then retry.";
     process.stdout.write((wantJSON ? JSON.stringify({ error: "no-status" }) : msg) + "\n"); return;

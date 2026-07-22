@@ -69,12 +69,17 @@ test("emit: anchor only attaches to the account that observed it", () => {
     [A]: { handle: "ha", secret: "sa" },
     [B]: { handle: "hb", secret: "sb" },
   } });
+  // a guest login's statusline writes SUFFIXED session caches (rl-alt.json); a
+  // stale unsuffixed rl.json stamped with a foreign account must protect ha too
   writeFileSync(path.join(home, ".maxx", "rl.json"), JSON.stringify({
+    quota: 0.05, week: 0.01, fiveResetAt: 1, weekResetAt: 1, ts: Date.now(), account: B,
+  }));
+  writeFileSync(path.join(home, ".maxx", "rl-alt.json"), JSON.stringify({
     quota: 0.05, week: 0.01, fiveResetAt: 1, weekResetAt: 1, ts: Date.now(), account: B,
   }));
   const envs = emitJson(home);
   const byHandle = Object.fromEntries(envs.map((e) => [e.handle, e]));
   assert.equal(byHandle.ha.anchor, null, "account B's anchor must not calibrate account A's timeline");
-  assert.ok(byHandle.hb.anchor, "the observing account keeps its anchor");
+  assert.ok(byHandle.hb.anchor, "the observing account keeps its anchor (from its suffixed rl file)");
   assert.equal(byHandle.hb.anchor.five_pct, 0.05);
 });

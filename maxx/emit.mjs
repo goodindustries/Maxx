@@ -41,7 +41,6 @@ import { fileURLToPath } from "node:url";
 const HOME = homedir();
 const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
 const CONFIG = path.join(HOME, ".maxx", "config.json");
-const RL = path.join(HOME, ".maxx", "rl.json");
 const CURSOR = path.join(HOME, ".maxx", "emit-cursor.json");
 const ANCHOR_MAX_AGE_SEC = 30 * 60; // an anchor older than this is not trustworthy
 
@@ -346,22 +345,25 @@ async function runOnce({ quiet = false } = {}) {
   const cursorAll = readJSON(CURSOR, {});
   cursorAll.roots = cursorAll.roots || {};
 
-  // Anchor: the authoritative subscription %s the interactive statusline observed.
-  // Only attach if fresh — never ship a stale anchor with a new timestamp. Per
-  // ACCOUNT: rl.json carries the observer's uuid; another account's envelope must
-  // not carry it (it would mis-calibrate that timeline's caps). An unstamped
-  // legacy anchor keeps the old behavior: default root only.
-  const rl = readJSON(RL, null);
-  let anchor = null;
-  if (rl && rl.ts && (Date.now() - rl.ts) / 1000 < ANCHOR_MAX_AGE_SEC && (rl.quota != null || rl.week != null)) {
-    anchor = {
+  // Anchor: the authoritative subscription %s an interactive statusline observed —
+  // per LOGIN ROOT. Each root's sessions write suffixed rl/status files (same suffix
+  // rule as render/limit/gate), and an anchor must only ever calibrate the account
+  // that observed it (belt: filename scope; suspenders: the stamped account uuid).
+  // Only attach if fresh — never ship a stale anchor with a new timestamp.
+  const anchorFor = (root) => {
+    const suf = root.isDefault ? "" : "-" + path.basename(path.dirname(root.acctFile)).replace(/^\.claude-?/, "");
+    const rl = readJSON(path.join(HOME, ".maxx", `rl${suf}.json`), null);
+    if (!rl || !rl.ts || (Date.now() - rl.ts) / 1000 >= ANCHOR_MAX_AGE_SEC || (rl.quota == null && rl.week == null)) return null;
+    if (rl.account && root.uuid && rl.account !== root.uuid) return null;
+    if (!rl.account && !root.isDefault) return null; // unstamped legacy anchor: default root only
+    const anchor = {
       five_pct: rl.quota ?? null, week_pct: rl.week ?? null,
       five_reset: rl.fiveResetAt ?? null, week_reset: rl.weekResetAt ?? null,
       observed_at: iso(rl.ts / 1000),
     };
     // Statusline passthrough: ship the bar's OWN computed numbers (its units) so every
     // surface shows what the CLI shows, instead of re-deriving from the coarse integer %.
-    const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
+    const st = readJSON(path.join(HOME, ".maxx", `status${suf}.json`), null);
     if (st && st.ts && (Date.now() - st.ts) / 1000 < ANCHOR_MAX_AGE_SEC && st.weekly?.cap > 0 &&
         (!st.account || !rl.account || st.account === rl.account)) {
       anchor.sl = {
@@ -372,10 +374,8 @@ async function runOnce({ quiet = false } = {}) {
         at: iso(st.ts / 1000),
       };
     }
-  }
-  const anchorFor = (root) => !anchor ? null
-    : rl.account ? (rl.account === root.uuid ? anchor : null)
-    : root.isDefault ? anchor : null;
+    return anchor;
+  };
 
   const jsonOut = [];
   let maxAll = 0, failed = false;
@@ -483,12 +483,13 @@ async function emitRoot(root, { quiet, nowSec, cursorAll, anchor }) {
       // (not just this machine's). The watcher is the network-talking component; gate.mjs
       // writes the same {at,b} file on gate checks, but only agent spawns trigger that —
       // this keeps it fresh every batch so render.mjs never falls back to a local-only net.
-      // Default root only: gate-cache.json is a single file and the gate reads the
-      // primary login's budget (per-session gate/statusline cutover is a follow-up).
-      if (root.isDefault) try {
+      // One gate-cache per login root (suffix rule matches render/gate) — each session
+      // gates on and displays ITS OWN account's net.
+      try {
+        const suf = root.isDefault ? "" : "-" + path.basename(path.dirname(root.acctFile)).replace(/^\.claude-?/, "");
         const br = await fetch(`${base}/api/u/${encodeURIComponent(root.handle)}/budget`,
           { headers: { authorization: `Bearer ${root.secret}` }, signal: AbortSignal.timeout(8000) });
-        if (br.ok) writeFileSync(path.join(HOME, ".maxx", "gate-cache.json"),
+        if (br.ok) writeFileSync(path.join(HOME, ".maxx", `gate-cache${suf}.json`),
           JSON.stringify({ at: Date.now() / 1000, b: await br.json() }));
       } catch {}
       console.log(`  sent ✓ ${res.status} ${root.handle} +${fmtK(totalBilled)} · ${localT(maxTs)} · ${body.slice(0, 120)}`);

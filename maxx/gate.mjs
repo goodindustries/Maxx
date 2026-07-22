@@ -39,7 +39,10 @@ const HOME = homedir();
 const DIR = path.join(HOME, ".maxx");
 const CONFIG = path.join(DIR, "config.json");
 const GATE = path.join(DIR, "gate.json");
-const CACHE = path.join(DIR, "gate-cache.json");
+// per-login: a CLAUDE_CONFIG_DIR session gates on ITS account's budget — the watcher
+// writes one gate-cache per login root (suffix rule matches render/limit/emit)
+const SUF = process.env.CLAUDE_CONFIG_DIR ? "-" + path.basename(process.env.CLAUDE_CONFIG_DIR).replace(/^\.claude-?/, "") : "";
+const CACHE = path.join(DIR, `gate-cache${SUF}.json`);
 const LOG = path.join(DIR, "gate.log");
 const CACHE_FRESH_SEC = 60;       // reuse a verdict this fresh without a network call
 const CACHE_GRACE_SEC = 600;      // server unreachable: trust a cached verdict up to this age
@@ -49,6 +52,14 @@ const readJSON = (p, d) => { try { return JSON.parse(readFileSync(p, "utf8")); }
 const log = (line) => { try { mkdirSync(DIR, { recursive: true }); appendFileSync(LOG, `${new Date().toISOString()} ${line}\n`); } catch {} };
 
 const cfg = readJSON(CONFIG, {});
+// Route to THIS session's account: its login (CLAUDE_CONFIG_DIR-aware .claude.json)
+// resolved through cfg.accounts → that account's handle/secret. Fallback: the
+// legacy top-level handle (single-account box).
+try {
+  const oa = JSON.parse(readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || HOME, ".claude.json"), "utf8")).oauthAccount;
+  const t = cfg.accounts?.[oa?.accountUuid];
+  if (t) { cfg.handle = t.handle; cfg.secret = t.secret; }
+} catch {}
 const base = (process.env.MAXX_LOGS_URL || cfg.logsUrl || "https://api.meetmaxx.co").replace(/\/$/, "");
 
 async function budget() {

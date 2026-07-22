@@ -37,17 +37,22 @@ function hsl2hex(h, s, l) {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 const hsl = hsl2hex;
-const BG     = hsl(265, 0.62, 0.91); // baby purple panel — light mode
-const INK    = hsl(266, 0.46, 0.26); // deep purple primary text
-const DIM    = hsl(266, 0.24, 0.52); // muted secondary text
-const BRAND  = hsl(264, 0.66, 0.54); // vivid periwinkle accent
-const BORDER = hsl(266, 0.36, 0.66); // meter caps / soft frame
-const TRACK  = hsl(266, 0.42, 0.82); // the meter's unlit groove — a shade below the panel bg
-const GREEN  = hsl(150, 0.48, 0.37); // deep sage = safe (dark spent fill; the glint + dusty cushion read off it)
-const AMBER  = hsl(38, 0.66, 0.53);  // soft amber = elevated
-const RED    = hsl(354, 0.50, 0.58); // soft rose = danger
-const START  = hsl(266, 0.40, 0.44); // the start post (0)
-const WALL   = hsl(352, 0.62, 0.30); // the finish post = the limit (deep, darker than the overshoot)
+// theme: `/maxx dark` / `/maxx light` writes cfg.theme; the bar repaints next tick.
+// Same hues both ways — dark flips the panel family's lightness and brightens the
+// semantic colors just enough to read on a dark ground.
+const DARK = (() => { try { return JSON.parse(readFileSync(path.join(homedir(), ".maxx", "config.json"), "utf8")).theme === "dark"; } catch { return false; } })();
+const T = (light, dark) => (DARK ? dark : light);
+const BG     = T(hsl(265, 0.62, 0.91), hsl(265, 0.32, 0.15)); // panel — baby purple / deep plum
+const INK    = T(hsl(266, 0.46, 0.26), hsl(266, 0.55, 0.88)); // primary text
+const DIM    = T(hsl(266, 0.24, 0.52), hsl(266, 0.20, 0.63)); // muted secondary text
+const BRAND  = T(hsl(264, 0.66, 0.54), hsl(264, 0.75, 0.70)); // vivid periwinkle accent
+const BORDER = T(hsl(266, 0.36, 0.66), hsl(266, 0.26, 0.42)); // meter caps / soft frame
+const TRACK  = T(hsl(266, 0.42, 0.82), hsl(266, 0.32, 0.23)); // the meter's unlit groove — a shade off the panel bg
+const GREEN  = T(hsl(150, 0.48, 0.37), hsl(150, 0.45, 0.48)); // sage = safe (dark spent fill; glint + cushion read off it)
+const AMBER  = T(hsl(38, 0.66, 0.53),  hsl(38, 0.72, 0.58));  // amber = elevated
+const RED    = T(hsl(354, 0.50, 0.58), hsl(354, 0.62, 0.64)); // rose = danger
+const START  = T(hsl(266, 0.40, 0.44), hsl(266, 0.38, 0.62)); // the start post (0)
+const WALL   = T(hsl(352, 0.62, 0.30), hsl(352, 0.68, 0.56)); // the finish post = the limit (reads past the overshoot)
 
 // ─── ANSI: every glyph carries the panel bg so the band stays unbroken ─────────
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -231,6 +236,12 @@ function netBar(standing, greenScale, redScale, w) {
 // ─── sidecar state ─────────────────────────────────────────────────────────────
 const HOME = homedir();
 const readJSON = (p, d = {}) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
+// Per-login session scope: a CLAUDE_CONFIG_DIR session reads/writes its own copies of
+// the session-derived caches (rl-gmail.json, window-gmail.json, …) — two logins
+// rendering concurrently must never fight over one file. Suffix rule matches
+// limit.mjs/emit.mjs. Fleet-shared files (config, accounts, state) stay plain.
+const SUF = process.env.CLAUDE_CONFIG_DIR ? "-" + path.basename(process.env.CLAUDE_CONFIG_DIR).replace(/^\.claude-?/, "") : "";
+const MAXX = (name) => path.join(HOME, ".maxx", name.replace(/(\.json)$/, `${SUF}$1`));
 // Which Claude ACCOUNT this session is signed into. Anchors are per account, and the
 // shipper must never calibrate another account's timeline with them — so every rl.json/
 // status.json write carries the observer's uuid. A session launched with CLAUDE_CONFIG_DIR
@@ -404,7 +415,7 @@ function main() {
   // `--status`/`--session` with no stdin (a user or agent calling us directly) → read the last
   // snapshot the live statusline wrote. Nothing fresh to compute without Claude Code's JSON.
   if ((wantStatus || wantSession) && !rawIn.trim()) {
-    const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
+    const st = readJSON(MAXX("status.json"), null);
     if (wantSession) { process.stdout.write(sessionBrief(st) + "\n"); return; }
     process.stdout.write((st ? JSON.stringify(st, null, 2) : "{}") + "\n");
     return;
@@ -436,7 +447,7 @@ function main() {
   // reset times instead; only a LIVE rate_limits payload may refresh that cache (no laundering
   // stale values with a fresh timestamp).
   const liveRL = !!(rl.five_hour || rl.seven_day);
-  const rlCache = readJSON(path.join(HOME, ".maxx", "rl.json"), null);
+  const rlCache = readJSON(MAXX("rl.json"), null);
   const cacheFresh = rlCache && rlCache.ts && Date.now() - rlCache.ts < 30 * 60 * 1000;
   // Concurrent sessions on one account see different rate-limit snapshots: one lags a whole
   // window behind (its 5h block rolled), or lags within the window (used% behind). Alternating
@@ -462,10 +473,10 @@ function main() {
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
   // sum at the real window start instead of a blind rolling 7d — see weekLo below.
-  try { if (liveRL && haveQuota) writeFileSync(path.join(HOME, ".maxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now(), account: sessAccount })); } catch {}
+  try { if (liveRL && haveQuota) writeFileSync(MAXX("rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now(), account: sessAccount })); } catch {}
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
-  const marksPath = path.join(HOME, ".maxx", "marks.json");
+  const marksPath = MAXX("marks.json");
   const marks = readJSON(marksPath, {});
   let freshReset = false;
   if (haveQuota) {
@@ -477,7 +488,7 @@ function main() {
   }
   // tokens burned in each window, re-summed against the live clock so idle time visibly
   // recovers (old 5-min buckets fall out the back). cap anchored → tok/cap == the real %.
-  const win = readJSON(path.join(HOME, ".maxx", "window.json"), null);
+  const win = readJSON(MAXX("window.json"), null);
   let tok5 = null, tok5roll = null, cap5 = null, tok7 = null, cap7 = null, burn5 = null, burn60 = 0, refuelPerMin = 0;
   if (win && Array.isArray(win.buckets) && win.buckets.length) {
     const now = Date.now();
@@ -537,7 +548,7 @@ function main() {
   // If we recomputed tok÷quota every render, a flat quota with rising tok would inflate the cap as
   // you burn, so "tokens left" would go UP while spending — backwards. Cached in caps.json so the
   // held value survives across renders (and across a reset, since the cap itself doesn't change).
-  const capsPath = path.join(HOME, ".maxx", "caps.json");
+  const capsPath = MAXX("caps.json");
   const caps = readJSON(capsPath, {});
   // caps anchored under a DIFFERENT Claude account are meaningless against this one's %s — flush and
   // re-anchor fresh on the first render after a switch (window.json carries the current account uuid).
@@ -658,7 +669,7 @@ function main() {
   // emit watcher) cache the server budget; use its net_per_min when fresh (<90s) so all
   // surfaces agree. Local fallback (cache stale/idle): weekly headroom ÷ minutes-to-reset
   // minus this machine's 5-min burn — the same pace model, just from local data.
-  const gc = readJSON(path.join(HOME, ".maxx", "gate-cache.json"), null);
+  const gc = readJSON(MAXX("gate-cache.json"), null);
   const gcFresh = gc && gc.at && Date.now() / 1000 - gc.at < 90 && gc.b && gc.b.net_per_min != null;
   const wMinLeft = wStat.secLeft > 0 ? wStat.secLeft / 60 : 0;
   const localPace = wMinLeft > 0 ? wStat.headroom / wMinLeft : 0;
@@ -694,7 +705,7 @@ function main() {
     burn5m: burn5 != null ? Math.round(burn5) : null,       // gross tokens spent in the last 5 min (≥ 0)
     netPerMin,                                              // account-wide net (gate-cache when fresh) — one net, every surface
   };
-  try { writeFileSync(path.join(HOME, ".maxx", "status.json"), JSON.stringify(status)); } catch {}
+  try { writeFileSync(MAXX("status.json"), JSON.stringify(status)); } catch {}
   if (wantStatus) { process.stdout.write(JSON.stringify(status, null, 2) + "\n"); return; }
 
   // refresh window.json (the rolling-token cache limit.mjs owns; the bar + the governor read it). The
@@ -704,7 +715,7 @@ function main() {
   // WHILE the agent works, not only at turn end — which is what an unattended overnight governor needs.
   const dueFor = (mark, ms) => { try { return Date.now() - Number(readFileSync(mark, "utf8")) > ms; } catch { return true; } };
   const markNow = (mark) => { try { writeFileSync(mark, String(Date.now())); } catch {} };
-  const scanMark = path.join(HOME, ".maxx", ".limit-scan"), fullMark = path.join(HOME, ".maxx", ".limit-full");
+  const scanMark = path.join(HOME, ".maxx", ".limit-scan" + SUF), fullMark = path.join(HOME, ".maxx", ".limit-full" + SUF);
   if (dueFor(scanMark, 5000)) {
     markNow(scanMark);
     const full = dueFor(fullMark, 5 * 60 * 1000); if (full) markNow(fullMark);

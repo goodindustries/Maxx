@@ -11,7 +11,7 @@
  * Fully on-box: reads only usage/token metadata, sends nothing anywhere, never
  * emits prompt or message content.
  */
-import { createReadStream, realpathSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, realpathSync, readFileSync, statSync, writeFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
@@ -20,7 +20,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const HOME = homedir();
-const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
+// a session launched with CLAUDE_CONFIG_DIR lives entirely in that dir — its logs,
+// its login. Stats and the card signature follow THIS session's account, not ~/.claude.
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, ".claude");
+const DEFAULT_DIR = path.join(CLAUDE_DIR, "projects");
+// session-scoped cache suffix — same rule as render/limit/gate/emit
+const SUF = process.env.CLAUDE_CONFIG_DIR ? "-" + path.basename(CLAUDE_DIR).replace(/^\.claude-?/, "") : "";
 const CONFIG_DIR = path.join(HOME, ".maxx"); // local state dir (window.json / rl.json) — read-only here
 
 // ─── args ───────────────────────────────────────────────────────────────────
@@ -36,11 +41,15 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "session") out.cmd = "session";
     else if (a === "turn") out.cmd = "turn";
+    else if (a === "refresh") out.cmd = "refresh";
+    else if (a === "config") out.cmd = "config";
+    else if (a === "light" || a === "dark") { out.cmd = "theme"; out.theme = a; }
     else if (a === "raw") out.raw = true;
     else if (a === "--json" || a === "json") { if (out.cmd === "session" || out.cmd === "turn") out.raw = true; else out.cmd = "json"; }
     else if (a === "--dir") out.dir = argv[++i];
     else rest.push(a);
   }
+  if (out.cmd === "config") { out.key = rest[0]; out.val = rest.length > 1 ? rest.slice(1).join(" ") : undefined; }
   return out;
 }
 
@@ -72,7 +81,9 @@ async function findSessionFiles(dir) {
 function accountEpoch() {
   try {
     const led = JSON.parse(readFileSync(path.join(CONFIG_DIR, "accounts.json"), "utf8"));
-    const cur = (led.accounts || []).find((a) => a.uuid === led.current);
+    // per-dir current (limit.mjs ledger) — this session's login, not whichever
+    // login rendered last on the box
+    const cur = (led.accounts || []).find((a) => a.uuid === (led.dirs?.[CLAUDE_DIR] ?? led.current));
     return cur ? cur.from : 0;
   } catch { return 0; }
 }
@@ -405,9 +416,15 @@ function pretty(s) {
     }
   }
   L.push("");
-  // sign the card — a small thank-you keyed to the user's claimed handle
+  // sign the card — a small thank-you keyed to the handle of the account THIS
+  // session is signed into (cfg.accounts map), falling back to the pinned handle
   try {
-    const h = JSON.parse(readFileSync(path.join(CONFIG_DIR, "config.json"), "utf8")).handle;
+    const cfg = JSON.parse(readFileSync(path.join(CONFIG_DIR, "config.json"), "utf8"));
+    let h = cfg.handle;
+    try {
+      const oa = JSON.parse(readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || HOME, ".claude.json"), "utf8")).oauthAccount;
+      h = cfg.accounts?.[oa?.accountUuid]?.handle || h;
+    } catch {}
     if (h && h !== "unknown") { L.push(`  thanks for using /maxx, @${h}! · meetmaxx.co/u/${h}`); L.push(""); }
   } catch {}
   return L.join("\n");
@@ -474,6 +491,49 @@ if (isMainModule()) {
         const agents = t.agentTokens ? `  ·  +${human(t.agentTokens)} subagents (${t.agentCalls} calls)` : "";
         w(`  ⚡ last turn  ${fmt(t.grand)} tokens  ·  ${t.calls} api calls${agents}`);
         w(`     output ${human(t.output)} · cache-read ${human(t.cacheRead)} · input ${human(t.input)} · cache-write ${human(t.cacheCreate)}`);
+      }
+    } else if (a.cmd === "refresh") {
+      // stuck bar / stale numbers → drop the derived caches and rebuild. Everything
+      // here is recomputable from the logs; ledgers, config, secrets and the emit
+      // cursor are NOT touched (clearing the cursor would re-ship history).
+      const derived = ["scan", "window", "caps", "status", "marks", "rl"].map((n) => `${n}${SUF}.json`).concat(".live-cache.json");
+      const gone = derived.filter((f) => { try { unlinkSync(path.join(CONFIG_DIR, f)); return true; } catch { return false; } });
+      const limitPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "limit.mjs");
+      try { execFileSync(process.execPath, [limitPath], { stdio: "ignore", timeout: 180000 }); } catch {}
+      w(`  refreshed — cleared ${gone.length ? gone.join(", ") : "nothing (already clean)"}; window rebuilt.`);
+      w("  the bar repaints on the next statusline tick.");
+    } else if (a.cmd === "theme") {
+      const cfgPath = path.join(CONFIG_DIR, "config.json");
+      const cfg = (() => { try { return JSON.parse(readFileSync(cfgPath, "utf8")); } catch { return {}; } })();
+      cfg.theme = a.theme;
+      writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+      w(`  theme → ${a.theme}. The bar repaints on the next statusline tick.`);
+    } else if (a.cmd === "config") {
+      const cfgPath = path.join(CONFIG_DIR, "config.json");
+      const cfg = (() => { try { return JSON.parse(readFileSync(cfgPath, "utf8")); } catch { return {}; } })();
+      if (a.key === undefined) {
+        // show settings — secrets never leave the file
+        const shown = JSON.parse(JSON.stringify(cfg));
+        const mask = (s) => (typeof s === "string" && s.length > 6 ? s.slice(0, 4) + "…" : "•••");
+        if (shown.secret) shown.secret = mask(shown.secret);
+        if (shown.connectorUrl) shown.connectorUrl = shown.connectorUrl.replace(/([?&]k=)[^&]+/, "$1…");
+        for (const acct of Object.values(shown.accounts || {})) if (acct.secret) acct.secret = mask(acct.secret);
+        w(JSON.stringify(shown, null, 2));
+        w(`\n  set:   /maxx config <key> <value>   (dotted keys ok, e.g. ticker.speed 2)`);
+        w(`  file:  ${cfgPath}`);
+      } else if (/secret|accounts/i.test(a.key)) {
+        w(`  "${a.key}" holds credentials/handle routing — edit ${cfgPath} directly, deliberately.`);
+      } else if (a.val === undefined) {
+        const v = a.key.split(".").reduce((o, k) => (o == null ? o : o[k]), cfg);
+        w(`  ${a.key} = ${JSON.stringify(v)}`);
+      } else {
+        let v; try { v = JSON.parse(a.val); } catch { v = a.val; }
+        const ks = a.key.split(".");
+        let o = cfg;
+        for (const k of ks.slice(0, -1)) o = o[k] = o[k] && typeof o[k] === "object" ? o[k] : {};
+        o[ks.at(-1)] = v;
+        writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+        w(`  ${a.key} → ${JSON.stringify(v)}`);
       }
     } else if (a.cmd === "json") {
       w(JSON.stringify(await collectStats(a.dir), null, 2));
