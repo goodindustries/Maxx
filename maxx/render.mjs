@@ -861,8 +861,16 @@ function main() {
   }
 
   // coach pulled for now — the meters + cushion/over carry it. keep /maxx as a quiet sign-off at
-  // the right of the stats line.
-  const footStr = fg(DIM, "/maxx");
+  // the right of the stats line — signed with WHOSE numbers these are (the session
+  // login's handle via the accounts map), so a multi-login box is legible at a glance.
+  const who = (() => {
+    try {
+      const c = JSON.parse(readFileSync(path.join(HOME, ".maxx", "config.json"), "utf8"));
+      const h = c.accounts?.[sessAccount]?.handle || c.handle;
+      return h && h !== "unknown" ? "@" + h : "";
+    } catch { return ""; }
+  })();
+  const footStr = (who ? fg(BRAND, who) + fg(DIM, " · ") : "") + fg(DIM, "/maxx");
   const metaFull = dispWidth(metaRow) + 3 + dispWidth(footStr) <= W
     ? metaRow + blank(W - dispWidth(metaRow) - dispWidth(footStr)) + footStr
     : metaRow;
