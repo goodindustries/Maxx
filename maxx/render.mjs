@@ -94,7 +94,9 @@ function ital(fgHex, s) {
   return `\x1b[3;${sgrFg(rgb(fgHex))};${sgrBg(rgb(BG))}m${s}\x1b[0m`;
 }
 
-const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+// OSC 8 hyperlink — supported terminals make the text clickable, the rest render it as plain text
+const link = (url, s) => `\x1b]8;;${url}\x1b\\${s}\x1b]8;;\x1b\\`;
 const dispWidth = (s) => [...stripAnsi(s)].length;
 function trunc(s, w) {
   const r = [...s];
@@ -870,7 +872,8 @@ function main() {
       return h && h !== "unknown" ? "@" + h : "";
     } catch { return ""; }
   })();
-  const footStr = (who ? fg(BRAND, who) + fg(DIM, " · ") : "") + fg(DIM, "/maxx");
+  // @handle is a live link to the dash (OSC 8); plain text on terminals without it
+  const footStr = (who ? link(`https://meetmaxx.co/u/${who.slice(1)}/dash`, fg(BRAND, who)) + fg(DIM, " · ") : "") + fg(DIM, "/maxx");
   const metaFull = dispWidth(metaRow) + 3 + dispWidth(footStr) <= W
     ? metaRow + blank(W - dispWidth(metaRow) - dispWidth(footStr)) + footStr
     : metaRow;
