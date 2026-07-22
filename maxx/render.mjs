@@ -948,12 +948,15 @@ function main() {
   // the scarce thing the bar sits in. 4 rows → 2 wide, 3 narrow.
   const mMeta = dispWidth(metaRow), mFoot = dispWidth(footStr);
   const wide = W - Math.max(mMeta, mFoot) - 3 >= 9 + mw + 14; // meters keep full width + a cushion
+  // the stretch between a meter and its right-side text gets a faint painted rule (TRACK — a
+  // shade off the panel) so the two zones read as separate, not one run-on line.
+  const sep = (w) => (w >= 8 ? blank(3) + fg(TRACK, "╌".repeat(w - 6)) + blank(3) : blank(w));
   const out = wide
     ? [
         (() => { const s = meterContent("session  ", q5, e5, qv, true, sStat, mw, W - mMeta - 3);
-                 return row(s + blank(W - dispWidth(s) - mMeta) + metaRow); })(),
+                 return row(s + sep(W - dispWidth(s) - mMeta) + metaRow); })(),
         (() => { const s = meterContent("week     ", w7, e7, wv, false, wStat, mw, W - mFoot - 3);
-                 return row(s + blank(W - dispWidth(s) - mFoot) + footStr); })(),
+                 return row(s + sep(W - dispWidth(s) - mFoot) + footStr); })(),
       ]
     : [
         row(meterContent("session  ", q5, e5, qv, true, sStat)),
