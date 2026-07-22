@@ -1261,7 +1261,16 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // colored as the cost signal it is (every turn re-bills ~ctx)
     var chipCols=['#7dd3fc','#4ade80','#f0abfc','#fbbf24','#a5b4fc','#fb7185'];
     var chipCol=function(k){var n=0;for(var i=0;i<k.length;i++)n+=k.charCodeAt(i);return chipCols[n%chipCols.length]};
-    var projOf=function(e){return e.project||(String(e.surface).indexOf('cloud')===0?String(e.surface).slice(6):'?')};
+    // Owner rows carry a project (or a cloud:<routine> surface). Public rows carry
+    // neither — only the anonymized root ("session-N") — so mask them as ******N:
+    // reads as "redacted", stays stable per session so lanes still tell apart.
+    var projOf=function(e){
+      if(e.project)return e.project;
+      var s=String(e.surface||'');
+      if(s.indexOf('cloud:')===0)return s.slice(6);
+      var m=String(e.root||'').match(/^session-(\d+)$/);
+      return m?'******'+m[1]:'?';
+    };
     // Dropping the name costs nothing UNLESS two sessions of the same project are both
     // emitting — then the chip alone no longer tells their rows apart. Tag the root only
     // in that case, so the common case stays clean.
