@@ -37,10 +37,24 @@ function hsl2hex(h, s, l) {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 const hsl = hsl2hex;
-// theme: `/maxx dark` / `/maxx light` writes cfg.theme; the bar repaints next tick.
+// theme: `/maxx dark` / `/maxx light` writes cfg.theme (an explicit override); with no
+// override (`/maxx auto`) the bar matches the host CLI's own theme — each login's
+// .claude.json (default ~/.claude.json, or $CLAUDE_CONFIG_DIR/.claude.json, which the
+// statusline subprocess inherits) — so two logins side by side each match their CLI.
 // Same hues both ways — dark flips the panel family's lightness and brightens the
 // semantic colors just enough to read on a dark ground.
-const DARK = (() => { try { return JSON.parse(readFileSync(path.join(homedir(), ".maxx", "config.json"), "utf8")).theme === "dark"; } catch { return false; } })();
+const DARK = (() => {
+  try {
+    const t = JSON.parse(readFileSync(path.join(homedir(), ".maxx", "config.json"), "utf8")).theme;
+    if (t === "dark" || t === "light") return t === "dark";
+  } catch {}
+  try {
+    const state = process.env.CLAUDE_CONFIG_DIR
+      ? path.join(process.env.CLAUDE_CONFIG_DIR, ".claude.json")
+      : path.join(homedir(), ".claude.json");
+    return String(JSON.parse(readFileSync(state, "utf8")).theme || "").startsWith("dark");
+  } catch { return false; }
+})();
 const T = (light, dark) => (DARK ? dark : light);
 const BG     = T(hsl(265, 0.62, 0.91), hsl(265, 0.32, 0.15)); // panel — baby purple / deep plum
 const INK    = T(hsl(266, 0.46, 0.26), hsl(266, 0.55, 0.88)); // primary text

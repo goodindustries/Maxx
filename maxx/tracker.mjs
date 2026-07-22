@@ -43,7 +43,7 @@ function parseArgs(argv) {
     else if (a === "turn") out.cmd = "turn";
     else if (a === "refresh") out.cmd = "refresh";
     else if (a === "config") out.cmd = "config";
-    else if (a === "light" || a === "dark") { out.cmd = "theme"; out.theme = a; }
+    else if (a === "light" || a === "dark" || a === "auto") { out.cmd = "theme"; out.theme = a; }
     else if (a === "raw") out.raw = true;
     else if (a === "--json" || a === "json") { if (out.cmd === "session" || out.cmd === "turn") out.raw = true; else out.cmd = "json"; }
     else if (a === "--dir") out.dir = argv[++i];
@@ -505,9 +505,9 @@ if (isMainModule()) {
     } else if (a.cmd === "theme") {
       const cfgPath = path.join(CONFIG_DIR, "config.json");
       const cfg = (() => { try { return JSON.parse(readFileSync(cfgPath, "utf8")); } catch { return {}; } })();
-      cfg.theme = a.theme;
+      if (a.theme === "auto") delete cfg.theme; else cfg.theme = a.theme;
       writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-      w(`  theme → ${a.theme}. The bar repaints on the next statusline tick.`);
+      w(`  theme → ${a.theme === "auto" ? "auto — each bar matches its own CLI's theme" : a.theme}. The bar repaints on the next statusline tick.`);
     } else if (a.cmd === "config") {
       const cfgPath = path.join(CONFIG_DIR, "config.json");
       const cfg = (() => { try { return JSON.parse(readFileSync(cfgPath, "utf8")); } catch { return {}; } })();

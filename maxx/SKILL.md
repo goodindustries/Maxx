@@ -22,7 +22,7 @@ Reads only token/usage metadata — never prompt or message content.
 /maxx nazi       # hourly posture check: ranked token drains + one lever (for agents)
 /maxx agents     # WHO is burning: per-root-session token attribution, named (for agents)
 /maxx refresh    # stuck or stale bar: clear the derived caches, rebuild the window
-/maxx dark       # dark statusline theme — /maxx light switches back
+/maxx dark       # dark statusline theme — /maxx light switches back, /maxx auto matches each CLI's own theme
 /maxx config     # show settings, secrets masked · `config <key> <value>` sets (dotted keys ok)
 ```
 
@@ -40,7 +40,7 @@ Reads only token/usage metadata — never prompt or message content.
    - Nazi:      `node ~/.claude/skills/maxx/limit.mjs --nazi`   (when the user says `nazi`; add `--json` for the machine form)
    - Agents:    `node ~/.claude/skills/maxx/agents.mjs`   (when the user says `agents`; `--children` to expand live descendants, `--mins N` window, `--json` machine form)
    - Refresh:   `node ~/.claude/skills/maxx/tracker.mjs refresh`   (when the bar looks stuck/stale; rebuild takes up to a minute on a big history)
-   - Theme:     `node ~/.claude/skills/maxx/tracker.mjs dark` / `… light`
+   - Theme:     `node ~/.claude/skills/maxx/tracker.mjs dark` / `… light` / `… auto` (auto = match each CLI's own theme)
    - Config:    `node ~/.claude/skills/maxx/tracker.mjs config [key] [value]`   (no args = show, secrets masked)
 
    `agents` answers "what's using all the tokens" with names, not a count. Every
