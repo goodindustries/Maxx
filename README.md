@@ -10,6 +10,8 @@ Claude enforces two walls at once: a 5-hour session cap and a 7-day weekly cap. 
 
 maxx counts what you actually spend, prices it per model, and shows both walls at once.
 
+![the maxx bar under a live Claude Code session](assets/maxx-in-session.gif)
+
 ## Install
 
 One line. Installs the bar and the `/maxx` skill, wires the statusline, backs up your `settings.json` first:
@@ -48,6 +50,8 @@ Renders through the Claude Code statusline in plain ANSI, so it works wherever C
 
 ## How to read the bar
 
+![the bar cycling through banked, on-pace, over, and at-the-wall](assets/maxx-situations.gif)
+
 Two rails, both anchored to the exact `five_hour` / `seven_day` percentages `/usage` reports.
 
 **`session`** — what you can safely spend now: your weekly budget paced across the 5-hour windows left. Green from the left is banked, red from the right is over. The signed number (`+Xk` banked / `−Xk` over) carries a trailing `±k/min` telling you whether you are recovering or falling behind right now.
@@ -57,6 +61,8 @@ Two rails, both anchored to the exact `five_hour` / `seven_day` percentages `/us
 **meta** — context fill, model, branch, spend, cache-hit rate, and `137k/+43k turn`: what your last 3 turns cost on average, and how far the newest turn sits from that average. That delta moves first when a context starts re-billing itself, well before the 5h meter reacts. The `@you` sign-off is a link to your dash (OSC 8 — cmd-click it in iTerm2, Ghostty, kitty).
 
 **the wall** — hit the 5-hour wall and the bar says so and hands you [Switzerland in 8K](https://www.youtube.com/watch?v=linlz7-Pnvw) with the reset clock. Claude stopped you anyway; the dash shows the same row. Time for some contemplation.
+
+![the dash at the 5h wall — red rails and the Alps link](assets/readme/wall.png)
 
 ## The math
 
@@ -80,6 +86,18 @@ Your quota is one pool, so maxx counts it as one. Claim a handle and every surfa
 node ~/.claude/skills/maxx/emit.mjs --signup
 ```
 
+The dash — every machine and cloud agent, live, with the activity tail ([this one is real](https://meetmaxx.co/u/reif_tgp/dash), public view, names redacted):
+
+![the dash: budget rails, burn chart, channels, live activity tail](assets/readme/dash.png)
+
+The card — the lifetime odometer ([live](https://meetmaxx.co/u/reif_tgp)):
+
+![the card: lifetime tokens, usage graph, session and week rails](assets/readme/card.png)
+
+Every feed row says where it came from — 💻 machine, ☁️ cloud:
+
+![feed rows with surface icons and per-session attribution](assets/readme/feed.png)
+
 - **Laptops** — `emit.mjs --watch` ships counts continuously (launchd agent on macOS).
 - **Cloud routines and claude.ai** — add the printed URL as a custom MCP connector. Any agent holding it gets the budget-gate rules on connect and can call `maxx_budget` / `maxx_emit` against your account only.
 - **Your dashboard** — `meetmaxx.co/u/<you>` is a live card; `/u/<you>/dash` is the dash: burn rate, per-session attribution, channels (💻 machines, ☁️ cloud), and what each is costing per turn. The dash is the page you share — viewers see it live with names redacted (`machine 1`, `******2`); only your secret shows the real names.
@@ -88,6 +106,10 @@ node ~/.claude/skills/maxx/emit.mjs --signup
 ### The gate and the watchdog
 
 `gate.mjs` installs as a PreToolUse hook and denies expensive spawns when the tally says you are out. Verdicts are `ok`, `degraded` (no machine has read `/usage` lately, so the weekly ledger governs), `over`, `stale`, and `calibrating` (a brand-new account before its first Claude Code session anchors the caps — pages render it neutral, agents treat it as a stop).
+
+| fresh account: calibrating | first session anchors it: live |
+|---|---|
+| ![calibrating — neutral, no red lies](assets/readme/calibrating.png) | ![calibrated — green rails, real caps](assets/readme/calibrated.png) |
 
 The watchdog runs server-side on every emit. When the account is burning several times its sustainable pace and one session is driving it — because its context grew large enough that every turn re-bills the whole thing — it queues a `clear` directive against that session, which `gate.mjs` injects as context on that session's next tool call. Advisory only: it never pauses or denies, and it will not nag the same session twice in half an hour.
 
