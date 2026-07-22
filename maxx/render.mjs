@@ -848,17 +848,16 @@ function main() {
   // a wall's row, plain-language. SESSION: "X to spend" — your sustainable allowance for THIS window
   // (realMax − used); counts down as you burn, climbs back after a break. Negative → "over — ease
   // off" (you're starting to eat future weeks). WEEKLY: "X left" — the reserve. + time left.
-  const meterContent = (label, u, e, uv, isSession, stat, mwid = mw, maxw = W, bar = true) => {
+  const meterContent = (label, u, e, uv, isSession, stat) => {
     // SESSION bar IS the directional standing fill (one bar: green-from-left when banked, red-from-right
     // when over). WEEK keeps the fuel tank (bar = weekly reserve LEFT, draining as you spend).
-    const fits = (s, add) => dispWidth(s) + dispWidth(add) <= maxw; // shadow: budget THIS pane, not the rail
     const standing = isSession && stat && stat.cap ? Math.round(stat.cap - stat.used) : 0;
     // red scales to the hard 5h wall: over-room = rawCap − realMax (paced share → lockout). Falls back to
     // the paced share when there's no soft buffer (realMax already == the raw wall).
     const overRoom = isSession && stat ? Math.max(1, (stat.rawCap || stat.cap || 0) - (stat.cap || 0)) : 1;
-    let s = fg(DIM, label) + (!bar ? "" : isSession && stat && stat.cap
-      ? netBar(standing, stat.cap, overRoom, mwid)
-      : fuelMeter(1 - u, e, mwid));
+    let s = fg(DIM, label) + (isSession && stat && stat.cap
+      ? netBar(standing, stat.cap, overRoom, mw)
+      : fuelMeter(1 - u, e, mw));
     if (stat && stat.cap) {
       if (isSession) {
         // signed standing: banked → "+Xk" (ink), over → "−Xk" (red). The sign IS the meaning — no "over"
@@ -941,37 +940,20 @@ function main() {
     ? metaRow + blank(W - dispWidth(metaRow) - dispWidth(footStr)) + footStr
     : metaRow;
 
-  // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
-  // when you go light). "week" — the weekly reserve. Meters ALWAYS stack (the two rails read as a
-  // pair); the meta line is what folds away on a wide rail — its halves right-align onto the meter
-  // lines (stats beside session, sign-off beside week). No air line either way — vertical space is
-  // the scarce thing the bar sits in. 4 rows → 2 wide, 3 narrow.
-  const mMeta = dispWidth(metaRow), mFoot = dispWidth(footStr);
-  const wide = W - Math.max(mMeta, mFoot) - 3 >= 9 + mw + 14; // meters keep full width + a cushion
-  // the stretch between a meter and its right-side text gets a faint painted rule (TRACK — a
-  // shade off the panel) so the two zones read as separate, not one run-on line.
-  const sep = (w) => (w >= 8 ? blank(3) + fg(TRACK, "╌".repeat(w - 6)) + blank(3) : blank(w));
-  // ONE bar: the session meter is the graphic; the week reserve rides below as a plain text
-  // line (its numbers — left / banked·over / reset — carry the signal without a second bar
-  // fusing into the first).
-  const out = wide
-    ? [
-        (() => { const s = meterContent("session  ", q5, e5, qv, true, sStat, mw, W - mMeta - 3);
-                 return row(s + sep(W - dispWidth(s) - mMeta) + metaRow); })(),
-        (() => { const s = meterContent("week    ", w7, e7, wv, false, wStat, mw, W - mFoot - 3, false);
-                 return row(s + sep(W - dispWidth(s) - mFoot) + footStr); })(),
-      ]
-    : [
-        row(meterContent("session  ", q5, e5, qv, true, sStat)),
-        row(meterContent("week    ", w7, e7, wv, false, wStat, mw, W, false)),
-        row(metaFull),
-      ];
-  // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
-  if (haveQuota && quota >= 0.99) out.push(row(
-    fg(RED, "you hit the session wall — time for some contemplation → ")
-    + link("https://www.youtube.com/watch?v=linlz7-Pnvw", fg(BRAND, "Swiss Alps in 8K"))
-    + (sStat.resetIn ? fg(DIM, " · back in " + sStat.resetIn) : ""),
-  ));
+  const out = [
+    // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
+    // when you go light). "week" — the weekly reserve. Labels padded to equal width so the bars align.
+    row(meterContent("session  ", q5, e5, qv, true, sStat)),
+    row(""), // one air line so the two rails don't fuse into one blob
+    row(meterContent("week     ", w7, e7, wv, false, wStat)),
+    // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
+    ...(haveQuota && quota >= 0.99 ? [row(
+      fg(RED, "you hit the session wall — time for some contemplation → ")
+      + link("https://www.youtube.com/watch?v=linlz7-Pnvw", fg(BRAND, "Swiss Alps in 8K"))
+      + (sStat.resetIn ? fg(DIM, " · back in " + sStat.resetIn) : ""),
+    )] : []),
+    row(metaFull),
+  ];
   try { writeFileSync(odoPath, JSON.stringify(odo)); } catch {} // persist the odometer counters for next render
   process.stdout.write(out.join("\n") + "\n");
 }

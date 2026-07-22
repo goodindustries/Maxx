@@ -55,7 +55,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 const p = process.argv[2];
 let d = {}; try { d = JSON.parse(readFileSync(p, "utf8")); } catch {}
-d.statusLine = { type: "command", command: process.env.RENDER, padding: 0, refreshInterval: 1 };
+d.statusLine = { type: "command", command: process.env.RENDER, padding: 0, refreshInterval: 2 }; // seconds; 1s + a ~0.5s node render per pane starved older CPUs (ghostty typing jitter)
 // drop any legacy maxx Stop hook (brain.mjs, now removed) so it doesn't fail every turn.
 if (d.hooks?.Stop) {
   d.hooks.Stop = d.hooks.Stop.filter((h) => !JSON.stringify(h).includes(`${process.env.SKILLDIR}/brain.mjs`));
