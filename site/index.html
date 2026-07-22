@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>maxx — track your tokens from everywhere.</title>
-<meta name="description" content="Every machine, every cloud agent, one live tally. maxx counts the tokens you actually spend and shows what is left, in your terminal and on one page. One line to install.">
+<meta name="description" content="Every machine, every cloud agent, one live tally. One line to install.">
 <meta property="og:title" content="maxx — track your tokens from everywhere.">
 <meta property="og:description" content="Every machine, every cloud agent, one live tally. One line to install.">
 <meta property="og:type" content="website">
@@ -175,7 +175,7 @@
 <header class="wrap">
   <div class="eyebrow">For <b style="color:var(--brand)">Claude Code</b></div>
   <h1>Track your tokens<br>from everywhere.</h1>
-  <p class="sub">Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.</p>
+  <p class="sub">Every machine, every cloud agent, one live tally.</p>
 
   <div class="install" id="install-top">
     <code><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
@@ -194,7 +194,7 @@
     <svg width="26" height="30" viewBox="0 0 26 30"><path d="M22 28 C 10 24, 6 16, 9 5 M15 10 l-6-6 -6 7"/></svg>
     that burn is Reif's session, right now
   </div>
-  <p class="caption">The dashboard: every machine and cloud agent on one page, live. Share it — viewers see names redacted. <a href="https://meetmaxx.co/u/reif_tgp/dash">Open Reif's →</a></p>
+  <p class="caption">Share it — viewers see names redacted. <a href="https://meetmaxx.co/u/reif_tgp/dash">Binge-watch Reif's →</a></p>
 </div>
 
 <div class="wrap demo" style="margin-top:34px;max-width:900px">
@@ -204,7 +204,7 @@
            autoplay muted loop playsinline preload="metadata"
            aria-label="The maxx statusline running under a live Claude Code session: the session and week rails sit below the transcript while work streams in above them"></video>
   </div>
-  <p class="caption">And the same numbers in your Claude Code statusline, updated every second.</p>
+  <p class="caption">Same numbers in your statusline, every second.</p>
   <script>(function(){var v=document.getElementById('statusline-vid');
     if(v&&matchMedia('(prefers-reduced-motion: reduce)').matches){v.removeAttribute('autoplay');v.pause();v.setAttribute('controls','')}
   })();</script>
@@ -215,18 +215,18 @@
     <div class="lie">
       <h2><code style="font-family:var(--mono)">/usage</code> shows you the wrong number.</h2>
       <p class="big">A 7-day limit holds about 2.8 days of full 5-hour sessions.</p>
-      <p class="fix">Spend every window to the wall and the week is gone by Wednesday night.</p>
+      <p class="fix">Burn every window to the wall and the week is gone by Wednesday night.</p>
     </div>
   </section>
 
   <section class="ingrid" id="math">
     <h2>Here is the math.</h2>
     <p class="lead" style="margin-bottom:18px">Four lines. That is the whole product.</p>
-    <div class="rail"><span class="lbl">pace&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">to_spend = week_left ÷ 5h_windows_left</span>&nbsp;&nbsp;<span class="k-dim">The sustainable token usage for this next 5hr period.</span></div>
-    <div class="rail"><span class="lbl">anchor&nbsp;</span> <span class="k-ink">cap = burned ÷ used%</span>&nbsp;&nbsp;<span class="k-dim">Pinned to Claude's own <code>/usage</code> numbers every refresh.</span></div>
+    <div class="rail"><span class="lbl">pace&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">to_spend = week_left ÷ 5h_windows_left</span>&nbsp;&nbsp;<span class="k-dim">What to spend this window.</span></div>
+    <div class="rail"><span class="lbl">anchor&nbsp;</span> <span class="k-ink">cap = burned ÷ used%</span>&nbsp;&nbsp;<span class="k-dim">Pinned to <code>/usage</code>.</span></div>
     <div class="rail"><span class="lbl">burn&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × model_price</span>&nbsp;&nbsp;<span class="k-dim">Different models cost different</span></div>
-    <div class="rail"><span class="lbl">models&nbsp;</span> <span class="k-ink">haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3</span>&nbsp;&nbsp;<span class="k-dim">Price-weighted. Refreshed daily from Anthropic's price sheet.</span></div>
-    <p class="hint" style="margin-top:14px">A Fable token costs ten times a Haiku token, so maxx counts your tokens at what they actually cost.</p>
+    <div class="rail"><span class="lbl">models&nbsp;</span> <span class="k-ink">haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3</span>&nbsp;&nbsp;<span class="k-dim">From Anthropic's price sheet, daily.</span></div>
+    <p class="hint" style="margin-top:14px">A Fable token costs 10× a Haiku token. maxx counts what they cost.</p>
   </section>
 </div>
 
@@ -242,12 +242,12 @@
     <div class="rail">
       <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill amber" id="wk-fill" style="transition:none"></span><span class="wk-tick" id="wk-tick"></span></span>&nbsp;&nbsp;<span class="k-ink" id="wk-left">318,402k left</span> <span class="k-dim">·</span> <span id="wk-standing" class="k-green">+24,013k banked</span> <span class="k-dim">·</span> <span id="wk-days">6d</span>
     </div>
-    <p class="demo-note">The fill is what's left of the week. The ╎ tick marks your sustainable pace: fill past it and you're banked, short of it and you're spending too fast.</p>
+    <p class="demo-note">Fill = what's left. ╎ = pace. Past it: banked. Short: too fast.</p>
 
     <ul class="readlist">
-      <li><b>session</b>: what you can safely spend now — your weekly budget paced across the 5-hour windows left.</li>
-      <li><b>week</b>: tokens left in your 7-day limit, updated every second.</li>
-      <li><b>context</b>: how full the context window is, plus model, branch, spend and cache-hit rate.</li>
+      <li><b>session</b>: safe to spend right now.</li>
+      <li><b>week</b>: what's left of your 7 days, live.</li>
+      <li><b>context</b>: how full, plus model, branch, spend, cache.</li>
     </ul>
   </section>
 
@@ -258,16 +258,16 @@
       <code style="flex:1"><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
       <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
     </div>
-    <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
-    <p class="hint">Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</p>
-    <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak. Or <code>/maxx session</code> for how much to burn this window.</p>
+    <p class="hint">Plugin manager (skill only, no bar): <code>/plugin marketplace add goodindustries/Maxx</code> · <code>/plugin install maxx@maxx</code>.</p>
+    <p class="hint">Plain ANSI — works in every terminal Claude Code does.</p>
+    <p class="hint" style="margin-top:18px">Then <code>/maxx</code> for your stats. <code>/maxx session</code> for this window.</p>
   </section>
 </div>
 
 <section class="wrap" id="connector">
   <h2>Every machine, one tally.</h2>
-  <p class="lead">Your quota is one pool, so maxx counts it as one: laptops, Claude Code cloud routines, claude.ai sessions. <b>The installer claims a handle from your Claude login and starts tracking on its own.</b> Use this form first if you want a particular name. One handle per Claude account.</p>
-  <p class="hint">Your own dashboards can subscribe too: webhooks push <code>over</code> / <code>recovered</code> / <code>week-80</code> / <code>week-90</code> / <code>week-95</code> / <code>runaway</code> transitions (<code>POST /api/u/&lt;you&gt;/webhooks</code>), and <code>GET /api/u/&lt;you&gt;/budget</code> serves live availability, burn rate and top burners for polling.</p>
+  <p class="lead">Your quota is one pool. maxx counts it as one: laptops, cloud routines, claude.ai. <b>The installer claims your handle on its own.</b> This form first if you want a particular name.</p>
+  <p class="hint">Webhooks: <code>over</code> / <code>recovered</code> / <code>week-80/90/95</code> / <code>runaway</code> → <code>POST /api/u/&lt;you&gt;/webhooks</code>. Poll <code>GET /api/u/&lt;you&gt;/budget</code>.</p>
   <div class="install" style="display:flex;width:100%;max-width:560px">
     <code style="flex:1;padding-right:0"><span class="p">@</span><input id="sg-handle" placeholder="your-handle" maxlength="32" autocomplete="off" spellcheck="false" style="background:none;border:0;outline:0;color:inherit;font:inherit;width:100%"></code>
     <button id="sg-go">Get my URL</button>
@@ -326,14 +326,14 @@
   <section class="ingrid">
     <div class="privacy">
       <h2>Your stuff stays yours</h2>
-      <p class="lead" style="margin:0 auto">Nothing leaves your machine until you claim a handle. After that, maxx sends counts only: tokens, timestamps, model names. Never a prompt, never a message, never your code — the emitter cannot leak what it never reads. It is MIT licensed, so you can read the code.</p>
+      <p class="lead" style="margin:0 auto">Counts only: tokens, timestamps, model names. Never a prompt, never your code — the emitter can't leak what it never reads. MIT. Read the code.</p>
     </div>
   </section>
 
   <section class="ingrid" id="hello">
     <div class="hello">
       <h2>Say hello</h2>
-      <p class="lead" style="margin:6px auto 0">Questions, ideas, or a better formula? Drop us a line.</p>
+      <p class="lead" style="margin:6px auto 0">Better formula? Tell Reif.</p>
       <p style="margin-top:20px"><a class="btn primary" style="display:inline-block;padding:11px 22px;border-radius:10px;font-weight:600;font-size:15px;background:var(--brand);color:#fff" href="mailto:reif@thegoodproject.net">Email Reif</a></p>
     </div>
   </section>

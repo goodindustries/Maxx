@@ -14,7 +14,7 @@ per sentence. Never be clever at the cost of being clear.
 META / BROWSER TAB
 ------------------
 Title: maxx — track your tokens from everywhere.
-Description: Every machine, every cloud agent, one live tally. maxx counts the tokens you actually spend and shows what is left, in your terminal and on one page. One line to install.
+Description: Every machine, every cloud agent, one live tally. One line to install.
 OG description: Every machine, every cloud agent, one live tally. One line to install.
 
 NAV
@@ -25,21 +25,21 @@ HERO
 ----
 Eyebrow: For Claude Code
 H1: Track your tokens from everywhere.
-Sub: Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.
+Sub: Every machine, every cloud agent, one live tally.
 Install line: curl -fsSL https://meetmaxx.co/install | bash
 
 HERO VISUALS (in order)
 -----------------------
 1. The live dashboard, iframed (meetmaxx.co/u/reif_tgp/dash — public view, names redacted)
-   Caption: The dashboard: every machine and cloud agent on one page, live. Share it — viewers see names redacted. Open Reif's -> meetmaxx.co/u/reif_tgp/dash
+   Caption: Share it — viewers see names redacted. Binge-watch Reif's -> meetmaxx.co/u/reif_tgp/dash
 2. Statusline recording (statusline.mp4, autoplay/muted/loop, poster statusline-poster.jpg)
-   Caption: And the same numbers in your Claude Code statusline, updated every second.
+   Caption: Same numbers in your statusline, every second.
 
 SECTION: THE WRONG NUMBER
 -------------------------
 H2: /usage shows you the wrong number.
 Big: A 7-day limit holds about 2.8 days of full 5-hour sessions.
-Fix: Spend every window to the wall and the week is gone by Wednesday night.
+Fix: Burn every window to the wall and the week is gone by Wednesday night.
 
 SECTION: HERE IS THE MATH
 -------------------------
@@ -47,24 +47,24 @@ H2: Here is the math.
 Lead: Four lines. That is the whole product.
 
 pace    to_spend = week_left ÷ 5h_windows_left
-        The sustainable token usage for this next 5hr period.
+        What to spend this window.
 anchor  cap = burned ÷ used%
-        Pinned to Claude's own /usage numbers every refresh.
+        Pinned to /usage.
 burn    per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × model_price
         Different models cost different
 models  haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3
-        Price-weighted. Refreshed daily from Anthropic's price sheet.
+        From Anthropic's price sheet, daily.
 
-Footnote: A Fable token costs ten times a Haiku token, so maxx counts your tokens at what they actually cost.
+Footnote: A Fable token costs 10× a Haiku token. maxx counts what they cost.
 
 SECTION: HOW TO READ THE BAR
 ----------------------------
 H2: How to read the bar
 Lead: Two rails: this session, and the week.
 
-session: what you can safely spend now — your weekly budget paced across the 5-hour windows left.
-week: tokens left in your 7-day limit, updated every second.
-context: how full the context window is, plus model, branch, spend and cache-hit rate.
+session: safe to spend right now.
+week: what's left of your 7 days, live.
+context: how full, plus model, branch, spend, cache.
 
 Animated notes (cycle under the demo rail):
 - Under pace. Banking tokens.
@@ -76,25 +76,25 @@ SECTION: INSTALL
 ----------------
 H2: Install
 Lead: One line in your terminal. Restart Claude Code. Done.
-Hint 1: Prefer the plugin manager (skill only, no bar)? In Claude Code: /plugin marketplace add goodindustries/Maxx then /plugin install maxx@maxx.
-Hint (terminals): Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.
-Hint 2: Then type /maxx any time for total tokens, tokens/day, cache-hit rate and streak. Or /maxx session for how much to burn this window.
+Hint 1: Plugin manager (skill only, no bar): /plugin marketplace add goodindustries/Maxx · /plugin install maxx@maxx.
+Hint (terminals): Plain ANSI — works in every terminal Claude Code does.
+Hint 2: Then /maxx for your stats. /maxx session for this window.
 
 SECTION: EVERY MACHINE, ONE TALLY
 ---------------------------------
 H2: Every machine, one tally.
-Lead: Your quota is one pool, so maxx counts it as one: laptops, Claude Code cloud routines, claude.ai sessions. The installer claims a handle from your Claude login and starts tracking on its own. Use this form first if you want a particular name. One handle per Claude account.
-Hint: Your own dashboards can subscribe too: webhooks push over / recovered / week-80 / week-90 / week-95 / runaway transitions (POST /api/u/<you>/webhooks), and GET /api/u/<you>/budget serves live availability, burn rate and top burners for polling.
+Lead: Your quota is one pool. maxx counts it as one: laptops, cloud routines, claude.ai. The installer claims your handle on its own. This form first if you want a particular name.
+Hint: Webhooks: over / recovered / week-80/90/95 / runaway -> POST /api/u/<you>/webhooks. Poll GET /api/u/<you>/budget.
 
 SECTION: PRIVACY
 ----------------
 H2: Your stuff stays yours
-Lead: Nothing leaves your machine until you claim a handle. After that, maxx sends counts only: tokens, timestamps, model names. Never a prompt, never a message, never your code — the emitter cannot leak what it never reads. It is MIT licensed, so you can read the code.
+Lead: Counts only: tokens, timestamps, model names. Never a prompt, never your code — the emitter can't leak what it never reads. MIT. Read the code.
 
 SECTION: SAY HELLO
 ------------------
 H2: Say hello
-Lead: Questions, ideas, or a better formula? Drop us a line.
+Lead: Better formula? Tell Reif.
 Button: Email Reif (mailto reif@thegoodproject.net)
 
 FOOTER
