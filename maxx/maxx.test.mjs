@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { rollSession } from "./limit.mjs";
@@ -58,4 +58,28 @@ test("render --status pins usedPct to Anthropic's real % (the 2× bug fix)", () 
   const s = JSON.parse(out);
   assert.equal(s.weekly.usedPct, 37, "weekly bar must match /usage seven_day %");
   assert.equal(s.session.rawUsedPct, 6, "raw 5h wall must match /usage five_hour %");
+});
+
+test("render stamps the signed-in account on rl.json/status.json (CLAUDE_CONFIG_DIR-aware)", () => {
+  const home = mkdtempSync(path.join(tmpdir(), "maxx-test-"));
+  mkdirSync(path.join(home, ".maxx"), { recursive: true });
+  writeFileSync(path.join(home, ".claude.json"),
+    JSON.stringify({ oauthAccount: { accountUuid: "acct-default", emailAddress: "a@x.com" } }));
+  const alt = path.join(home, ".claude-alt");
+  mkdirSync(alt, { recursive: true });
+  writeFileSync(path.join(alt, ".claude.json"),
+    JSON.stringify({ oauthAccount: { accountUuid: "acct-alt", emailAddress: "b@y.com" } }));
+  const stdin = JSON.stringify({
+    rate_limits: {
+      five_hour: { used_percentage: 6, resets_at: in6d },
+      seven_day: { used_percentage: 37, resets_at: in6d },
+    },
+    context_window: { used_percentage: 10 },
+    model: { display_name: "Opus" },
+  });
+  const run = (env) => JSON.parse(execFileSync("node", [path.join(HERE, "render.mjs"), "--status"],
+    { input: stdin, env: { ...process.env, HOME: home, ...env }, encoding: "utf8" }));
+  assert.equal(run({ CLAUDE_CONFIG_DIR: "" }).account, "acct-default");
+  assert.equal(JSON.parse(readFileSync(path.join(home, ".maxx", "rl.json"), "utf8")).account, "acct-default");
+  assert.equal(run({ CLAUDE_CONFIG_DIR: alt }).account, "acct-alt", "a session in an alternate config dir is that dir's account");
 });

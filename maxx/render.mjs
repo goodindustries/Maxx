@@ -231,6 +231,16 @@ function netBar(standing, greenScale, redScale, w) {
 // ─── sidecar state ─────────────────────────────────────────────────────────────
 const HOME = homedir();
 const readJSON = (p, d = {}) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return d; } };
+// Which Claude ACCOUNT this session is signed into. Anchors are per account, and the
+// shipper must never calibrate another account's timeline with them — so every rl.json/
+// status.json write carries the observer's uuid. A session launched with CLAUDE_CONFIG_DIR
+// keeps its oauth state in that dir, not ~/.claude.json.
+const sessAccount = (() => {
+  try {
+    const f = path.join(process.env.CLAUDE_CONFIG_DIR || HOME, ".claude.json");
+    return JSON.parse(readFileSync(f, "utf8")).oauthAccount?.accountUuid || null;
+  } catch { return null; }
+})();
 const statePath = path.join(HOME, ".maxx", "state.json");
 const sprintPath = path.join(HOME, ".maxx", "sprint.json");
 const sessionsCache = path.join(HOME, ".maxx", ".sessions");
@@ -452,7 +462,7 @@ function main() {
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
   // sum at the real window start instead of a blind rolling 7d — see weekLo below.
-  try { if (liveRL && haveQuota) writeFileSync(path.join(HOME, ".maxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now() })); } catch {}
+  try { if (liveRL && haveQuota) writeFileSync(path.join(HOME, ".maxx", "rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now(), account: sessAccount })); } catch {}
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
   const marksPath = path.join(HOME, ".maxx", "marks.json");
@@ -676,7 +686,7 @@ function main() {
   sStat.rawUsedPct = haveQuota ? Math.round(quota * 1000) / 10 : 0; // % of the ACTUAL fixed 5h window (= /usage)
   sStat.rawHeadroom = Math.max(0, (cap5s || 0) - rawUsedFixed);     // tokens left before the 5h wall
   const status = {
-    ts: Date.now(), model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
+    ts: Date.now(), account: sessAccount, model: fam, ctxPct: Math.round(ctxPct), cachePct: Math.round(cache * 100),
     costUsd: Math.round(usd * 100) / 100, sessions: mine,
     // session.cap = realMax (weekly-derived sustainable budget), NOT Anthropic's raw 5h cap.
     session: sStat, weekly: wStat,

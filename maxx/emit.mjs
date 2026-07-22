@@ -31,7 +31,7 @@
  *
  * Wire contract: see maxx/LOGS.md.
  */
-import { createReadStream, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, hostname } from "node:os";
@@ -185,17 +185,65 @@ const surface = cfg.surface || `laptop:${installId.slice(0, 8)}`;
 
 // The signed-in Claude account — Claude Code only works logged in, so this identity is always
 // there to key off. Stamped on signup + every envelope; timelines are per account, never global.
-function claudeAccount() {
+function claudeAccount(file = path.join(HOME, ".claude.json")) {
   try {
-    const oa = JSON.parse(readFileSync(path.join(HOME, ".claude.json"), "utf8")).oauthAccount || {};
+    const oa = JSON.parse(readFileSync(file, "utf8")).oauthAccount || {};
     return { uuid: oa.accountUuid || null, email: oa.emailAddress || null };
   } catch { return { uuid: null, email: null }; }
+}
+
+// Every Claude login root on this box: the default (~/.claude.json + ~/.claude/projects)
+// plus each alternate CLAUDE_CONFIG_DIR (~/.claude-*). Each root is signed into its own
+// account, and burn ships to THAT account's handle — a login switch cuts the stream over
+// instead of pouring a foreign account's burn into the pinned handle.
+function claudeRoots() {
+  if (args.dir !== DEFAULT_DIR) // explicit --dir override: single root, legacy identity
+    return [{ dir: args.dir, acctFile: path.join(HOME, ".claude.json"), isDefault: true }];
+  const roots = [{ dir: DEFAULT_DIR, acctFile: path.join(HOME, ".claude.json"), isDefault: true }];
+  try {
+    for (const e of readdirSync(HOME, { withFileTypes: true }))
+      if (e.isDirectory() && e.name.startsWith(".claude-") && existsSync(path.join(HOME, e.name, ".claude.json")))
+        roots.push({ dir: path.join(HOME, e.name, "projects"), acctFile: path.join(HOME, e.name, ".claude.json"), isDefault: false });
+  } catch {}
+  return roots;
+}
+
+// Resolve each root to its ship target via the per-account map (cfg.accounts:
+// uuid → {handle, secret}). The legacy single handle migrates onto whatever account
+// the default login is on the first time this runs. An account with no handle is
+// SKIPPED loudly, never mixed into another account's timeline.
+const warnedRoots = new Set();
+function resolveRoots() {
+  const map = cfg.accounts || (cfg.accounts = {});
+  const out = [];
+  let migrated = false;
+  for (const r of claudeRoots()) {
+    const acct = claudeAccount(r.acctFile);
+    if (r.isDefault && acct.uuid && cfg.handle && secret && !map[acct.uuid] &&
+        !Object.values(map).some((a) => a.handle === cfg.handle)) {
+      map[acct.uuid] = { handle: cfg.handle, secret, email: acct.email };
+      migrated = true;
+    }
+    const t = acct.uuid ? map[acct.uuid]
+      : r.isDefault && cfg.handle ? { handle: cfg.handle, secret } : null; // no oauth info readable → pre-cutover behavior
+    if (!t) {
+      const key = acct.uuid || r.dir;
+      if (!warnedRoots.has(key))
+        console.log(`  SKIP ${r.dir} — account ${acct.email || "?"} (${(acct.uuid || "?").slice(0, 8)}) has no handle; its burn is NOT shipped. Run --signup under that login, or add it to accounts in ${CONFIG}.`);
+      warnedRoots.add(key);
+      continue;
+    }
+    out.push({ ...r, uuid: acct.uuid, email: acct.email, handle: t.handle, secret: t.secret });
+  }
+  if (migrated && args.send) { try { writeFileSync(CONFIG, JSON.stringify(cfg, null, 2)); } catch {} }
+  return out;
 }
 
 // --signup: claim a handle on the tally server, persist handle/secret/logsUrl.
 // `--signup` with no handle derives one from the Claude login (email local part) — zero-input onboarding.
 if (args.signup) {
-  const acct = claudeAccount();
+  // sign up AS the login of the session you're in — a CLAUDE_CONFIG_DIR session is that dir's account
+  const acct = claudeAccount(path.join(process.env.CLAUDE_CONFIG_DIR || HOME, ".claude.json"));
   const derived = args.signup === true;
   if (derived) {
     const local = (acct.email || "").split("@")[0].toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^[-_]+/, "");
@@ -214,7 +262,12 @@ if (args.signup) {
   const out = await res.json().catch(() => ({}));
   if (!res.ok) { console.error(`signup failed (${res.status}): ${out.error || "?"}`); process.exit(1); }
   mkdirSync(path.dirname(CONFIG), { recursive: true });
-  writeFileSync(CONFIG, JSON.stringify({ ...cfg, handle: out.handle, secret: out.secret, logsUrl: base }, null, 2));
+  // per-account map entry always; the top-level handle only on FIRST signup — a later
+  // signup under another login must not clobber the existing account's handle
+  const accounts = { ...(cfg.accounts || {}) };
+  if (acct.uuid) accounts[acct.uuid] = { handle: out.handle, secret: out.secret, email: acct.email };
+  const top = cfg.handle && cfg.secret ? {} : { handle: out.handle, secret: out.secret };
+  writeFileSync(CONFIG, JSON.stringify({ ...cfg, ...top, accounts, logsUrl: base }, null, 2));
   console.log(`maxx: handle "${out.handle}" claimed — config written to ${CONFIG}`);
   console.log(`\n  Cloud connector — optional, only needed for claude.ai/cloud sessions:`);
   console.log(`    open  https://claude.ai/settings/connectors  → Add custom connector`);
@@ -283,24 +336,72 @@ if (args.installAgent) {
   process.exit(0);
 }
 
-// One emit cycle: read cursor, scan NEW usage past it, attach a fresh anchor,
-// print (dry) or POST (send) and advance the cursor only on a 2xx. Returns the
-// new maxTs so --watch can chain cycles. First run (no cursor) ships ALL history
-// — a one-time bulk backfill so the server has complete ground truth to
-// reconstruct usage over time and true-up caps against every past anchor.
+// One emit cycle: for EACH login root, read its cursor, scan NEW usage past it,
+// attach the anchor if this root's account observed it, print (dry) or POST (send)
+// and advance that root's cursor only on a 2xx. First run of a root (no cursor)
+// ships ALL its history — a one-time bulk backfill so the server has complete
+// ground truth to reconstruct usage over time and true-up caps against every anchor.
 async function runOnce({ quiet = false } = {}) {
   const nowSec = Date.now() / 1000;
-  const cursorState = readJSON(CURSOR, {});
-  const sinceSec = args.since ? Date.parse(args.since) / 1000 : (cursorState.lastTs || 0);
+  const cursorAll = readJSON(CURSOR, {});
+  cursorAll.roots = cursorAll.roots || {};
 
-  const files = await recentFiles(args.dir, (sinceSec - 120) * 1000 || 0);
+  // Anchor: the authoritative subscription %s the interactive statusline observed.
+  // Only attach if fresh — never ship a stale anchor with a new timestamp. Per
+  // ACCOUNT: rl.json carries the observer's uuid; another account's envelope must
+  // not carry it (it would mis-calibrate that timeline's caps). An unstamped
+  // legacy anchor keeps the old behavior: default root only.
+  const rl = readJSON(RL, null);
+  let anchor = null;
+  if (rl && rl.ts && (Date.now() - rl.ts) / 1000 < ANCHOR_MAX_AGE_SEC && (rl.quota != null || rl.week != null)) {
+    anchor = {
+      five_pct: rl.quota ?? null, week_pct: rl.week ?? null,
+      five_reset: rl.fiveResetAt ?? null, week_reset: rl.weekResetAt ?? null,
+      observed_at: iso(rl.ts / 1000),
+    };
+    // Statusline passthrough: ship the bar's OWN computed numbers (its units) so every
+    // surface shows what the CLI shows, instead of re-deriving from the coarse integer %.
+    const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
+    if (st && st.ts && (Date.now() - st.ts) / 1000 < ANCHOR_MAX_AGE_SEC && st.weekly?.cap > 0 &&
+        (!st.account || !rl.account || st.account === rl.account)) {
+      anchor.sl = {
+        five_used: st.session?.rawUsed ?? null, five_cap: st.session?.rawCap ?? null,
+        to_spend: st.session?.toSpend ?? null, over: st.session?.over ?? null,
+        week_used: st.weekly.used ?? null, week_cap: st.weekly.cap,
+        bank: st.session?.bank ?? null, net_per_min: st.netPerMin ?? null,
+        at: iso(st.ts / 1000),
+      };
+    }
+  }
+  const anchorFor = (root) => !anchor ? null
+    : rl.account ? (rl.account === root.uuid ? anchor : null)
+    : root.isDefault ? anchor : null;
+
+  const jsonOut = [];
+  let maxAll = 0, failed = false;
+  for (const root of resolveRoots()) {
+    const r = await emitRoot(root, { quiet, nowSec, cursorAll, anchor: anchorFor(root) });
+    if (r.envelope && args.json) jsonOut.push(r.envelope);
+    if (r.failed) failed = true;
+    if (r.maxTs > maxAll) maxAll = r.maxTs;
+  }
+  if (args.json && !quiet) console.log(JSON.stringify(jsonOut, null, 2));
+  if (failed && !args.watch) process.exit(1);
+  return maxAll;
+}
+
+async function emitRoot(root, { quiet, nowSec, cursorAll, anchor }) {
+  const cur = cursorAll.roots[root.dir] || (root.isDefault ? { lastTs: cursorAll.lastTs, at: cursorAll.at } : {});
+  const sinceSec = args.since ? Date.parse(args.since) / 1000 : (cur.lastTs || 0);
+
+  const files = await recentFiles(root.dir, (sinceSec - 120) * 1000 || 0);
   const roots = new Map();
   let maxTs = sinceSec;
   const seen = new Set(); // dedup requestId/uuid across all files this cycle
   for (const f of files) {
     const s = await ingestSince(f, sinceSec, seen);
     if (!s.billed) continue;
-    const c = classify(args.dir, f);
+    const c = classify(root.dir, f);
     const key = `${c.project}/${c.root}`;
     let r = roots.get(key);
     if (!r) { r = { root: c.root, project: projShort(c.project), name: null, branch: null, version: null, billed: 0, output: 0, turns: 0, input: 0, cache_read: 0, cache_write: 0, raw: 0, tool_calls: 0, agent_turns: 0, errors: 0, ctx: 0, lastModel: null, byModel: {}, first: 0, last: 0 }; roots.set(key, r); }
@@ -317,30 +418,6 @@ async function runOnce({ quiet = false } = {}) {
     if (s.last > maxTs) maxTs = s.last;
   }
 
-  // Anchor: the authoritative subscription %s the interactive statusline observed.
-  // Only attach if fresh — never ship a stale anchor with a new timestamp.
-  const rl = readJSON(RL, null);
-  let anchor = null;
-  if (rl && rl.ts && (Date.now() - rl.ts) / 1000 < ANCHOR_MAX_AGE_SEC && (rl.quota != null || rl.week != null)) {
-    anchor = {
-      five_pct: rl.quota ?? null, week_pct: rl.week ?? null,
-      five_reset: rl.fiveResetAt ?? null, week_reset: rl.weekResetAt ?? null,
-      observed_at: iso(rl.ts / 1000),
-    };
-    // Statusline passthrough: ship the bar's OWN computed numbers (its units) so every
-    // surface shows what the CLI shows, instead of re-deriving from the coarse integer %.
-    const st = readJSON(path.join(HOME, ".maxx", "status.json"), null);
-    if (st && st.ts && (Date.now() - st.ts) / 1000 < ANCHOR_MAX_AGE_SEC && st.weekly?.cap > 0) {
-      anchor.sl = {
-        five_used: st.session?.rawUsed ?? null, five_cap: st.session?.rawCap ?? null,
-        to_spend: st.session?.toSpend ?? null, over: st.session?.over ?? null,
-        week_used: st.weekly.used ?? null, week_cap: st.weekly.cap,
-        bank: st.session?.bank ?? null, net_per_min: st.netPerMin ?? null,
-        at: iso(st.ts / 1000),
-      };
-    }
-  }
-
   const sessions = [...roots.values()]
     .sort((a, b) => b.billed - a.billed)
     .map((r) => ({
@@ -355,31 +432,29 @@ async function runOnce({ quiet = false } = {}) {
   const totalOutput = sessions.reduce((a, s) => a + s.output, 0);
 
   const envelope = {
-    v: 1, surface, install_id: installId, handle,
-    account: claudeAccount().uuid,       // which Claude account this burn counted against
+    v: 1, surface, install_id: installId, handle: root.handle,
+    account: root.uuid,                  // which Claude account this burn counted against
     emitted_at: iso(nowSec), since: sinceSec ? iso(sinceSec) : null,
     cursor: String(Math.round(maxTs)),
     totals: { billed: totalBilled, output: totalOutput, sessions: sessions.length },
     sessions, anchor,
   };
 
-  if (!quiet) {
-    console.log(`MAXX_EMIT handle=${handle} surface=${surface} new_billed=${totalBilled} output=${totalOutput} sessions=${sessions.length} anchor=${anchor ? "yes" : "no"} target=${base}/api/u/${handle}/logs mode=${args.send ? "send" : "dry"}`);
-    if (args.json) console.log(JSON.stringify(envelope, null, 2));
-  }
+  if (!quiet && !args.json)
+    console.log(`MAXX_EMIT handle=${root.handle} surface=${surface} new_billed=${totalBilled} output=${totalOutput} sessions=${sessions.length} anchor=${anchor ? "yes" : "no"} target=${base}/api/u/${root.handle}/logs mode=${args.send ? "send" : "dry"}`);
   // Idle heartbeat: no new burn still refreshes the server's anchor. Without this an
   // idle laptop lets the anchor age out and every fail-closed gate blocks on "stale"
   // while budget sits unused. Throttled off the cursor stamp; needs a fresh local
-  // anchor to ship (a genuinely blind machine still goes stale — that's correct).
-  const lastSendAt = (() => { try { return Date.parse(JSON.parse(readFileSync(CURSOR, "utf8")).at) || 0; } catch { return 0; } })();
+  // anchor PAIRED TO THIS ROOT'S ACCOUNT to ship (a blind machine still goes stale).
+  const lastSendAt = Date.parse(cur.at || 0) || 0;
   const hbMin = process.env.MAXX_HEARTBEAT_MIN !== undefined ? Number(process.env.MAXX_HEARTBEAT_MIN) : 5;
   const hbDue = args.send && anchor && Date.now() - lastSendAt > hbMin * 60_000;
-  if (!totalBilled && !hbDue) { if (!quiet) console.log("  nothing new since cursor."); return maxTs; }
-  if (!totalBilled && !quiet) console.log("  idle heartbeat — anchor-only refresh.");
+  if (!totalBilled && !hbDue) { if (!quiet && !args.json) console.log("  nothing new since cursor."); return { envelope, maxTs }; }
+  if (!totalBilled && !quiet && !args.json) console.log("  idle heartbeat — anchor-only refresh.");
 
   if (!args.send) {
     if (!quiet && !args.json) {
-      console.log(`\n  DRY RUN — would POST to ${base}/api/u/${handle}/logs:`);
+      console.log(`\n  DRY RUN — would POST to ${base}/api/u/${root.handle}/logs:`);
       for (const s of sessions.slice(0, 8)) {
         const mm = Object.entries(s.by_model).map(([k, v]) => `${k} ${Math.round(v / 1e3)}k`).join(" ");
         console.log(`    ${String(Math.round(s.billed / 1e3)).padStart(6)}k  ${s.project} — ${s.name || s.root.slice(0, 8)}  (${mm})`);
@@ -387,32 +462,36 @@ async function runOnce({ quiet = false } = {}) {
       console.log(`  anchor: ${anchor ? `5h ${Math.round((anchor.five_pct || 0) * 100)}% · week ${Math.round((anchor.week_pct || 0) * 100)}%` : "none fresh"}`);
       console.log(`  cursor would advance ${sinceSec ? iso(sinceSec) : "(start)"} → ${iso(maxTs)}\n  run with --send to ship it.\n`);
     }
-    return maxTs;
+    return { envelope, maxTs };
   }
 
   // --send
-  if (!secret) { process.stderr.write("maxx emit: no secret in ~/.maxx/config.json.\n"); if (!args.watch) process.exit(1); return maxTs; }
+  if (!root.secret) { process.stderr.write(`maxx emit: no secret for ${root.handle} in ~/.maxx/config.json.\n`); return { envelope, maxTs, failed: true }; }
   try {
-    const res = await fetch(`${base}/api/u/${encodeURIComponent(handle)}/logs`, {
+    const res = await fetch(`${base}/api/u/${encodeURIComponent(root.handle)}/logs`, {
       method: "POST",
-      headers: { "content-type": "application/json", "authorization": `Bearer ${secret}` },
+      headers: { "content-type": "application/json", "authorization": `Bearer ${root.secret}` },
       body: JSON.stringify(envelope),
       signal: AbortSignal.timeout(15000),
     });
     const body = await res.text().catch(() => "");
     if (res.ok) {
-      writeFileSync(CURSOR, JSON.stringify({ lastTs: Math.round(maxTs), at: iso(nowSec) }));
+      cursorAll.roots[root.dir] = { lastTs: Math.round(maxTs), at: iso(nowSec) };
+      if (root.isDefault) { cursorAll.lastTs = Math.round(maxTs); cursorAll.at = iso(nowSec); }
+      writeFileSync(CURSOR, JSON.stringify(cursorAll));
       // Cache the ACCOUNT-WIDE budget so the local statusline can show the account net
       // (not just this machine's). The watcher is the network-talking component; gate.mjs
       // writes the same {at,b} file on gate checks, but only agent spawns trigger that —
       // this keeps it fresh every batch so render.mjs never falls back to a local-only net.
-      try {
-        const br = await fetch(`${base}/api/u/${encodeURIComponent(handle)}/budget`,
-          { headers: { authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(8000) });
+      // Default root only: gate-cache.json is a single file and the gate reads the
+      // primary login's budget (per-session gate/statusline cutover is a follow-up).
+      if (root.isDefault) try {
+        const br = await fetch(`${base}/api/u/${encodeURIComponent(root.handle)}/budget`,
+          { headers: { authorization: `Bearer ${root.secret}` }, signal: AbortSignal.timeout(8000) });
         if (br.ok) writeFileSync(path.join(HOME, ".maxx", "gate-cache.json"),
           JSON.stringify({ at: Date.now() / 1000, b: await br.json() }));
       } catch {}
-      console.log(`  sent ✓ ${res.status} +${fmtK(totalBilled)} · ${localT(maxTs)} · ${body.slice(0, 120)}`);
+      console.log(`  sent ✓ ${res.status} ${root.handle} +${fmtK(totalBilled)} · ${localT(maxTs)} · ${body.slice(0, 120)}`);
       // who/what per session, so a tail of this log is attributable on its own:
       // billed · project — session name [branch] (model mix)
       for (const s of sessions.slice(0, 6)) {
@@ -424,7 +503,7 @@ async function runOnce({ quiet = false } = {}) {
       }
       // pace context — the "so what" for the numbers above, from the local
       // statusline state (window.json): position vs the paced share + the walls.
-      const w = readJSON(path.join(HOME, ".maxx", "window.json"), null);
+      const w = root.isDefault ? readJSON(path.join(HOME, ".maxx", "window.json"), null) : null;
       if (w && w.ts && Date.now() - w.ts < 10 * 60_000) {
         const pace = w.sessionOver > 0
           ? `OVER share by ${fmtK(w.sessionOver)}`
@@ -432,14 +511,14 @@ async function runOnce({ quiet = false } = {}) {
         console.log(`      pace: ${pace} · window ${fmtK(w.used5)}/${fmtK(w.cap5)} · week ${Math.round((w.weekPct || 0) * 100)}% (${fmtK(Math.max(0, (w.weekCap || 0) - (w.weekUsed || 0)))} left) · ${w.sessionsLeft} windows to reset`);
       }
     } else {
-      console.log(`  send FAILED ${res.status} — cursor NOT advanced · ${body.slice(0, 200)}`);
-      if (!args.watch) process.exit(1);
+      console.log(`  send FAILED ${res.status} ${root.handle} — cursor NOT advanced · ${body.slice(0, 200)}`);
+      return { envelope, maxTs, failed: true };
     }
   } catch (e) {
-    console.log(`  send error — cursor NOT advanced · ${e.message}`);
-    if (!args.watch) process.exit(1);
+    console.log(`  send error ${root.handle} — cursor NOT advanced · ${e.message}`);
+    return { envelope, maxTs, failed: true };
   }
-  return maxTs;
+  return { envelope, maxTs };
 }
 
 const fmtK = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1e3) + "k";
@@ -482,7 +561,9 @@ if (!args.watch) {
       }
     }, 2000); // debounce 2s
   };
-  try { watch(args.dir, { recursive: true }, (_e, f) => { if (f && f.endsWith(".jsonl")) kick(); }); }
-  catch { /* recursive watch unsupported on some platforms */ }
+  for (const r of claudeRoots()) {
+    try { watch(r.dir, { recursive: true }, (_e, f) => { if (f && f.endsWith(".jsonl")) kick(); }); }
+    catch { /* recursive watch unsupported, or root has no projects dir yet — 60s backstop covers it */ }
+  }
   setInterval(kick, 60000); // 60s backstop
 }

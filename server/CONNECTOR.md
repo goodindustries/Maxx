@@ -101,10 +101,18 @@ No Netlify in the API path (confirmed by `cf-ray` header). meetmaxx.co (Netlify,
 
 - **Connector URL: `https://api.meetmaxx.co/mcp?handle=reif_tgp`** (Bearer). One
   handle per Claude ACCOUNT — every account has its own timeline, there is no
-  global one. `reif` = the retired account's frozen tally; `reif_tgp` = the
-  reif@thegoodproject.net account (active since 2026-07-20). The laptop's
-  account ledger (`~/.maxx/accounts.json`, maintained by `limit.mjs`) marks
-  which account owns which slice of the local logs.
+  global one. `reif` = the reiftauati@gmail.com account (live again since
+  2026-07-22); `reif_tgp` = the reif@thegoodproject.net account (active since
+  2026-07-20). The laptop's account ledger (`~/.maxx/accounts.json`, maintained
+  by `limit.mjs`) marks which account owns which slice of the local logs.
+- **Login cutover (2026-07-22):** the shipper routes per ACCOUNT. `~/.maxx/config.json`
+  holds `accounts: { <claude-account-uuid>: {handle, secret} }`; emit scans every
+  login root (`~/.claude` plus each `~/.claude-*` CLAUDE_CONFIG_DIR) and ships each
+  root's burn to the handle of the account that root is signed into. An account with
+  no mapped handle is SKIPPED loudly, never poured into another timeline. Anchors
+  are per account too: render stamps the observer's uuid into `rl.json`/`status.json`
+  and emit only attaches an anchor to its own account's envelope. Still single-account:
+  `gate-cache.json`/statusline net (follows the default `~/.claude` login only).
 - **CF DNS:** proxied CNAME `api.meetmaxx.co` → `51665939-…​.cfargotunnel.com` in the
   meetmaxx.co zone (needs a CF token with Zone:DNS:Edit on meetmaxx.co — lucky's
   tunnel cert only covers luckymachines.co).
