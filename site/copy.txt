@@ -65,6 +65,8 @@ Lead: Two rails: this session, and the week.
 session: safe to spend right now.
 week: what's left of your 7 days, live.
 context: how full, plus model, branch, spend, cache.
+@you: the sign-off in the bar links to your dash. Cmd-click it.
+the wall: hit it and maxx hands you Switzerland in 8K with the reset clock. Contemplate.
 
 Animated notes (cycle under the demo rail):
 - Under pace. Banking tokens.

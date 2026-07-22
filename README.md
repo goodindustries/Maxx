@@ -1,10 +1,10 @@
 # maxx
 
-### Track your token usage everywhere.
+### Track your tokens from everywhere.
 
 🌐 [meetmaxx.co](https://meetmaxx.co) · [Install](#install) · [How to read the bar](#how-to-read-the-bar)
 
-Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.
+Every machine, every cloud agent, one live tally — in your terminal and on one page.
 
 Claude enforces two walls at once: a 5-hour session cap and a 7-day weekly cap. `/usage` shows you the 5-hour one, which is not the one that ends your week. A 7-day limit holds about 2.8 days of full 5-hour sessions, so spending every window to the wall puts you out of tokens by Wednesday.
 
@@ -54,7 +54,9 @@ Two rails, both anchored to the exact `five_hour` / `seven_day` percentages `/us
 
 **`week`** — tokens left in your 7-day limit, updated every second. The fill is what remains; the `┊` tick marks even-burn pace. Fill past the tick and you are banked, short of it and you are spending too fast.
 
-**meta** — context fill, model, branch, spend, cache-hit rate, and `137k/+43k turn`: what your last 3 turns cost on average, and how far the newest turn sits from that average. That delta moves first when a context starts re-billing itself, well before the 5h meter reacts.
+**meta** — context fill, model, branch, spend, cache-hit rate, and `137k/+43k turn`: what your last 3 turns cost on average, and how far the newest turn sits from that average. That delta moves first when a context starts re-billing itself, well before the 5h meter reacts. The `@you` sign-off is a link to your dash (OSC 8 — cmd-click it in iTerm2, Ghostty, kitty).
+
+**the wall** — hit the 5-hour wall and the bar says so and hands you [Switzerland in 8K](https://www.youtube.com/watch?v=linlz7-Pnvw) with the reset clock. Claude stopped you anyway; the dash shows the same row. Time for some contemplation.
 
 ## The math
 
@@ -80,12 +82,12 @@ node ~/.claude/skills/maxx/emit.mjs --signup
 
 - **Laptops** — `emit.mjs --watch` ships counts continuously (launchd agent on macOS).
 - **Cloud routines and claude.ai** — add the printed URL as a custom MCP connector. Any agent holding it gets the budget-gate rules on connect and can call `maxx_budget` / `maxx_emit` against your account only.
-- **Your dashboard** — `meetmaxx.co/u/<you>` is a live card; `/u/<you>/dash` is the cockpit: burn rate, per-session attribution, channels, and what each is costing per turn.
+- **Your dashboard** — `meetmaxx.co/u/<you>` is a live card; `/u/<you>/dash` is the dash: burn rate, per-session attribution, channels (💻 machines, ☁️ cloud), and what each is costing per turn. The dash is the page you share — viewers see it live with names redacted (`machine 1`, `******2`); only your secret shows the real names.
 - **Your own tooling** — `GET /api/u/<you>/budget` serves live availability and top burners; webhooks push `over` / `recovered` / `week-80` / `week-90` / `week-95` / `runaway` transitions.
 
 ### The gate and the watchdog
 
-`gate.mjs` installs as a PreToolUse hook and denies expensive spawns when the tally says you are out. Verdicts are `ok`, `degraded` (no machine has read `/usage` lately, so the weekly ledger governs), `over`, and `stale`.
+`gate.mjs` installs as a PreToolUse hook and denies expensive spawns when the tally says you are out. Verdicts are `ok`, `degraded` (no machine has read `/usage` lately, so the weekly ledger governs), `over`, `stale`, and `calibrating` (a brand-new account before its first Claude Code session anchors the caps — pages render it neutral, agents treat it as a stop).
 
 The watchdog runs server-side on every emit. When the account is burning several times its sustainable pace and one session is driving it — because its context grew large enough that every turn re-bills the whole thing — it queues a `clear` directive against that session, which `gate.mjs` injects as context on that session's next tool call. Advisory only: it never pauses or denies, and it will not nag the same session twice in half an hour.
 
@@ -110,7 +112,7 @@ node ~/.claude/skills/maxx/render.mjs --status    # machine-readable status.json
 - `limit.mjs` maintains rolling price-weighted token buckets in `~/.maxx/window.json` (incremental transcript tails plus periodic reconciliation) and emits the session governor so an unattended agent burns only its sustainable share.
 - `emit.mjs` ships per-session counts to the central tally and attaches the `/usage` anchor.
 - `prices.mjs` refreshes per-model quota weights daily; `limit.mjs` falls back to built-in weights without it.
-- `server/` is the tally itself: `tally.mjs` is pure (ingest, budget, directives, watchdog), `handler.mjs` wraps it in HTTP + MCP and renders the card and cockpit.
+- `server/` is the tally itself: `tally.mjs` is pure (ingest, budget, directives, watchdog), `handler.mjs` wraps it in HTTP + MCP and renders the card and dash.
 
 ## Development
 
