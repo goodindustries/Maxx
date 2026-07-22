@@ -942,32 +942,30 @@ function main() {
     : metaRow;
 
   // "session" — the rolling-5h fuel tank (weekly-left ÷ windows-left, capped at the raw 5h wall; banks
-  // when you go light). "week" — the weekly reserve. Wide rail → both meters share ONE line
-  // (session left, week right-aligned, half the rail each); narrow → stacked. No air line either
-  // way — vertical space is the scarce thing the bar sits in.
-  const meterLines = (() => {
-    if (W >= 110) {
-      const half = Math.floor((W - 4) / 2); // 4 = the gap between the two panes
-      const mws = Math.max(16, Math.min(Math.round(half * 0.45), 44));
-      const s1 = meterContent("session  ", q5, e5, qv, true, sStat, mws, half);
-      const s2 = meterContent("week  ", w7, e7, wv, false, wStat, mws, half);
-      return [row(s1 + blank(W - dispWidth(s1) - dispWidth(s2)) + s2)];
-    }
-    return [
-      row(meterContent("session  ", q5, e5, qv, true, sStat)),
-      row(meterContent("week     ", w7, e7, wv, false, wStat)),
-    ];
-  })();
-  const out = [
-    ...meterLines,
-    // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
-    ...(haveQuota && quota >= 0.99 ? [row(
-      fg(RED, "you hit the session wall — time for some contemplation → ")
-      + link("https://www.youtube.com/watch?v=linlz7-Pnvw", fg(BRAND, "Swiss Alps in 8K"))
-      + (sStat.resetIn ? fg(DIM, " · back in " + sStat.resetIn) : ""),
-    )] : []),
-    row(metaFull),
-  ];
+  // when you go light). "week" — the weekly reserve. Meters ALWAYS stack (the two rails read as a
+  // pair); the meta line is what folds away on a wide rail — its halves right-align onto the meter
+  // lines (stats beside session, sign-off beside week). No air line either way — vertical space is
+  // the scarce thing the bar sits in. 4 rows → 2 wide, 3 narrow.
+  const mMeta = dispWidth(metaRow), mFoot = dispWidth(footStr);
+  const wide = W - Math.max(mMeta, mFoot) - 3 >= 9 + mw + 14; // meters keep full width + a cushion
+  const out = wide
+    ? [
+        (() => { const s = meterContent("session  ", q5, e5, qv, true, sStat, mw, W - mMeta - 3);
+                 return row(s + blank(W - dispWidth(s) - mMeta) + metaRow); })(),
+        (() => { const s = meterContent("week     ", w7, e7, wv, false, wStat, mw, W - mFoot - 3);
+                 return row(s + blank(W - dispWidth(s) - mFoot) + footStr); })(),
+      ]
+    : [
+        row(meterContent("session  ", q5, e5, qv, true, sStat)),
+        row(meterContent("week     ", w7, e7, wv, false, wStat)),
+        row(metaFull),
+      ];
+  // the 5h wall: Claude has stopped you anyway — same contemplation link as the dash
+  if (haveQuota && quota >= 0.99) out.push(row(
+    fg(RED, "you hit the session wall — time for some contemplation → ")
+    + link("https://www.youtube.com/watch?v=linlz7-Pnvw", fg(BRAND, "Swiss Alps in 8K"))
+    + (sStat.resetIn ? fg(DIM, " · back in " + sStat.resetIn) : ""),
+  ));
   try { writeFileSync(odoPath, JSON.stringify(odo)); } catch {} // persist the odometer counters for next render
   process.stdout.write(out.join("\n") + "\n");
 }
