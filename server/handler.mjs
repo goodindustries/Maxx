@@ -257,7 +257,7 @@ function renderCard(h, s, b, setup = null) {
 <meta property="og:image" content="https://meetmaxx.co/og-card.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:alt" content="Maxx — verified Claude token usage, every machine and cloud session">
-<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:width" content="2400"><meta property="og:image:height" content="1260">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${h} — verified Claude token usage">
 <meta name="twitter:description" content="${desc}">
@@ -687,6 +687,16 @@ function renderDash(h, s, { owner = true } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@${h} — ${owner ? "dash" : "live usage"} · Maxx</title>
+<meta property="og:title" content="@${h} — live Claude token usage">
+<meta property="og:description" content="Every machine, every cloud agent, one live tally — burn rate, budget rails, and the live activity tail.">
+<meta property="og:url" content="https://meetmaxx.co/u/${h}/dash">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Maxx">
+<meta property="og:image" content="https://meetmaxx.co/og-card.png">
+<meta property="og:image:width" content="2400"><meta property="og:image:height" content="1260">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="@${h} — live Claude token usage">
+<meta name="twitter:image" content="https://meetmaxx.co/og-card.png">
 <meta name="robots" content="noindex">
 <link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
