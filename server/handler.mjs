@@ -899,6 +899,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
   var kf=function(n){return Math.round(n/1000).toLocaleString('en-US')+'k'};
   var ago=function(s){return s<60?Math.round(s)+'s':s<3600?Math.round(s/60)+'m':s<86400?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
   var dur=function(sec){sec=Math.max(0,Math.round(sec));var hh=Math.floor(sec/3600),mn=Math.floor(sec%3600/60);return hh>0?hh+'h '+mn+'m':mn>0?mn+'m':sec+'s'};
+  // where a row was emitted from, at a glance. Matches both raw surfaces
+  // (laptop:xx, cloud:routine) and their public-redacted labels (machine N, cloud N).
+  var surfIcon=function(s){s=String(s||'');return s.indexOf('cloud')===0?'☁️':(s.indexOf('laptop')===0||s.indexOf('machine')===0)?'💻':'✳️'};
   var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
   var FIVE_H=5*3600,WEEK=7*86400,CTX_WALL=250e3;
 
@@ -1234,7 +1237,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
     });
     var body=rows.map(function(c){
       var mine=dirs.filter(function(d){return assign[d.id]===c.surface});
-      return '<tr><td class="mono">'+esc(c.surface)+'</td>'+
+      return '<tr><td class="mono">'+surfIcon(c.surface)+' '+esc(c.surface)+'</td>'+
         '<td>'+(c.last?ago(Math.max(0,t-c.last))+' ago':'—')+'</td>'+
         '<td class="num">'+(c.h1>0?'<b>+'+hum(c.h1)+'</b>':'idle')+'</td>'+
         '<td class="num">'+hum(c.b5)+'</td>'+
@@ -1291,7 +1294,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var pc=(window.__ctxPrev||{})[e.ts+'|'+keyOfEv(e)];
       var dc=pc!=null?e.ctx-pc:0;
       var dStr=Math.abs(dc)>=1000?' <span style="color:'+(dc>0?'#e0a13a':'#4ade80')+'">'+(dc>0?'▲':'▼')+hum(Math.abs(dc))+'</span>':'';
-      items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> '+
+      items.push({ms:ms,html:'<div class="ln"><span class="t">'+tl(ms)+'</span> '+surfIcon(e.surface)+' '+
         '<span class="chip" style="color:'+chipCol(proj)+'">'+esc(proj)+'</span> '+
         '<span class="v">+'+hum(e.billed)+'</span>'+
         (tag?' <span class="d">'+esc(tag)+'</span>':'')+
