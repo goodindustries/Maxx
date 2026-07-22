@@ -691,7 +691,7 @@ function renderDash(h, s, { owner = true } = {}) {
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
 .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;width:1780px;max-width:100%;align-items:stretch}
-@media(max-width:1400px){.wrap{grid-template-columns:1fr}}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}}
 .card{min-width:0;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:36px 42px 30px}
 .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:21px;letter-spacing:-.01em}

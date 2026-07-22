@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>maxx — track your token usage everywhere.</title>
+<title>maxx — track your tokens from everywhere.</title>
 <meta name="description" content="Every machine, every cloud agent, one live tally. maxx counts the tokens you actually spend and shows what is left, in your terminal and on one page. One line to install.">
-<meta property="og:title" content="maxx — track your token usage everywhere.">
+<meta property="og:title" content="maxx — track your tokens from everywhere.">
 <meta property="og:description" content="Every machine, every cloud agent, one live tally. One line to install.">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -66,6 +66,11 @@
      under /u/ already ships this ring. Same treatment, so tabbing feels the same. */
   :focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
   .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  /* the live dash is a two-pane page — give it room, don't squeeze it to a column */
+  .wide{max-width:1400px;margin:0 auto;padding:0 24px}
+  /* paired sections sit side by side; the page is not one long column */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:1200px;margin:0 auto;padding:52px 24px;align-items:start}
+  @media(max-width:920px){.grid2{grid-template-columns:1fr;padding:36px 24px}}
 
   /* nav */
   nav{display:flex;align-items:center;justify-content:space-between;padding:16px 0;max-width:960px;margin:0 auto;padding-left:24px;padding-right:24px}
@@ -93,31 +98,19 @@
   .install button:hover{background:var(--brand-deep)}
   .install button.done{background:var(--green)}
   .hint{font-size:13px;color:var(--dim);margin-top:12px}
-  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:20px}
-  .btn{padding:11px 22px;border-radius:10px;font-weight:600;font-size:15px;border:1px solid var(--line)}
-  .btn.primary{background:var(--brand);color:#fff;border-color:transparent}
-  .btn.primary:hover{background:var(--brand-deep);text-decoration:none}
-  .btn.ghost{color:var(--ink)}
-  .btn.ghost:hover{border-color:var(--brand);text-decoration:none}
 
   /* demo */
-  .demo{margin:30px auto 10px;max-width:900px}
+  .demo{margin:30px auto 10px}
   .term{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:0 24px 60px hsl(266 50% 30% / .16)}
   .term .dots{display:flex;gap:7px;padding:4px 6px 12px}
   .term .dots i{width:11px;height:11px;border-radius:50%;display:block;background:var(--track)}
   .term img,.term video{width:100%;height:auto;display:block;border-radius:9px}
   .shot{border-radius:var(--radius);overflow:hidden;box-shadow:0 24px 60px hsl(266 50% 30% / .18);border:1px solid var(--line)}
   .shot img{width:100%;display:block}
-  /* On a phone the whole 1100px dashboard shrinks to ~330px, which renders its
-     13px type at 4px — the lead visual says nothing. Scale up and crop to the
-     left instead, so the odometer and the rails stay legible. */
-  @media(max-width:560px){
-    .shot img{width:165%;max-width:none;margin-left:-6%}
-  }
 
-  /* live embed — Reif's real public card, in an iframe */
-  .live-shot iframe{width:100%;height:1080px;border:0;display:block;background:#eceef3}
-  @media(max-width:700px){.live-shot iframe{height:1180px}}
+  /* live embed — Reif's real dashboard, in an iframe. Public view: names redacted. */
+  .live-shot iframe{width:100%;height:1180px;border:0;display:block;background:#eceef3}
+  @media(max-width:1000px){.live-shot iframe{height:1750px}}
   .live-note{display:flex;align-items:flex-end;gap:8px;font-family:var(--mono);font-size:14px;font-weight:600;color:var(--brand)}
   .live-note svg{flex:none;stroke:var(--brand);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   .ln-top{justify-content:flex-end;margin:0 26px 6px 0;transform:rotate(-1.5deg)}
@@ -126,16 +119,9 @@
 
   /* sections */
   section{padding:52px 0}
+  .grid2 section,section.ingrid{padding:0}
   h2{font-family:var(--display);font-size:clamp(24px,3.6vw,32px);margin:0 0 8px;letter-spacing:-.015em;font-weight:600}
   .lead{color:var(--dim);font-size:17px;margin:0 0 30px;max-width:640px}
-
-  .feats{margin-top:28px;border-top:1px solid var(--line)}
-  .feat{display:grid;grid-template-columns:auto 1fr;gap:24px;padding:24px 2px;border-bottom:1px solid var(--line);align-items:baseline}
-  @media(max-width:560px){.feat{grid-template-columns:1fr;gap:6px}}
-  .feat-n{font-family:var(--mono);font-size:14px;color:var(--brand);font-weight:600;letter-spacing:.06em}
-  .feat h3{font-family:var(--display);font-size:20px;font-weight:600;margin:0 0 7px;color:var(--ink);letter-spacing:-.01em}
-  .feat p{margin:0;color:var(--dim);font-size:15.5px;line-height:1.55;max-width:660px}
-  .swatch{width:14px;height:14px;border-radius:4px;flex:none}
 
   /* reading the bar */
   .rail{font-family:var(--mono);font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;margin-bottom:14px}
@@ -147,32 +133,18 @@
   .b-red{background:var(--red)}
   .b-amber{background:var(--amber)}
   .k-red{color:var(--red)} .k-green{color:var(--green)} .k-dim{color:var(--dim)} .k-ink{color:var(--ink)}
-  .dtrack{position:relative;display:inline-block;width:min(56vw,360px);height:16px;background:var(--track);border-radius:4px;vertical-align:middle;overflow:hidden}
+  .dtrack{position:relative;display:inline-block;width:min(56vw,300px);height:16px;background:var(--track);border-radius:4px;vertical-align:middle;overflow:hidden}
   .dfill{position:absolute;top:0;bottom:0;width:0;transition:width 1.8s cubic-bezier(.4,0,.2,1)}
   .dfill.amber{left:0;background:linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))}
   .wk-tick{position:absolute;top:-2px;bottom:-2px;width:2px;background:hsl(266 28% 50%);border-radius:1px}
   .dfill.green{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
   .dfill.red{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
   .demo-note{margin:4px 0 16px;font-size:14px;color:var(--dim);min-height:1.2em;transition:opacity .3s}
-  .sit .r .lb{color:var(--dim);width:48px;flex:none}
-  .sit .fg{left:0;background:linear-gradient(90deg,hsl(150 42% 60%),hsl(150 46% 37%))}
-  .sit .fr{right:0;background:linear-gradient(270deg,hsl(354 52% 44%),hsl(354 58% 75%))}
-  .sit .fa{left:0;background:linear-gradient(90deg,hsl(38 72% 62%),hsl(38 70% 46%))}
-  .sit .fl{left:0;background:linear-gradient(90deg,hsl(354 58% 72%),hsl(354 55% 50%))}
-  .sit .cap b{color:var(--ink)}
   .readlist{list-style:none;padding:0;margin:18px 0 0}
   .readlist li{padding:10px 0;border-top:1px solid var(--line);color:var(--dim);font-size:15px}
   .readlist li b{color:var(--ink)}
   .hello{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:32px;text-align:center}
-  .hello form{display:grid;gap:12px;max-width:520px;margin:20px auto 0;text-align:left}
-  .hello .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  @media(max-width:560px){.hello .row2{grid-template-columns:1fr}}
-  .hello input,.hello textarea{font-family:var(--sans);font-size:15px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);width:100%}
-  .hello textarea{min-height:104px;resize:vertical}
-  .hello button{justify-self:center;padding:12px 30px;border:0;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
-  .hello button:hover{background:var(--brand-deep)}
-  .hidden{position:absolute;left:-9999px}
-  .lie{background:linear-gradient(135deg,hsl(266 45% 19%),hsl(268 52% 29%));color:hsl(265 60% 94%);border-radius:var(--radius);padding:42px 36px}
+  .lie{background:linear-gradient(135deg,hsl(266 45% 19%),hsl(268 52% 29%));color:hsl(265 60% 94%);border-radius:var(--radius);padding:42px 36px;height:100%;display:flex;flex-direction:column;justify-content:center}
   .lie h2{color:#fff;margin:0 0 18px}
   .lie p{font-size:18px;line-height:1.5;margin:0 0 14px;color:hsl(265 38% 86%)}
   .lie p:last-child{margin-bottom:0}
@@ -186,8 +158,6 @@
 
   footer{border-top:1px solid var(--line);margin-top:40px;padding:30px 0 60px;text-align:center;color:var(--dim);font-size:14px}
   footer a{color:var(--dim)}
-  .steps{background:var(--ink);color:hsl(265 60% 94%);border-radius:12px;padding:18px 20px;font-family:var(--mono);font-size:13.5px;overflow-x:auto}
-  .steps .c{color:hsl(266 20% 66%)}
 </style>
 </head>
 <body>
@@ -204,35 +174,30 @@
 
 <header class="wrap">
   <div class="eyebrow">For <b style="color:var(--brand)">Claude Code</b></div>
-  <h1>Track your token<br>usage everywhere.</h1>
+  <h1>Track your tokens<br>from everywhere.</h1>
   <p class="sub">Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.</p>
 
   <div class="install" id="install-top">
     <code><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
     <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
   </div>
-  <div class="cta">
-    <a class="btn primary" href="#install">Install</a>
-    <a class="btn ghost" href="https://github.com/goodindustries/Maxx">GitHub</a>
-  </div>
-  <div class="hint" style="margin-top:16px">Install <code>/maxx</code></div>
 </header>
 
-<div class="wrap demo">
+<div class="wide demo">
   <div class="live-note ln-top" aria-hidden="true">not a mockup — this is Reif's account, live
     <svg width="26" height="30" viewBox="0 0 26 30"><path d="M4 2 C 16 6, 20 14, 17 25 M11 20 l6 6 6-7"/></svg>
   </div>
   <div class="shot live-shot">
-    <iframe src="https://meetmaxx.co/u/reif_tgp" title="Reif's live maxx tally: lifetime tokens, usage chart, and session and week rails, updating as he works" loading="lazy"></iframe>
+    <iframe src="https://meetmaxx.co/u/reif_tgp/dash" title="Reif's live maxx dashboard: budget bars, burn rate, tokens per minute, machines and cloud agents, and the live activity tail — updating as he works" loading="lazy"></iframe>
   </div>
   <div class="live-note ln-bottom" aria-hidden="true">
     <svg width="26" height="30" viewBox="0 0 26 30"><path d="M22 28 C 10 24, 6 16, 9 5 M15 10 l-6-6 -6 7"/></svg>
-    those rails are Reif's session, right now
+    that burn is Reif's session, right now
   </div>
-  <p class="caption">Your dashboard: every machine and cloud agent on one page, live. <a href="https://meetmaxx.co/u/reif_tgp">Open Reif's →</a></p>
+  <p class="caption">The dashboard: every machine and cloud agent on one page, live. Share it — viewers see names redacted. <a href="https://meetmaxx.co/u/reif_tgp/dash">Open Reif's →</a></p>
 </div>
 
-<div class="wrap demo" style="margin-top:34px">
+<div class="wrap demo" style="margin-top:34px;max-width:900px">
   <div class="term">
     <div class="dots"><i></i><i></i><i></i></div>
     <video id="statusline-vid" src="statusline.mp4" poster="statusline-poster.jpg" width="1100" height="508"
@@ -245,59 +210,59 @@
   })();</script>
 </div>
 
-<section class="wrap" id="lie">
-  <div class="lie">
-    <h2><code style="font-family:var(--mono)">/usage</code> shows you the wrong number.</h2>
-    <p class="big">A 7-day limit holds about 2.8 days of full 5-hour sessions.</p>
-    <p class="fix">Spend every window to the wall and the week is gone by Wednesday night.</p>
-  </div>
-</section>
+<div class="grid2">
+  <section class="ingrid" id="lie" style="align-self:stretch">
+    <div class="lie">
+      <h2><code style="font-family:var(--mono)">/usage</code> shows you the wrong number.</h2>
+      <p class="big">A 7-day limit holds about 2.8 days of full 5-hour sessions.</p>
+      <p class="fix">Spend every window to the wall and the week is gone by Wednesday night.</p>
+    </div>
+  </section>
 
-<section class="wrap" id="math">
-  <h2>Here is the math.</h2>
-  <p class="lead">Four lines. That is the whole product.</p>
+  <section class="ingrid" id="math">
+    <h2>Here is the math.</h2>
+    <p class="lead" style="margin-bottom:18px">Four lines. That is the whole product.</p>
+    <div class="rail"><span class="lbl">pace&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">to_spend = week_left ÷ 5h_windows_left</span>&nbsp;&nbsp;<span class="k-dim">The sustainable token usage for this next 5hr period.</span></div>
+    <div class="rail"><span class="lbl">anchor&nbsp;</span> <span class="k-ink">cap = burned ÷ used%</span>&nbsp;&nbsp;<span class="k-dim">Pinned to Claude's own <code>/usage</code> numbers every refresh.</span></div>
+    <div class="rail"><span class="lbl">burn&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × model_price</span>&nbsp;&nbsp;<span class="k-dim">Different models cost different</span></div>
+    <div class="rail"><span class="lbl">models&nbsp;</span> <span class="k-ink">haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3</span>&nbsp;&nbsp;<span class="k-dim">Price-weighted. Refreshed daily from Anthropic's price sheet.</span></div>
+    <p class="hint" style="margin-top:14px">A Fable token costs ten times a Haiku token, so maxx counts your tokens at what they actually cost.</p>
+  </section>
+</div>
 
-  <div class="rail"><span class="lbl">pace&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">to_spend = week_left ÷ 5h_windows_left</span>&nbsp;&nbsp;<span class="k-dim">The sustainable token usage for this next 5hr period.</span></div>
-  <div class="rail"><span class="lbl">anchor&nbsp;</span> <span class="k-ink">cap = burned ÷ used%</span>&nbsp;&nbsp;<span class="k-dim">Pinned to Claude's own <code>/usage</code> numbers every refresh.</span></div>
-  <div class="rail"><span class="lbl">burn&nbsp;&nbsp;&nbsp;</span> <span class="k-ink">per line = (input + 5·output + 1.25·cache_write + 0.1·cache_read) × model_price</span>&nbsp;&nbsp;<span class="k-dim">Different models cost different</span></div>
-  <div class="rail"><span class="lbl">models&nbsp;</span> <span class="k-ink">haiku ⅓ · sonnet 1 · opus 5⁄3 · fable 10⁄3</span>&nbsp;&nbsp;<span class="k-dim">Price-weighted. Refreshed daily from Anthropic's price sheet.</span></div>
+<div class="grid2">
+  <section class="ingrid" id="read">
+    <h2>How to read the bar</h2>
+    <p class="lead" style="margin-bottom:18px">Two rails: this session, and the week.</p>
 
-  <p class="hint" style="margin-top:14px">A Fable token costs ten times a Haiku token, so maxx counts your tokens at what they actually cost.</p>
-</section>
+    <div class="rail">
+      <span class="lbl">session</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill green" id="df-green"></span><span class="dfill red" id="df-red"></span></span>&nbsp;&nbsp;<span id="df-num"></span> <span class="k-dim">·</span> <span id="df-rate"></span>
+    </div>
+    <p class="demo-note" id="df-note">&nbsp;</p>
+    <div class="rail">
+      <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill amber" id="wk-fill" style="transition:none"></span><span class="wk-tick" id="wk-tick"></span></span>&nbsp;&nbsp;<span class="k-ink" id="wk-left">318,402k left</span> <span class="k-dim">·</span> <span id="wk-standing" class="k-green">+24,013k banked</span> <span class="k-dim">·</span> <span id="wk-days">6d</span>
+    </div>
+    <p class="demo-note">The fill is what's left of the week. The ╎ tick marks your sustainable pace: fill past it and you're banked, short of it and you're spending too fast.</p>
 
-<section class="wrap" id="read">
-  <h2>How to read the bar</h2>
-  <p class="lead">Two rails: this session, and the week.</p>
+    <ul class="readlist">
+      <li><b>session</b>: what you can safely spend now — your weekly budget paced across the 5-hour windows left.</li>
+      <li><b>week</b>: tokens left in your 7-day limit, updated every second.</li>
+      <li><b>context</b>: how full the context window is, plus model, branch, spend and cache-hit rate.</li>
+    </ul>
+  </section>
 
-  <div class="rail">
-    <span class="lbl">session</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill green" id="df-green"></span><span class="dfill red" id="df-red"></span></span>&nbsp;&nbsp;<span id="df-num"></span> <span class="k-dim">·</span> <span id="df-rate"></span>
-  </div>
-  <p class="demo-note" id="df-note">&nbsp;</p>
-  <div class="rail">
-    <span class="lbl">week&nbsp;&nbsp;&nbsp;</span>&nbsp;&nbsp;<span class="dtrack"><span class="dfill amber" id="wk-fill" style="transition:none"></span><span class="wk-tick" id="wk-tick"></span></span>&nbsp;&nbsp;<span class="k-ink" id="wk-left">318,402k left</span> <span class="k-dim">·</span> <span id="wk-standing" class="k-green">+24,013k banked</span> <span class="k-dim">·</span> <span id="wk-days">6d</span>
-  </div>
-  <p class="demo-note">The fill is what's left of the week. The ╎ tick marks your sustainable pace: fill past it and you're banked, short of it and you're spending too fast.</p>
-
-  <ul class="readlist">
-    <li><b>session</b>: what you can safely spend now — your weekly budget paced across the 5-hour windows left.</li>
-    <li><b>week</b>: tokens left in your 7-day limit, updated every second.</li>
-    <li><b>context</b>: how full the context window is, plus model, branch, spend and cache-hit rate.</li>
-  </ul>
-</section>
-
-
-
-<section class="wrap" id="install">
-  <h2>Install</h2>
-  <p class="lead">One line in your terminal. Restart Claude Code. Done.</p>
-  <div class="install" style="display:flex;width:100%">
-    <code style="flex:1"><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
-    <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
-  </div>
-  <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
-  <p class="hint">Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</p>
-  <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak. Or <code>/maxx session</code> for how much to burn this window.</p>
-</section>
+  <section class="ingrid" id="install">
+    <h2>Install</h2>
+    <p class="lead" style="margin-bottom:18px">One line in your terminal. Restart Claude Code. Done.</p>
+    <div class="install" style="display:flex;width:100%">
+      <code style="flex:1"><span class="p">$</span> curl -fsSL https://meetmaxx.co/install | bash</code>
+      <button data-copy="curl -fsSL https://meetmaxx.co/install | bash">Copy</button>
+    </div>
+    <p class="hint">Prefer the plugin manager (skill only, no bar)? In Claude Code: <code>/plugin marketplace add goodindustries/Maxx</code> then <code>/plugin install maxx@maxx</code>.</p>
+    <p class="hint">Renders through the Claude Code statusline in plain ANSI, so it works wherever Claude Code does: Terminal.app, iTerm2, Ghostty, Warp, Alacritty, kitty.</p>
+    <p class="hint" style="margin-top:18px">Then type <code>/maxx</code> any time for total tokens, tokens/day, cache-hit rate and streak. Or <code>/maxx session</code> for how much to burn this window.</p>
+  </section>
+</div>
 
 <section class="wrap" id="connector">
   <h2>Every machine, one tally.</h2>
@@ -357,22 +322,22 @@
   </script>
 </section>
 
+<div class="grid2">
+  <section class="ingrid">
+    <div class="privacy">
+      <h2>Your stuff stays yours</h2>
+      <p class="lead" style="margin:0 auto">Nothing leaves your machine until you claim a handle. After that, maxx sends counts only: tokens, timestamps, model names. Never a prompt, never a message, never your code — the emitter cannot leak what it never reads. It is MIT licensed, so you can read the code.</p>
+    </div>
+  </section>
 
-
-<section class="wrap">
-  <div class="privacy">
-    <h2>Your stuff stays yours</h2>
-    <p class="lead" style="margin:0 auto">Nothing leaves your machine until you claim a handle. After that, maxx sends counts only: tokens, timestamps, model names. Never a prompt, never a message, never your code — the emitter cannot leak what it never reads. It is MIT licensed, so you can read the code.</p>
-  </div>
-</section>
-
-<section class="wrap" id="hello">
-  <div class="hello">
-    <h2>Say hello</h2>
-    <p class="lead" style="margin:6px auto 0">Questions, ideas, or a better formula? Drop us a line.</p>
-    <p style="margin-top:20px"><a class="btn primary" href="mailto:reif@thegoodproject.net">Email Reif</a></p>
-  </div>
-</section>
+  <section class="ingrid" id="hello">
+    <div class="hello">
+      <h2>Say hello</h2>
+      <p class="lead" style="margin:6px auto 0">Questions, ideas, or a better formula? Drop us a line.</p>
+      <p style="margin-top:20px"><a class="btn primary" style="display:inline-block;padding:11px 22px;border-radius:10px;font-weight:600;font-size:15px;background:var(--brand);color:#fff" href="mailto:reif@thegoodproject.net">Email Reif</a></p>
+    </div>
+  </section>
+</div>
 
 <footer>
   <div class="wrap">
@@ -420,8 +385,6 @@
     if(RM){ i=2; apply(); } else { apply(); setInterval(apply,7000); }
   })();
 
-
-
   // week rail — the tank drains slowly over a simulated week, pace tick marching with it
   (function(){
     const fill=document.getElementById('wk-fill'), tick=document.getElementById('wk-tick'),
@@ -451,12 +414,11 @@
       left.textContent=Math.round(CAP*fuel).toLocaleString()+'k left';
       const net=Math.round(CAP*(fuel-pace));
       if(net>=0){ standing.textContent='+'+net.toLocaleString()+'k banked'; standing.className='k-green'; }
-      else { standing.textContent='\u2212'+Math.abs(net).toLocaleString()+'k over'; standing.className='k-red'; }
+      else { standing.textContent='−'+Math.abs(net).toLocaleString()+'k over'; standing.className='k-red'; }
       days.textContent=Math.max(1,Math.ceil(7*(1-p)))+'d';
       requestAnimationFrame(frame);
     })(t0);
   })();
-
 </script>
 </body>
 </html>

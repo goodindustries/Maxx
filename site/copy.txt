@@ -1,15 +1,19 @@
 MAXX SITE COPY
 ==============
 
-ONE ASSERTION: the page makes one claim — track your token usage everywhere.
+ONE ASSERTION: the page makes one claim — track your tokens from everywhere.
 Everything else supports it or gets cut.
+
+LAYOUT: not one long column. The dash embed runs wide (1400px, two panes);
+the /usage lie sits beside the math; how-to-read sits beside install;
+privacy sits beside say-hello.
 
 Voice: plain, specific, true. Say the number instead of the adjective. One idea
 per sentence. Never be clever at the cost of being clear.
 
 META / BROWSER TAB
 ------------------
-Title: maxx — track your token usage everywhere.
+Title: maxx — track your tokens from everywhere.
 Description: Every machine, every cloud agent, one live tally. maxx counts the tokens you actually spend and shows what is left, in your terminal and on one page. One line to install.
 OG description: Every machine, every cloud agent, one live tally. One line to install.
 
@@ -20,15 +24,14 @@ The math · How to read it · Install · GitHub
 HERO
 ----
 Eyebrow: For Claude Code
-H1: Track your token usage everywhere.
+H1: Track your tokens from everywhere.
 Sub: Every machine, every cloud agent, one live tally — in your terminal and on one page. So you always know what you have spent and what is left.
 Install line: curl -fsSL https://meetmaxx.co/install | bash
-Hint: Install /maxx
 
 HERO VISUALS (in order)
 -----------------------
-1. Dashboard, recorded live (card-hero.gif)
-   Caption: Your dashboard: every machine and cloud agent on one page, live. See a real one -> meetmaxx.co/u/reif_tgp
+1. The live dashboard, iframed (meetmaxx.co/u/reif_tgp/dash — public view, names redacted)
+   Caption: The dashboard: every machine and cloud agent on one page, live. Share it — viewers see names redacted. Open Reif's -> meetmaxx.co/u/reif_tgp/dash
 2. Statusline recording (statusline.mp4, autoplay/muted/loop, poster statusline-poster.jpg)
    Caption: And the same numbers in your Claude Code statusline, updated every second.
 
