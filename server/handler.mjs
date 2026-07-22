@@ -1268,7 +1268,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
       if(e.project)return e.project;
       var s=String(e.surface||'');
       if(s.indexOf('cloud:')===0)return s.slice(6);
-      var m=String(e.root||'').match(/^session-(\d+)$/);
+      var m=String(e.root||'').match(/^session-([0-9]+)$/);
       return m?'******'+m[1]:'?';
     };
     // Dropping the name costs nothing UNLESS two sessions of the same project are both
