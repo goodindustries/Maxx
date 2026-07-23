@@ -452,20 +452,19 @@
     var W=1000;
     f.setAttribute('scrolling','no');
     function fit(){
-      var cw=shot.clientWidth, h=2100;
+      var cw=shot.clientWidth;
+      if(cw>=W){f.style.width='';f.style.transform='';}
+      else{f.style.width=W+'px';f.style.transformOrigin='0 0';f.style.transform='scale('+(cw/W)+')';}
+      /* measure AFTER the width is set — the dash reflows to the iframe viewport;
+         the feed is live and grows, so fit() re-runs on an interval too */
+      var h=2100;
       try{h=f.contentDocument.documentElement.scrollHeight||h;}catch(e){}
-      if(cw>=W){
-        f.style.width='';f.style.transform='';shot.style.height='';
-        f.style.height=h+'px';
-      }else{
-        var k=cw/W;
-        f.style.width=W+'px';f.style.height=h+'px';
-        f.style.transformOrigin='0 0';f.style.transform='scale('+k+')';
-        shot.style.height=Math.round(h*k)+'px';
-      }
+      f.style.height=h+'px';
+      shot.style.height=cw>=W?'':Math.round(h*cw/W)+'px';
     }
     f.addEventListener('load',function(){fit();setTimeout(fit,1500);});
     window.addEventListener('resize',fit);
+    setInterval(fit,3000);
     fit();
   })();
 </script>
