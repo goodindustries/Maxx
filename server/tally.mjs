@@ -331,6 +331,9 @@ export function computeBudget(store, now) {
         ? `weekly cap — tokens at week_reset (${resetIn(wr) != null ? Math.round(resetIn(wr) / 3600) + "h" : "?"})`
         : `next 5h window (${resetIn(fiveReset) != null ? Math.round(resetIn(fiveReset) / 60) + "m" : "?"}) refills session_to_spend`,
     weekly_left_tokens: weeklyLeft, session_to_spend: spendAfterReserve,
+    // absolute weekly ruler for charts: cap + used in the same units as weekly_left_tokens
+    week_cap_tokens: weekCap != null ? Math.round(weekCap) : null,
+    week_used_tokens: weekCap != null ? Math.round(week) : null,
     session_over: slOver,
     week_bank: slBank,
     // net_per_min = sustainable weekly pace − recent (5m) burn. + under pace / − over.

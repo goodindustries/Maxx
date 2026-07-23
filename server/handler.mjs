@@ -683,7 +683,28 @@ function publicAnon() {
   };
 }
 
-function renderDash(h, s, { owner = true } = {}) {
+// ---- week-vs-wall series: cumulative weighted burn across the CURRENT weekly window,
+// against the anchored cap — "usage over time relative to the limit". Hourly buckets,
+// summed server-side from the ledger; the cap and used come from computeBudget so the
+// chart shares one ruler with the verdict (the Jul 23 postmortem: the bar and the wall
+// must be the same line). null cap → the card says "calibrating" instead of guessing.
+function weekWallSeries(s, nowS) {
+  const b = computeBudget(s, nowS);
+  const end = b.week_reset || nowS;
+  const start = end - 7 * 86400;
+  const hours = Math.max(1, Math.ceil((Math.min(nowS, end) - start) / 3600));
+  const vals = new Array(hours).fill(0);
+  for (const e of s.events) {
+    if (e.ts <= start || e.ts > nowS + 60) continue;
+    const i = Math.min(hours - 1, Math.floor((e.ts - start) / 3600));
+    vals[i] += e.billed || 0;
+  }
+  let c = 0;
+  const cum = vals.map((v) => Math.round((c += v)));
+  return { start, end, now: nowS, cum, cap: b.week_cap_tokens, used: b.week_used_tokens, pct: b.week };
+}
+
+function renderDash(h, s, { owner = true, ww = null } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@${h} — ${owner ? "dash" : "live usage"} · Maxx</title>
@@ -893,6 +914,19 @@ td{border-bottom-color:#222b40}
  </div>
 
  <div style="margin-top:24px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+   <span class="klabel">WEEK VS THE WALL</span>
+   <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="wwMeta"></span>
+  </div>
+  <div style="position:relative;margin-top:12px" id="wwWrap">
+   <svg id="wwSvg" width="100%" viewBox="0 0 1080 190" preserveAspectRatio="none" style="display:block;border-radius:6px"></svg>
+   <div class="guide48" id="wwGuide"></div>
+  </div>
+  <div class="axis48"><span id="wwL"></span><span id="wwM"></span><span id="wwR"></span></div>
+  <div class="tip48" id="wwTip"></div>
+ </div>
+
+ <div style="margin-top:24px">
   <div class="klabel">CHANNELS · MACHINE × PROJECT</div>
   <table><thead><tr><th>Channel</th><th>Last update</th><th class="num">+1h</th><th class="num">Billed 5h</th><th style="width:30%"></th></tr></thead>
   <tbody id="channels"><tr><td colspan="5" class="empty">…</td></tr></tbody></table>
@@ -924,6 +958,44 @@ if(location.search)history.replaceState(null,'',location.pathname);
   var surfIcon=function(s){s=String(s||'');return s.indexOf('cloud')===0?'☁️':(s.indexOf('laptop')===0||s.indexOf('machine')===0)?'💻':'✳️'};
   var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
   var FIVE_H=5*3600,WEEK=7*86400,CTX_WALL=250e3;
+
+  // WEEK VS THE WALL — cumulative burn across the current weekly window against the
+  // anchored cap (red dash) and the even-pace diagonal (grey dots). Server-embedded at
+  // render; the wall and the line share computeBudget's ruler by construction.
+  var WW=${JSON.stringify(ww)};
+  (function(){
+    var meta=document.getElementById('wwMeta');
+    if(!WW||!WW.cap||!WW.cum.length){if(meta)meta.textContent='calibrating — needs a /usage anchor';return}
+    var W=1080,H=190,P=8;
+    var span=Math.max(1,WW.end-WW.start);
+    var last=WW.cum[WW.cum.length-1];
+    var ymax=Math.max(WW.cap,last)*1.06;
+    var X=function(t){return (t-WW.start)/span*W},Y=function(v){return H-P-(v/ymax)*(H-2*P)};
+    var pts=WW.cum.map(function(v,i){return X(WW.start+(i+1)*3600).toFixed(1)+','+Y(v).toFixed(1)});
+    var capY=Y(WW.cap).toFixed(1);
+    var line='M'+X(WW.start).toFixed(1)+','+Y(0).toFixed(1)+' L'+pts.join(' L');
+    var g='<path d="'+line+' L'+X(WW.start+WW.cum.length*3600).toFixed(1)+','+Y(0).toFixed(1)+'Z" fill="#5b52e8" fill-opacity="0.07"/>';
+    g+='<line x1="0" y1="'+Y(0)+'" x2="'+W+'" y2="'+Y(WW.cap).toFixed(1)+'" stroke="#98a1b2" stroke-width="1" stroke-dasharray="2 6"/>';
+    g+='<line x1="0" y1="'+capY+'" x2="'+W+'" y2="'+capY+'" stroke="#c23a3a" stroke-width="1.5" stroke-dasharray="7 5"/>';
+    g+='<path d="'+line+'" fill="none" stroke="#5b52e8" stroke-width="2.5" stroke-linejoin="round"/>';
+    if(WW.pct>=0.99)g+='<circle cx="'+X(WW.now).toFixed(1)+'" cy="'+capY+'" r="5" fill="#c23a3a"/>';
+    document.getElementById('wwSvg').innerHTML=g;
+    var used=WW.used!=null?WW.used:last;
+    if(meta)meta.textContent=hum(used)+' of '+hum(WW.cap)+' cap · '+Math.round((WW.pct||used/WW.cap)*100)+'% · resets '+clockAt(WW.end-WW.now)+(WW.end-WW.now>86400?' +'+Math.floor((WW.end-WW.now)/86400)+'d':'');
+    var dl=function(t){var d=new Date(t*1000);return d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'})};
+    document.getElementById('wwL').textContent=dl(WW.start);
+    document.getElementById('wwM').textContent=dl(WW.start+span/2);
+    document.getElementById('wwR').textContent='reset '+dl(WW.end);
+    var wrap=document.getElementById('wwWrap'),tip=document.getElementById('wwTip'),guide=document.getElementById('wwGuide');
+    wrap.addEventListener('mousemove',function(ev){
+      var r=wrap.getBoundingClientRect(),fx=(ev.clientX-r.left)/r.width;
+      var i=Math.max(0,Math.min(WW.cum.length-1,Math.round(fx*span/3600)-1));
+      var t=WW.start+(i+1)*3600,pace=WW.cap*(t-WW.start)/span,d=WW.cum[i]-pace;
+      guide.style.display='block';guide.style.left=((t-WW.start)/span*100)+'%';
+      tip.innerHTML=esc(dl(t)+' '+new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+' · <b>'+hum(WW.cum[i])+'</b> burned · '+(d<=0?'<span style="color:#15803d">'+hum(-d)+' under pace</span>':'<span style="color:#c2703a">'+hum(d)+' over pace</span>');
+    });
+    wrap.addEventListener('mouseleave',function(){guide.style.display='none';tip.textContent=''});
+  })();
 
   // Context trajectory from the feed — the useful signal in the emitter lane. Each
   // batch carries ctx; grouping by session and sloping the recent tail gives ctx
@@ -1642,7 +1714,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const dashPage = (cookieVal, owner = true) => ({
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(cookieVal ? { "set-cookie": setCookie(cookieVal) } : {}) },
-        body: renderDash(h, s, { owner }),
+        body: renderDash(h, s, { owner, ww: weekWallSeries(s, now()) }),
       });
       const mtok = url.searchParams.get("m");
       if (mtok) {
