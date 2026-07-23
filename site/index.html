@@ -121,10 +121,8 @@
   .live-wrap{position:relative}
   .live-shot{position:relative}
   .live-shot iframe{width:100%;height:1180px;border:0;display:block;background:#eceef3}
-  @media(max-width:1000px){
-    .live-shot iframe{height:1750px}
-    .live-shot::after{content:"";position:absolute;left:0;right:0;bottom:0;height:140px;background:linear-gradient(transparent,var(--bg));pointer-events:none;z-index:2}
-  }
+  /* mobile: render the dash at desktop width inside the iframe and scale the whole
+     thing down to fit — the full page stays visible, just minimized (JS sets scale). */
   /* the handwritten notes LAYER over the frame: text rides the edge, the arrow
      reaches into the live page. pointer-events:none so the dash stays usable. */
   .live-note{position:absolute;z-index:3;pointer-events:none;display:flex;align-items:flex-start;gap:10px;font-family:var(--mono);font-size:17px;font-weight:700;color:var(--brand)}
@@ -442,6 +440,27 @@
       days.textContent=Math.max(1,Math.ceil(7*(1-p)))+'d';
       requestAnimationFrame(frame);
     })(t0);
+  })();
+
+  /* mobile dash embed: keep the iframe's internal viewport at desktop width (1000px)
+     and scale it down to the container — the full dashboard stays visible, minimized.
+     Same-origin, so the true page height is read live once the frame loads. */
+  (function(){
+    var shot=document.querySelector('.live-shot');
+    var f=shot&&shot.querySelector('iframe');
+    if(!f)return;
+    var W=1000;
+    function fit(){
+      if(window.innerWidth>1000){f.style.width='';f.style.height='';f.style.transform='';shot.style.height='';return;}
+      var k=shot.clientWidth/W, h=2100;
+      try{h=f.contentDocument.documentElement.scrollHeight||h;}catch(e){}
+      f.style.width=W+'px';f.style.height=h+'px';
+      f.style.transformOrigin='0 0';f.style.transform='scale('+k+')';
+      shot.style.height=Math.round(h*k)+'px';
+    }
+    f.addEventListener('load',function(){fit();setTimeout(fit,1500);});
+    window.addEventListener('resize',fit);
+    fit();
   })();
 </script>
 </body>
