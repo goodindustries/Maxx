@@ -878,7 +878,7 @@ function renderDash(h, s, { owner = true } = {}) {
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
 .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;width:1780px;max-width:100%;align-items:stretch}
-@media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+@media(max-width:1000px){.wrap{grid-template-columns:minmax(0,1fr)}}
 .card{min-width:0;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:36px 42px 30px}
 .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:21px;letter-spacing:-.01em}
@@ -981,7 +981,8 @@ tr.dirrow td{background:#faf8f2;border-bottom:1px solid #f0f1f6;padding-left:22p
 .term .insight{padding:10px 20px;border-bottom:1px solid #1c2740;font-family:var(--mono);font-size:12px;color:#fbbf24;background:#131b30;display:none}
 .term .insight b{color:#fb7185}
 @media(max-width:640px){
-.card{padding:24px 18px}
+body{padding:12px}
+.card{padding:22px 16px 18px}
 .trio{grid-template-columns:1fr}
 .trio>div{border-right:none;border-bottom:1px solid var(--line)}
 .trio>div:last-child{border-bottom:none}
@@ -989,7 +990,10 @@ tr.dirrow td{background:#faf8f2;border-bottom:1px solid #f0f1f6;padding-left:22p
 .bar .num{grid-column:1/-1;white-space:normal}
 /* source/model/session splits: drop the decorative track bar, let values wrap —
    the fixed name + nowrap value column was pushing the page past the viewport */
-table{font-size:12px}
+table{font-size:12px;min-width:480px}
+.walert{white-space:normal;overflow:visible;text-overflow:clip}
+.tabs a{padding:9px 11px}
+.term{position:static;max-height:60vh}
 }
 /* Dark mode — additive: only overrides glaring light surfaces, so light mode is
    untouched. Structural colors ride the vars; the neutral panel/track fills and
@@ -1066,8 +1070,8 @@ td{border-bottom-color:#222b40}
 
  <div style="margin-top:24px">
   <div class="klabel">CHANNELS · MACHINE × PROJECT</div>
-  <table><thead><tr><th>Channel</th><th>Last update</th><th class="num">+1h</th><th class="num">Billed 5h</th><th style="width:30%"></th></tr></thead>
-  <tbody id="channels"><tr><td colspan="5" class="empty">…</td></tr></tbody></table>
+  <div style="overflow-x:auto"><table><thead><tr><th>Channel</th><th>Last update</th><th class="num">+1h</th><th class="num">Billed 5h</th><th style="width:30%"></th></tr></thead>
+  <tbody id="channels"><tr><td colspan="5" class="empty">…</td></tr></tbody></table></div>
  </div>
 
  <div class="foot">
