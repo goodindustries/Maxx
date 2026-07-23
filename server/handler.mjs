@@ -703,7 +703,26 @@ function weekWallSeries(s, nowS) {
   }
   let c = 0;
   const cum = vals.map((v) => Math.round((c += v)));
-  return { start, end, now: nowS, cum, cap: b.week_cap_tokens, used: b.week_used_tokens, pct: b.week };
+  // week-window attribution: billed by project and by model (events carry both).
+  const byProject = new Map(), byModel = new Map();
+  for (const e of s.events) {
+    if (e.ts <= start || e.ts > nowS + 60) continue;
+    const pj = e.project || String(e.surface || "?").split(":")[0];
+    byProject.set(pj, (byProject.get(pj) || 0) + (e.billed || 0));
+    for (const m in e.by_model || {}) byModel.set(m, (byModel.get(m) || 0) + (Number(e.by_model[m]) || 0));
+  }
+  const top = (map, n) => {
+    const rows = [...map.entries()].sort((a, b2) => b2[1] - a[1]);
+    const head = rows.slice(0, n).map(([k, v]) => [k, Math.round(v)]);
+    const rest = rows.slice(n).reduce((a2, [, v]) => a2 + v, 0);
+    if (rest > 0) head.push(["other", Math.round(rest)]);
+    return head;
+  };
+  return {
+    start, end, now: nowS, cum, cap: b.week_cap_tokens, used: b.week_used_tokens, pct: b.week,
+    projAt: b.projected_wall_at, rate: b.burn_6h_per_min,
+    byProject: top(byProject, 6), byModel: top(byModel, 6),
+  };
 }
 
 // tab strip shared by the dash / analytics / settings pages. Settings is owner-only.
@@ -748,10 +767,24 @@ const wwJs = (ww) => `
     g+='<line x1="0" y1="'+Y(0)+'" x2="'+W+'" y2="'+Y(WW.cap).toFixed(1)+'" stroke="#98a1b2" stroke-width="1" stroke-dasharray="2 6"/>';
     g+='<line x1="0" y1="'+capY+'" x2="'+W+'" y2="'+capY+'" stroke="#c23a3a" stroke-width="1.5" stroke-dasharray="7 5"/>';
     g+='<path d="'+line+'" fill="none" stroke="#5b52e8" stroke-width="2.5" stroke-linejoin="round"/>';
+    // projection: trailing-6h pace, dotted, from the line's tip. Red to an early wall
+    // hit (server's projected_wall_at), grey to the reset when the pace makes the week.
+    var tLast=WW.start+WW.cum.length*3600, projTxt='';
+    if(WW.rate>0&&WW.pct<0.99&&tLast<WW.end){
+      if(WW.projAt&&WW.projAt<WW.end){
+        g+='<line x1="'+X(tLast).toFixed(1)+'" y1="'+Y(last).toFixed(1)+'" x2="'+X(WW.projAt).toFixed(1)+'" y2="'+capY+'" stroke="#c23a3a" stroke-width="2" stroke-dasharray="2 5"/>';
+        g+='<circle cx="'+X(WW.projAt).toFixed(1)+'" cy="'+capY+'" r="5" fill="none" stroke="#c23a3a" stroke-width="2.5"/>';
+        projTxt=' · at this pace: WALL '+new Date(WW.projAt*1000).toLocaleString([],{weekday:'short',hour:'2-digit',minute:'2-digit'});
+      }else{
+        var vEnd=Math.min(ymax,last+WW.rate*((WW.end-tLast)/60));
+        g+='<line x1="'+X(tLast).toFixed(1)+'" y1="'+Y(last).toFixed(1)+'" x2="'+X(WW.end).toFixed(1)+'" y2="'+Y(vEnd).toFixed(1)+'" stroke="#98a1b2" stroke-width="1.5" stroke-dasharray="2 5"/>';
+        projTxt=' · at this pace: makes the week';
+      }
+    }
     if(WW.pct>=0.99)g+='<circle cx="'+X(WW.now).toFixed(1)+'" cy="'+capY+'" r="5" fill="#c23a3a"/>';
     document.getElementById('wwSvg').innerHTML=g;
     var used=WW.used!=null?WW.used:last;
-    if(meta)meta.textContent=hum(used)+' of '+hum(WW.cap)+' cap · '+Math.round((WW.pct||used/WW.cap)*100)+'% · resets '+clockAt(WW.end-WW.now)+(WW.end-WW.now>86400?' +'+Math.floor((WW.end-WW.now)/86400)+'d':'');
+    if(meta)meta.textContent=hum(used)+' of '+hum(WW.cap)+' cap · '+Math.round((WW.pct||used/WW.cap)*100)+'% · resets '+clockAt(WW.end-WW.now)+(WW.end-WW.now>86400?' +'+Math.floor((WW.end-WW.now)/86400)+'d':'')+projTxt;
     var dl=function(t){var d=new Date(t*1000);return d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'})};
     document.getElementById('wwL').textContent=dl(WW.start);
     document.getElementById('wwM').textContent=dl(WW.start+span/2);
@@ -773,6 +806,30 @@ const wwJs = (ww) => `
 // (viewer) variant with identical numbers; owner just gets the settings tab.
 function renderAnalytics(h, s, { owner = true, ww = null } = {}) {
   const { json: rangesJson } = usageRanges(s);
+  // THIS WEEK breakdowns, rendered server-side (static per load, like the chart data).
+  // Project names are owner-visible only — viewers get stable anonymous labels, same
+  // contract as the shared dash. Model names aren't sensitive; shown to everyone.
+  const esc = (x) => String(x == null ? "" : x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const hbars = (rows, label) => {
+    if (!rows || !rows.length) return `<div class="hEmpty">nothing this week yet</div>`;
+    const max = Math.max(...rows.map((r) => r[1]), 1);
+    const total = rows.reduce((a, r) => a + r[1], 0) || 1;
+    return rows.map(([k, v]) => `
+   <div class="hbar"><span class="hname" title="${esc(label(k))}">${esc(label(k))}</span>
+    <span class="htrack"><span class="hfill" style="width:${(v / max * 100).toFixed(1)}%"></span></span>
+    <span class="hval">${humanN(v)} · ${Math.round(v / total * 100)}%</span></div>`).join("");
+  };
+  let anonI = 0; const anonMap = new Map();
+  const projLabel = (k) => {
+    if (owner || k === "other" || k === "laptop" || k === "cloud") return k;
+    if (!anonMap.has(k)) anonMap.set(k, `project ${++anonI}`);
+    return anonMap.get(k);
+  };
+  const projBars = hbars(ww && ww.byProject, projLabel);
+  const modelBars = hbars(ww && ww.byModel, (k) => k.replace(/^claude-/, ""));
+  // the chart embed must NOT carry the attribution maps — raw project names inside the
+  // page script would undo the anonymized labels above (caught by the render test).
+  const { byProject: _bp, byModel: _bm, ...wwChart } = ww || {};
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@${h} — analytics · Maxx</title>
@@ -805,7 +862,16 @@ ${TABS_CSS}
 .peak{position:absolute;top:6px;right:4px;font-size:13.5px;color:var(--ink);font-weight:600;white-space:nowrap;z-index:2;font-family:var(--mono)}
 .tip{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:13px;font-weight:500;padding:8px 13px;border-radius:9px;white-space:nowrap;transform:translate(-50%,-130%);z-index:3}
 .guide{position:absolute;top:0;bottom:28px;width:1.5px;background:#c7c3f2;display:none;pointer-events:none;z-index:1}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:28px}
+@media(max-width:640px){.split{grid-template-columns:1fr}body{padding:12px}.card{padding:22px 16px 18px}.tabs a{padding:9px 11px}}
+.hbar{display:grid;grid-template-columns:minmax(90px,150px) 1fr auto;gap:10px;align-items:center;font-size:13px;margin-top:9px}
+.hname{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.htrack{display:block;background:#e9e9f6;border-radius:4px;height:13px;overflow:hidden}
+.hfill{display:block;height:100%;border-radius:4px 0 0 4px;background:linear-gradient(90deg,#8d86ef,var(--accent))}
+.hval{font-family:var(--mono);font-size:12px;color:var(--ink-25);white-space:nowrap}
+.hEmpty{color:var(--ink-3);font-size:13px;margin-top:10px}
 @media(prefers-color-scheme:dark){
+.htrack{background:#252e47}
 :root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-25:#929cb0;--ink-3:#727c93;--line:#29334c;--accent:#8079f2}
 .card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
 .ranges button{border-color:#2c3652}
@@ -826,6 +892,17 @@ ${TABS_CSS}
   ${WW_HTML}
  </div>
 
+ <div class="split">
+  <div>
+   <div class="klabel">THIS WEEK · BY PROJECT</div>
+   ${projBars}
+  </div>
+  <div>
+   <div class="klabel">THIS WEEK · BY MODEL</div>
+   ${modelBars}
+  </div>
+ </div>
+
  <div style="margin-top:28px">
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
    <span class="klabel">TOKENS OVER TIME</span>
@@ -844,7 +921,7 @@ if(location.search)history.replaceState(null,'',location.pathname);
   var esc=function(x){var d=document.createElement('span');d.textContent=x==null?'':String(x);return d.innerHTML};
   var hum=function(n){return n==null?'—':n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':''+Math.round(n)};
   var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
-  ${wwJs(ww)}
+  ${wwJs(wwChart)}
   var R=${rangesJson};
   var onDraw=function(key,total,sub){document.getElementById('rMeta').textContent=sub+' · total '+hum(total)};
   ${CHART_JS}

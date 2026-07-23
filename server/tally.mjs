@@ -296,6 +296,15 @@ export function computeBudget(store, now) {
   // two ceilings: burst = the hard 5h wall you can physically spend to right now;
   // safe = spendAfterReserve (weekly-paced). Burst > safe means you CAN overspend.
   const fiveHeadroom = fiveCap != null ? Math.max(0, Math.round(fiveCap - five)) : null;
+  // projected wall hit: trailing-6h burn extrapolated forward. 6h smooths the 5m spikes
+  // a live session throws; a projection inside the current week window means "at this
+  // pace you hit the wall EARLY" — the signal this week's postmortem never got.
+  const burn6h = windowedBilled(store.events, now, 6 * 3600);
+  const rate6hPerSec = burn6h / (6 * 3600);
+  const projectedWallAt =
+    weeklyLeft != null && wr && wr > now && rate6hPerSec > 0 && weeklyLeft / rate6hPerSec < wr - now
+      ? Math.round(now + weeklyLeft / rate6hPerSec)
+      : null;
   const emptiesAt =
     ratePerSec > 3 && spendAfterReserve != null
       ? Math.round(now + spendAfterReserve / ratePerSec)
@@ -341,6 +350,10 @@ export function computeBudget(store, now) {
     // hard 5h ceiling you can physically spend to now (≥ the paced session_to_spend).
     net_per_min: netPerMinVal,
     sustainable_per_min: sustainablePerMin != null ? Math.round(sustainablePerMin) : null,
+    // trailing-6h burn per minute + where it lands: null = makes the week at this pace,
+    // an epoch = projected wall hit BEFORE week_reset.
+    burn_6h_per_min: Math.round(burn6h / 360),
+    projected_wall_at: projectedWallAt,
     session_burst: fiveHeadroom,
     session_safe: sessionSafe,
     reserved_tokens: reservedTokens, leases: activeLeases.length,
@@ -533,13 +546,17 @@ export function transitionEvents(store, budget, now) {
   const runaway = runawaySessions(store, now, store.config || {});
   const runawayKeys = runaway.map((r) => `${r.surface}|${r.session}`).sort();
   const prev = store.signal;
-  const cur = { verdict: budget.verdict, weekBand, runaway: runawayKeys };
+  const projOver = !!budget.projected_wall_at;
+  const cur = { verdict: budget.verdict, weekBand, runaway: runawayKeys, projOver };
   store.signal = cur;
   if (!prev) return [];                                 // baseline, fire nothing
   const events = [];
   if (prev.verdict === "ok" && budget.verdict === "over") events.push({ event: "over" });
   if (prev.verdict === "over" && budget.verdict === "ok") events.push({ event: "recovered" });
   if (weekBand > (prev.weekBand || 0)) events.push({ event: `week-${weekBand}` });
+  // early warning: trailing-6h pace now lands BEFORE the weekly reset. Fires on the
+  // transition into projected-overrun; recovery is silent (the bar shows it).
+  if (projOver && !prev.projOver) events.push({ event: "week-projected-overrun", projected_wall_at: budget.projected_wall_at });
   for (const r of runaway)
     if (!(prev.runaway || []).includes(`${r.surface}|${r.session}`))
       events.push({ event: "runaway", ...r });
