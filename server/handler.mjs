@@ -971,6 +971,7 @@ ${TABS_CSS}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
 .bars{margin-top:20px;background:#f0f0fa;border-radius:14px;padding:15px 18px;font-family:var(--mono);font-size:13.5px;display:flex;flex-direction:column;gap:12px}
 .bar{display:grid;grid-template-columns:60px minmax(100px,1fr) 335px;gap:14px;align-items:center}
+@media(max-width:1500px){.bar{grid-template-columns:60px minmax(100px,1fr) auto}}
 @media(max-width:900px){.bar{grid-template-columns:60px minmax(80px,1fr) auto}}
 .bar .lab{color:#8a93a5}
 .bar .track{height:15px;background:#e3e2f4;border-radius:5px;position:relative;overflow:hidden}
