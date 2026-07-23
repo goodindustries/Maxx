@@ -571,6 +571,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .brand .m{color:var(--accent);font-size:22px;font-weight:700}
 .who{font-family:var(--mono);font-size:16px;color:var(--ink-25);font-weight:400}
 .top a{color:var(--accent);font-weight:600;text-decoration:none;font-size:14px}
+${TABS_CSS}
 h2{font-size:12px;color:var(--ink-3);font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-top:28px;font-family:var(--mono)}
 h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;font-family:var(--sans);font-size:12.5px}
 table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px}
@@ -607,8 +608,9 @@ td{border-bottom-color:#222b40}
 <div class="card">
  <div class="top">
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · settings</span></div>
-  <span><a href="/u/${h}/dash">← dashboard</a> · <a href="/u/${h}">public card</a></span>
+  <span><a href="/u/${h}">public card</a></span>
  </div>
+ ${tabsHtml(h, "settings", true)}
 
  <h2>Fleet control <span class="sub">— live sessions (last hour); directives deliver on the session's next gate poll</span></h2>
  <table><thead><tr><th>Session</th><th>Surface</th><th style="text-align:right">Rate</th><th></th></tr></thead>
@@ -704,7 +706,154 @@ function weekWallSeries(s, nowS) {
   return { start, end, now: nowS, cum, cap: b.week_cap_tokens, used: b.week_used_tokens, pct: b.week };
 }
 
-function renderDash(h, s, { owner = true, ww = null } = {}) {
+// tab strip shared by the dash / analytics / settings pages. Settings is owner-only.
+const TABS_CSS = `
+.tabs{display:flex;gap:4px;margin-top:16px;border-bottom:1px solid var(--line)}
+.tabs a{padding:9px 16px;font-size:13.5px;font-weight:600;color:var(--ink-25);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a.on{color:var(--accent);border-bottom-color:var(--accent)}
+.tabs a:hover{color:var(--accent)}`;
+const tabsHtml = (h, on, owner) => `
+ <div class="tabs">
+  <a href="/u/${h}/dash"${on === "overview" ? ' class="on"' : ""}>overview</a>
+  <a href="/u/${h}/analytics"${on === "analytics" ? ' class="on"' : ""}>analytics</a>
+  ${owner ? `<a href="/u/${h}/settings"${on === "settings" ? ' class="on"' : ""}>settings</a>` : ""}
+ </div>`;
+
+// WEEK VS THE WALL — cumulative burn across the current weekly window against the
+// anchored cap (red dash) and the even-pace diagonal (grey dots). Server-embedded at
+// render; the wall and the line share computeBudget's ruler by construction.
+// Markup + JS as helpers so any page (analytics today) can mount it; the JS expects
+// esc/hum/clockAt in scope and the ww* element ids from the markup.
+const WW_HTML = `
+  <div style="position:relative;margin-top:12px" id="wwWrap">
+   <svg id="wwSvg" width="100%" viewBox="0 0 1080 190" preserveAspectRatio="none" style="display:block;border-radius:6px"></svg>
+   <div class="guide48" id="wwGuide"></div>
+  </div>
+  <div class="axis48"><span id="wwL"></span><span id="wwM"></span><span id="wwR"></span></div>
+  <div class="tip48" id="wwTip"></div>`;
+const wwJs = (ww) => `
+  var WW=${JSON.stringify(ww)};
+  (function(){
+    var meta=document.getElementById('wwMeta');
+    if(!WW||!WW.cap||!WW.cum.length){if(meta)meta.textContent='calibrating — needs a /usage anchor';return}
+    var W=1080,H=190,P=8;
+    var span=Math.max(1,WW.end-WW.start);
+    var last=WW.cum[WW.cum.length-1];
+    var ymax=Math.max(WW.cap,last)*1.06;
+    var X=function(t){return (t-WW.start)/span*W},Y=function(v){return H-P-(v/ymax)*(H-2*P)};
+    var pts=WW.cum.map(function(v,i){return X(WW.start+(i+1)*3600).toFixed(1)+','+Y(v).toFixed(1)});
+    var capY=Y(WW.cap).toFixed(1);
+    var line='M'+X(WW.start).toFixed(1)+','+Y(0).toFixed(1)+' L'+pts.join(' L');
+    var g='<path d="'+line+' L'+X(WW.start+WW.cum.length*3600).toFixed(1)+','+Y(0).toFixed(1)+'Z" fill="#5b52e8" fill-opacity="0.07"/>';
+    g+='<line x1="0" y1="'+Y(0)+'" x2="'+W+'" y2="'+Y(WW.cap).toFixed(1)+'" stroke="#98a1b2" stroke-width="1" stroke-dasharray="2 6"/>';
+    g+='<line x1="0" y1="'+capY+'" x2="'+W+'" y2="'+capY+'" stroke="#c23a3a" stroke-width="1.5" stroke-dasharray="7 5"/>';
+    g+='<path d="'+line+'" fill="none" stroke="#5b52e8" stroke-width="2.5" stroke-linejoin="round"/>';
+    if(WW.pct>=0.99)g+='<circle cx="'+X(WW.now).toFixed(1)+'" cy="'+capY+'" r="5" fill="#c23a3a"/>';
+    document.getElementById('wwSvg').innerHTML=g;
+    var used=WW.used!=null?WW.used:last;
+    if(meta)meta.textContent=hum(used)+' of '+hum(WW.cap)+' cap · '+Math.round((WW.pct||used/WW.cap)*100)+'% · resets '+clockAt(WW.end-WW.now)+(WW.end-WW.now>86400?' +'+Math.floor((WW.end-WW.now)/86400)+'d':'');
+    var dl=function(t){var d=new Date(t*1000);return d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'})};
+    document.getElementById('wwL').textContent=dl(WW.start);
+    document.getElementById('wwM').textContent=dl(WW.start+span/2);
+    document.getElementById('wwR').textContent='reset '+dl(WW.end);
+    var wrap=document.getElementById('wwWrap'),tip=document.getElementById('wwTip'),guide=document.getElementById('wwGuide');
+    wrap.addEventListener('mousemove',function(ev){
+      var r=wrap.getBoundingClientRect(),fx=(ev.clientX-r.left)/r.width;
+      var i=Math.max(0,Math.min(WW.cum.length-1,Math.round(fx*span/3600)-1));
+      var t=WW.start+(i+1)*3600,pace=WW.cap*(t-WW.start)/span,d=WW.cum[i]-pace;
+      guide.style.display='block';guide.style.left=((t-WW.start)/span*100)+'%';
+      tip.innerHTML=esc(dl(t)+' '+new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+' · <b>'+hum(WW.cum[i])+'</b> burned · '+(d<=0?'<span style="color:#15803d">'+hum(-d)+' under pace</span>':'<span style="color:#c2703a">'+hum(d)+' over pace</span>');
+    });
+    wrap.addEventListener('mouseleave',function(){guide.style.display='none';tip.textContent=''});
+  })();`;
+
+// Analytics — its own tab. The week-vs-wall line (usage over time relative to the
+// limit) leads; the tokens-over-time ranges chart (hourly/daily/monthly/all) follows.
+// Magnitudes only — no session/project names — so like the dash it serves a public
+// (viewer) variant with identical numbers; owner just gets the settings tab.
+function renderAnalytics(h, s, { owner = true, ww = null } = {}) {
+  const { json: rangesJson } = usageRanges(s);
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>@${h} — analytics · Maxx</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="https://meetmaxx.co/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceef3;--card:#fff;--line:#edeef4;--ink:#132038;--ink-2:#2a3346;--ink-25:#6c7688;--ink-3:#98a1b2;--accent:#5b52e8;--green:#178a4e;--red:#c23a3a;--sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--mono:'JetBrains Mono',ui-monospace,"SF Mono",Menlo,monospace}
+*{box-sizing:border-box;margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.card{width:1100px;max-width:100%;background:var(--card);border-radius:26px;box-shadow:0 30px 70px -30px rgba(20,28,55,.30),0 4px 16px rgba(20,28,55,.06);padding:36px 42px 30px}
+.top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:21px;letter-spacing:-.01em}
+.brand .m{color:var(--accent);font-size:22px;font-weight:700}
+.who{font-family:var(--mono);font-size:16px;color:var(--ink-25);font-weight:400}
+.top a{color:var(--accent);font-weight:600;text-decoration:none;font-size:14px}
+.klabel{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);font-family:var(--mono)}
+${TABS_CSS}
+.axis48{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11.5px;color:#a3abba;margin-top:6px}
+.tip48{min-height:19px;margin-top:4px;font-family:var(--mono);font-size:12.5px;font-weight:500;color:#5b6474;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.guide48{position:absolute;top:0;bottom:0;width:1.5px;background:#c7c3f2;display:none;pointer-events:none;z-index:1}
+.ranges{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap}
+.ranges button{border:1px solid #e4e6ee;background:var(--card);color:#5a6478;border-radius:999px;padding:7px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+.ranges button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.chart{margin-top:16px;position:relative}
+.chart .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;color:var(--ink-3);font-size:13.5px;margin-top:8px;font-family:var(--mono)}
+.peak{position:absolute;top:6px;right:4px;font-size:13.5px;color:var(--ink);font-weight:600;white-space:nowrap;z-index:2;font-family:var(--mono)}
+.tip{position:absolute;pointer-events:none;display:none;background:#152036;color:#fff;font-family:var(--mono);font-size:13px;font-weight:500;padding:8px 13px;border-radius:9px;white-space:nowrap;transform:translate(-50%,-130%);z-index:3}
+.guide{position:absolute;top:0;bottom:28px;width:1.5px;background:#c7c3f2;display:none;pointer-events:none;z-index:1}
+@media(prefers-color-scheme:dark){
+:root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-25:#929cb0;--ink-3:#727c93;--line:#29334c;--accent:#8079f2}
+.card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
+.ranges button{border-color:#2c3652}
+}
+</style></head><body>
+<div class="card">
+ <div class="top">
+  <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · analytics</span></div>
+  ${owner ? "" : `<a href="/u/${h}/dash?login=1">owner sign-in</a>`}
+ </div>
+ ${tabsHtml(h, "analytics", owner)}
+
+ <div style="margin-top:24px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+   <span class="klabel">WEEK VS THE WALL</span>
+   <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="wwMeta"></span>
+  </div>
+  ${WW_HTML}
+ </div>
+
+ <div style="margin-top:28px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+   <span class="klabel">TOKENS OVER TIME</span>
+   <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="rMeta"></span>
+  </div>
+  <div class="ranges" id="ranges">${RANGE_PILLS}</div>
+  <div class="chart" id="chart">
+   ${chartHtml(1080, 150)}
+   <div class="cap"><span id="capL"></span><span id="capR"></span></div>
+  </div>
+ </div>
+</div>
+<script>
+if(location.search)history.replaceState(null,'',location.pathname);
+(function(){
+  var esc=function(x){var d=document.createElement('span');d.textContent=x==null?'':String(x);return d.innerHTML};
+  var hum=function(n){return n==null?'—':n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':''+Math.round(n)};
+  var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
+  ${wwJs(ww)}
+  var R=${rangesJson};
+  var onDraw=function(key,total,sub){document.getElementById('rMeta').textContent=sub+' · total '+hum(total)};
+  ${CHART_JS}
+})();
+</script>
+</body></html>`;
+}
+
+function renderDash(h, s, { owner = true } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@${h} — ${owner ? "dash" : "live usage"} · Maxx</title>
@@ -736,6 +885,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-
 .brand .m{color:var(--accent);font-size:22px;font-weight:700}
 .who{font-family:var(--mono);font-size:16px;color:var(--ink-25);font-weight:400}
 .top a{color:var(--accent);font-weight:600;text-decoration:none;font-size:14px}
+${TABS_CSS}
 .livepill{display:inline-flex;align-items:center;gap:8px;background:#eaf7ef;color:var(--green);font-weight:600;font-size:13.5px;padding:7px 13px;border-radius:999px}
 .livepill .dot{width:8px;height:8px;border-radius:50%;background:#2fb768;animation:pulse 1.6s ease-in-out infinite}
 .badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 13px;font-size:13.5px;font-weight:600;background:#ecebfb;color:var(--accent)}
@@ -867,12 +1017,13 @@ td{border-bottom-color:#222b40}
   <div class="brand"><span class="m">⩗</span> maxx <span class="who">· @${h} · ${owner ? "dash" : "live usage"}</span></div>
   <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
    ${owner
-     ? `<a href="/u/${h}/settings">⚙ settings</a>`
+     ? ""
      : `<span class="badge" title="Sessions and projects are anonymized on this shared view">shared view — names hidden</span> <a href="/u/${h}/dash?login=1">owner sign-in</a>`}
    <span class="badge" id="verdict">…</span>
    <span class="livepill"><span class="dot"></span> live · updates every 10s</span>
   </span>
  </div>
+ ${tabsHtml(h, "overview", owner)}
 
  <div class="bars" id="bars"></div>
 
@@ -894,19 +1045,6 @@ td{border-bottom-color:#222b40}
    <div class="big"><span class="v" id="runV" style="font-size:38px">—</span></div>
    <div class="sub" id="runSub"></div>
   </div>
- </div>
-
- <div style="margin-top:24px">
-  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-   <span class="klabel">ANALYTICS · WEEK VS THE WALL</span>
-   <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="wwMeta"></span>
-  </div>
-  <div style="position:relative;margin-top:12px" id="wwWrap">
-   <svg id="wwSvg" width="100%" viewBox="0 0 1080 190" preserveAspectRatio="none" style="display:block;border-radius:6px"></svg>
-   <div class="guide48" id="wwGuide"></div>
-  </div>
-  <div class="axis48"><span id="wwL"></span><span id="wwM"></span><span id="wwR"></span></div>
-  <div class="tip48" id="wwTip"></div>
  </div>
 
  <div style="margin-top:24px">
@@ -958,44 +1096,6 @@ if(location.search)history.replaceState(null,'',location.pathname);
   var surfIcon=function(s){s=String(s||'');return s.indexOf('cloud')===0?'☁️':(s.indexOf('laptop')===0||s.indexOf('machine')===0)?'💻':'✳️'};
   var clockAt=function(fromNow){return new Date(Date.now()+fromNow*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
   var FIVE_H=5*3600,WEEK=7*86400,CTX_WALL=250e3;
-
-  // WEEK VS THE WALL — cumulative burn across the current weekly window against the
-  // anchored cap (red dash) and the even-pace diagonal (grey dots). Server-embedded at
-  // render; the wall and the line share computeBudget's ruler by construction.
-  var WW=${JSON.stringify(ww)};
-  (function(){
-    var meta=document.getElementById('wwMeta');
-    if(!WW||!WW.cap||!WW.cum.length){if(meta)meta.textContent='calibrating — needs a /usage anchor';return}
-    var W=1080,H=190,P=8;
-    var span=Math.max(1,WW.end-WW.start);
-    var last=WW.cum[WW.cum.length-1];
-    var ymax=Math.max(WW.cap,last)*1.06;
-    var X=function(t){return (t-WW.start)/span*W},Y=function(v){return H-P-(v/ymax)*(H-2*P)};
-    var pts=WW.cum.map(function(v,i){return X(WW.start+(i+1)*3600).toFixed(1)+','+Y(v).toFixed(1)});
-    var capY=Y(WW.cap).toFixed(1);
-    var line='M'+X(WW.start).toFixed(1)+','+Y(0).toFixed(1)+' L'+pts.join(' L');
-    var g='<path d="'+line+' L'+X(WW.start+WW.cum.length*3600).toFixed(1)+','+Y(0).toFixed(1)+'Z" fill="#5b52e8" fill-opacity="0.07"/>';
-    g+='<line x1="0" y1="'+Y(0)+'" x2="'+W+'" y2="'+Y(WW.cap).toFixed(1)+'" stroke="#98a1b2" stroke-width="1" stroke-dasharray="2 6"/>';
-    g+='<line x1="0" y1="'+capY+'" x2="'+W+'" y2="'+capY+'" stroke="#c23a3a" stroke-width="1.5" stroke-dasharray="7 5"/>';
-    g+='<path d="'+line+'" fill="none" stroke="#5b52e8" stroke-width="2.5" stroke-linejoin="round"/>';
-    if(WW.pct>=0.99)g+='<circle cx="'+X(WW.now).toFixed(1)+'" cy="'+capY+'" r="5" fill="#c23a3a"/>';
-    document.getElementById('wwSvg').innerHTML=g;
-    var used=WW.used!=null?WW.used:last;
-    if(meta)meta.textContent=hum(used)+' of '+hum(WW.cap)+' cap · '+Math.round((WW.pct||used/WW.cap)*100)+'% · resets '+clockAt(WW.end-WW.now)+(WW.end-WW.now>86400?' +'+Math.floor((WW.end-WW.now)/86400)+'d':'');
-    var dl=function(t){var d=new Date(t*1000);return d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'})};
-    document.getElementById('wwL').textContent=dl(WW.start);
-    document.getElementById('wwM').textContent=dl(WW.start+span/2);
-    document.getElementById('wwR').textContent='reset '+dl(WW.end);
-    var wrap=document.getElementById('wwWrap'),tip=document.getElementById('wwTip'),guide=document.getElementById('wwGuide');
-    wrap.addEventListener('mousemove',function(ev){
-      var r=wrap.getBoundingClientRect(),fx=(ev.clientX-r.left)/r.width;
-      var i=Math.max(0,Math.min(WW.cum.length-1,Math.round(fx*span/3600)-1));
-      var t=WW.start+(i+1)*3600,pace=WW.cap*(t-WW.start)/span,d=WW.cum[i]-pace;
-      guide.style.display='block';guide.style.left=((t-WW.start)/span*100)+'%';
-      tip.innerHTML=esc(dl(t)+' '+new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+' · <b>'+hum(WW.cum[i])+'</b> burned · '+(d<=0?'<span style="color:#15803d">'+hum(-d)+' under pace</span>':'<span style="color:#c2703a">'+hum(d)+' over pace</span>');
-    });
-    wrap.addEventListener('mouseleave',function(){guide.style.display='none';tip.textContent=''});
-  })();
 
   // Context trajectory from the feed — the useful signal in the emitter lane. Each
   // batch carries ctx; grouping by session and sloping the recent tail gives ctx
@@ -1714,7 +1814,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const dashPage = (cookieVal, owner = true) => ({
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(cookieVal ? { "set-cookie": setCookie(cookieVal) } : {}) },
-        body: renderDash(h, s, { owner, ww: weekWallSeries(s, now()) }),
+        body: renderDash(h, s, { owner }),
       });
       const mtok = url.searchParams.get("m");
       if (mtok) {
@@ -1744,6 +1844,24 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       // legacy ?k= link: convert the secret to the cookie; replaceState scrubs it client-side
       const qk = url.searchParams.get("k");
       return dashPage(qk || null);
+    }
+
+    // ---- analytics tab: week-vs-wall + tokens-over-time. Magnitudes only (no names),
+    // so it mirrors the dash's viewer model: owner cookie → settings tab shows; anyone
+    // else gets the same numbers as the shared dash. ?k= works like the dash's.
+    const man = p.match(/^\/u\/([a-z0-9][a-z0-9_-]{2,31})\/analytics\/?$/);
+    if (man && method === "GET") {
+      const h = man[1];
+      const s = await store.load(h);
+      if (!s.events.length && !((await store.getSecret?.(h)) || (await secretFor(h))))
+        return { status: 404, headers: { "content-type": "text/html" }, body: `<!doctype html><meta charset="utf-8"><title>maxx</title><p style="font-family:sans-serif;padding:40px">No usage for <b>@${h}</b> yet — <a href="https://meetmaxx.co/install">install the tracker</a>.</p>` };
+      const tok = readTokenOf(headers, url);
+      const owner = !!(tok && (await authed(h, tok)));
+      return {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+        body: renderAnalytics(h, s, { owner, ww: weekWallSeries(s, now()) }),
+      };
     }
 
     // ---- magic link mint: CLI (holding the secret as bearer) asks for a one-time
