@@ -898,6 +898,19 @@ td{border-bottom-color:#222b40}
 
  <div style="margin-top:24px">
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+   <span class="klabel">ANALYTICS · WEEK VS THE WALL</span>
+   <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="wwMeta"></span>
+  </div>
+  <div style="position:relative;margin-top:12px" id="wwWrap">
+   <svg id="wwSvg" width="100%" viewBox="0 0 1080 190" preserveAspectRatio="none" style="display:block;border-radius:6px"></svg>
+   <div class="guide48" id="wwGuide"></div>
+  </div>
+  <div class="axis48"><span id="wwL"></span><span id="wwM"></span><span id="wwR"></span></div>
+  <div class="tip48" id="wwTip"></div>
+ </div>
+
+ <div style="margin-top:24px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
    <span class="klabel">BANKED / SPENT-OVER · LAST 48 MIN</span>
    <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="chartMeta"></span>
   </div>
@@ -911,19 +924,6 @@ td{border-bottom-color:#222b40}
   </div>
   <div class="axis48"><span>-48m</span><span>-24m</span><span>now</span></div>
   <div class="tip48" id="tip48"></div>
- </div>
-
- <div style="margin-top:24px">
-  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-   <span class="klabel">WEEK VS THE WALL</span>
-   <span style="font-family:var(--mono);font-size:13px;color:#8a93a5" id="wwMeta"></span>
-  </div>
-  <div style="position:relative;margin-top:12px" id="wwWrap">
-   <svg id="wwSvg" width="100%" viewBox="0 0 1080 190" preserveAspectRatio="none" style="display:block;border-radius:6px"></svg>
-   <div class="guide48" id="wwGuide"></div>
-  </div>
-  <div class="axis48"><span id="wwL"></span><span id="wwM"></span><span id="wwR"></span></div>
-  <div class="tip48" id="wwTip"></div>
  </div>
 
  <div style="margin-top:24px">
