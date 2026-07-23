@@ -449,7 +449,7 @@
     var shot=document.querySelector('.live-shot');
     var f=shot&&shot.querySelector('iframe');
     if(!f)return;
-    var W=1000;
+    var W=1200; /* dash stacks its two columns at <=1000px — render wider so the embed keeps the side-by-side desktop layout */
     f.setAttribute('scrolling','no');
     function fit(){
       var cw=shot.clientWidth;
