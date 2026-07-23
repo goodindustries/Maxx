@@ -31,7 +31,7 @@
  *
  * Wire contract: see maxx/LOGS.md.
  */
-import { createReadStream, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, hostname } from "node:os";
@@ -57,6 +57,7 @@ function parseArgs(argv) {
     else if (a === "--dir") out.dir = argv[++i];
     else if (a === "--signup" || a === "signup") { const n = argv[i + 1]; out.signup = n && !n.startsWith("-") ? argv[++i] : true; }
     else if (a === "--install-agent") out.installAgent = true;
+    else if (a === "--watchdog") out.watchdog = true;
     else if (a === "--dash" || a === "dash") out.dash = true;
   }
   return out;
@@ -298,6 +299,44 @@ if (args.dash) {
   process.exit(0);
 }
 
+// --watchdog: one-shot wedge detector, run by launchd every 5 min. The --watch
+// process has twice wedged silently (cycle timeouts; once even its KeepAlive
+// respawn wedged) — sessions kept writing while the shipper went dark, and every
+// surface honestly reported "nothing spent". Signal: some session .jsonl grew in
+// the last 10 min but emit.log hasn't been written in 10 min → the emitter is
+// dark while there's work, so kick it hard. A false kick is harmless (KeepAlive).
+if (args.watchdog) {
+  const STALE_MS = 10 * 60 * 1000;
+  const now = Date.now();
+  let logM = 0; try { logM = statSync(path.join(HOME, ".maxx", "emit.log")).mtimeMs; } catch {}
+  if (now - logM >= STALE_MS) {
+    let sessionsFresh = false;
+    outer: for (const r of claudeRoots()) {
+      let dirs = []; try { dirs = readdirSync(r.dir, { withFileTypes: true }); } catch { continue; }
+      for (const d of dirs) {
+        if (!d.isDirectory()) continue;
+        const pdir = path.join(r.dir, d.name);
+        let files = []; try { files = readdirSync(pdir); } catch { continue; }
+        for (const f of files) {
+          if (!f.endsWith(".jsonl")) continue;
+          try { if (now - statSync(path.join(pdir, f)).mtimeMs < STALE_MS) { sessionsFresh = true; break outer; } } catch {}
+        }
+      }
+    }
+    if (sessionsFresh) {
+      const { execSync } = await import("node:child_process");
+      const stamp = new Date().toISOString();
+      try {
+        execSync(`launchctl kickstart -k gui/${process.getuid()}/co.meetmaxx.emit`);
+        console.log(`[watchdog] ${stamp} emitter silent ${Math.round((now - logM) / 60000)}m while sessions are writing — kickstarted co.meetmaxx.emit`);
+      } catch (e) {
+        console.log(`[watchdog] ${stamp} kickstart failed: ${e.message}`);
+      }
+    }
+  }
+  process.exit(0);
+}
+
 if (args.installAgent) {
   if (!cfg.handle || !cfg.secret) { console.error("no handle/secret in ~/.maxx/config.json — run --signup <handle> first."); process.exit(1); }
   const self = fileURLToPath(import.meta.url);
@@ -322,7 +361,25 @@ if (args.installAgent) {
     try { execSync(`launchctl bootout gui/${uid}/${label} 2>/dev/null`); } catch {}
     execSync(`launchctl bootstrap gui/${uid} ${plist}`);
     execSync(`launchctl kickstart -k gui/${uid}/${label}`);
+    // watchdog: the --watch process has wedged silently before; a 5-min one-shot
+    // check restarts it whenever sessions are writing but the shipper has gone dark.
+    const wdLabel = "co.meetmaxx.watchdog";
+    const wdPlist = path.join(HOME, "Library", "LaunchAgents", `${wdLabel}.plist`);
+    writeFileSync(wdPlist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${wdLabel}</string>
+  <key>ProgramArguments</key><array>
+    <string>${process.execPath}</string><string>${self}</string><string>--watchdog</string>
+  </array>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardOutPath</key><string>${path.join(HOME, ".maxx", "watchdog.log")}</string>
+  <key>StandardErrorPath</key><string>${path.join(HOME, ".maxx", "watchdog.log")}</string>
+</dict></plist>\n`);
+    try { execSync(`launchctl bootout gui/${uid}/${wdLabel} 2>/dev/null`); } catch {}
+    execSync(`launchctl bootstrap gui/${uid} ${wdPlist}`);
     console.log(`maxx: launchd agent ${label} installed + running (log: ~/.maxx/emit.log)`);
+    console.log(`maxx: watchdog ${wdLabel} installed — every 5 min, restarts a wedged emitter (log: ~/.maxx/watchdog.log)`);
   } else {
     console.log(`maxx: no launchd here — create a systemd user unit:\n
   ~/.config/systemd/user/maxx-emit.service:
