@@ -86,11 +86,11 @@ Your quota is one pool, so maxx counts it as one. Claim a handle and every surfa
 node ~/.claude/skills/maxx/emit.mjs --signup
 ```
 
-The dash — every machine and cloud agent, live, with the activity tail ([this one is real](https://meetmaxx.co/u/reif_tgp/dash), public view, names redacted):
+The dash — every machine and cloud agent, live, with the activity tail ([this one is real](https://meetmaxx.co/u/reif/dash), public view, names redacted):
 
 ![the dash: budget rails, burn chart, channels, live activity tail](assets/readme/dash.png)
 
-The card — the lifetime odometer ([live](https://meetmaxx.co/u/reif_tgp)):
+The card — the lifetime odometer ([live](https://meetmaxx.co/u/reif)):
 
 ![the card: lifetime tokens, usage graph, session and week rails](assets/readme/card.png)
 
