@@ -540,6 +540,13 @@ if (!args.watch) {
   // the catch used to strand it), cap a cycle so it can never hang forever, and let a
   // cycle that overruns be superseded rather than blocking the next one for good.
   const CYCLE_MAX_MS = 120000;
+  // Crash-only escape hatch: a cycle timeout aborts the race, not the work — a wedged
+  // runOnce keeps its streams/state in-process, and every later cycle hits the same
+  // wedge (observed 3.5h of back-to-back timeouts; a restart cured it instantly). The
+  // process can't heal itself, so after 3 straight timeouts exit(1) and let launchd
+  // (KeepAlive) respawn a clean one. Any successful cycle resets the count.
+  const TIMEOUTS_BEFORE_EXIT = 3;
+  let consecTimeouts = 0;
   let timer = null, running = false, startedAt = 0;
   const kick = () => {
     if (timer) return;
@@ -555,8 +562,18 @@ if (!args.watch) {
           runOnce({ quiet: true }),
           new Promise((_, rej) => setTimeout(() => rej(new Error(`cycle timeout after ${CYCLE_MAX_MS}ms`)), CYCLE_MAX_MS)),
         ]);
+        consecTimeouts = 0;
       } catch (e) {
         try { console.log("  cycle error:", (e && e.message) || String(e)); } catch {}
+        if (e && /cycle timeout/.test(String(e.message))) {
+          consecTimeouts += 1;
+          if (consecTimeouts >= TIMEOUTS_BEFORE_EXIT) {
+            try { console.log(`  ${consecTimeouts} consecutive cycle timeouts — process state is wedged, exiting for launchd to respawn clean`); } catch {}
+            process.exit(1);
+          }
+        } else {
+          consecTimeouts = 0;
+        }
       } finally {
         running = false;
       }
