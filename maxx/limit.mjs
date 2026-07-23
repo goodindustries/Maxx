@@ -30,6 +30,7 @@ const PROJECTS = path.join(CLAUDE_DIR, "projects");
 const OUT = path.join(HOME, ".maxx", `window${SUF}.json`);
 const CONFIG = path.join(HOME, ".maxx", "config.json");
 const RL = path.join(HOME, ".maxx", `rl${SUF}.json`);   // render drops the live %s here to anchor caps
+const LIMITHIT = path.join(HOME, ".maxx", `limit-hit${SUF}.json`); // newest "hit your weekly limit" banner seen in transcripts
 const CURSOR = path.join(HOME, ".maxx", `scan${SUF}.json`); // per-file byte offsets for the incremental tail
 const ACCOUNTS = path.join(HOME, ".maxx", "accounts.json"); // which Claude account owns which slice of the local logs
 const WINDOW_MS = 5 * 60 * 60 * 1000;     // Claude's ~5-hour limit window
@@ -76,9 +77,49 @@ export function weighUsage(u, model = "") {
         + (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1)
         * modelWeight(model);
 }
+// weekly-limit banner → epoch seconds of its "resets 7pm (America/Chicago)" clause. The banner is
+// ground truth the rate_limits payload can contradict (seen live: payload 55% while /usage read 100%
+// and cloud tasks were hard-blocked) — so the reset time must come from the banner itself.
+// Handles "resets 7pm (TZ)" and "resets Jul 23 at 7pm (TZ)". Unparseable → banner ts + 24h.
+export function parseResetAt(text, atMs) {
+  const m = /resets\s+(?:[A-Z][a-z]{2}\s+\d{1,2}\s+at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)/i.exec(text || "");
+  if (!m) return Math.round(atMs / 1000) + 24 * 3600;
+  const [, hh, mm, ap, tz] = m;
+  const h = (+hh % 12) + (ap.toLowerCase() === "pm" ? 12 : 0), min = +(mm || 0);
+  try {
+    // tz offset at atMs via Intl round-trip (minute precision; ≤1h off across a DST flip — acceptable)
+    const off = new Date(new Date(atMs).toLocaleString("en-US", { timeZone: tz })).getTime() - atMs;
+    const local = new Date(atMs + off);
+    local.setHours(h, min, 0, 0);
+    while (local.getTime() - off <= atMs) local.setDate(local.getDate() + 1); // next occurrence after the banner
+    return Math.round((local.getTime() - off) / 1000);
+  } catch { return Math.round(atMs / 1000) + 24 * 3600; }
+}
+let limitHit = null; // newest banner seen this scan; persisted by persistLimitHit()
+function noteLimitHit(r) {
+  // ONLY the harness's own synthetic banner counts — an ordinary assistant message QUOTING the
+  // phrase (seen live: an analysis session discussing the banner) must never pin an account to 100%.
+  if (r?.message?.model !== "<synthetic>") return;
+  const ts = r.timestamp ? Date.parse(r.timestamp) : NaN;
+  if (!Number.isFinite(ts) || (limitHit && ts <= limitHit.at)) return;
+  const text = (Array.isArray(r.message?.content) ? r.message.content : []).map(c => c.text || "").join(" ");
+  limitHit = { at: ts, resetAt: parseResetAt(text, ts) };
+}
+function persistLimitHit() {
+  if (!limitHit) return;
+  const prev = readJSON(LIMITHIT, null);
+  if (!prev || limitHit.at > prev.at) { try { writeFileSync(LIMITHIT, JSON.stringify(limitHit)); } catch {} }
+}
+// if an unexpired banner exists, it beats the payload: week pinned to 100%, reset to the banner's.
+function limitHitOverride(week, weekResetAt, now) {
+  const h = readJSON(LIMITHIT, null);
+  if (h && h.resetAt * 1000 > now && h.at <= now) return { week: 1, weekResetAt: h.resetAt };
+  return { week, weekResetAt };
+}
 function parseLine(line, seen) {
   if (!line || line[0] !== "{") return null;
   let r; try { r = JSON.parse(line); } catch { return null; }
+  if (line.includes("hit your weekly limit")) noteLimitHit(r);
   const u = r?.message?.usage; if (!u) return null;
   const tok = weighUsage(u, r?.message?.model || "");
   if (!tok) return null;
@@ -318,18 +359,26 @@ async function main() {
   if (process.argv.includes("--nazi")) { nazi(process.argv.includes("--json")); return; }
   // anchor the token caps to Claude's authoritative %s (render drops them in rl.json): with
   // cap = burned / used%, the token gauge reads exactly the real % — weighting quirks cancel.
-  let quota = 0, week = 0, weekResetAt = 0;
-  try { const rl = JSON.parse(readFileSync(RL, "utf8")); quota = rl.quota || 0; week = rl.week || 0; weekResetAt = rl.weekResetAt || 0; } catch {}
-  // weekly window start = Anthropic's reset − 7d; max() never loosens past the rolling 7d, so a
-  // stale/absent resets_at just falls back to the old behavior. Both lows also clamp to the current
-  // account's epoch — burn charged to a previous account never counts against this one's walls.
+  // anchors read AFTER the scan below: a weekly-limit banner discovered in this very scan must
+  // override this same run, not the next one.
   const acct = accountEpoch(now);
-  const weekLo = Math.max(now - WEEK_MS, weekResetAt ? weekResetAt * 1000 - WEEK_MS : 0, acct.since);
+  const anchors = () => {
+    let quota = 0, week = 0, weekResetAt = 0;
+    try { const rl = JSON.parse(readFileSync(RL, "utf8")); quota = rl.quota || 0; week = rl.week || 0; weekResetAt = rl.weekResetAt || 0; } catch {}
+    ({ week, weekResetAt } = limitHitOverride(week, weekResetAt, now));
+    // weekly window start = Anthropic's reset − 7d; max() never loosens past the rolling 7d, so a
+    // stale/absent resets_at just falls back to the old behavior. Both lows also clamp to the current
+    // account's epoch — burn charged to a previous account never counts against this one's walls.
+    const weekLo = Math.max(now - WEEK_MS, weekResetAt ? weekResetAt * 1000 - WEEK_MS : 0, acct.since);
+    return { quota, week, weekResetAt, weekLo };
+  };
   const fiveLo = Math.max(now - WINDOW_MS, acct.since);
 
   // --json prints the full report (authoritative scan); other invocations refresh window.json.
   if (process.argv.includes("--json")) {
     const pts = (await collect()).filter(([t]) => t > acct.since);
+    persistLimitHit();
+    const { quota, week, weekResetAt, weekLo } = anchors();
     const r = report(pts, now, weekLo, quota, week, weekResetAt);
     console.log(JSON.stringify(r, null, 2));
     return;
@@ -352,6 +401,8 @@ async function main() {
     buckets = mergeBuckets(prev.buckets || [], pts, now);
     offsets = off;
   }
+  persistLimitHit();
+  const { quota, week, weekResetAt, weekLo } = anchors();
 
   // re-anchor caps against the freshly-summed window each run (quota comes from the live bar).
   // Held-over caps from a DIFFERENT account are poison (anchored to that account's %s) — drop them.

@@ -11,7 +11,7 @@
  * and the coach hook) — nothing extra to install, nothing to compile. A tiny ANSI
  * compositor stands in for lipgloss.
  */
-import { readFileSync, writeFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -530,14 +530,32 @@ function main() {
   const wall7 = mergeWall(rl.seven_day, rlCache && rlCache.week, rlCache && rlCache.weekResetAt);
   if (wall5) rl.five_hour = { used_percentage: wall5.pct * 100, resets_at: wall5.reset };
   if (wall7) rl.seven_day = { used_percentage: wall7.pct * 100, resets_at: wall7.reset };
-  const haveQuota = !!rl.five_hour, haveWeek = !!rl.seven_day;
+  const haveQuota = !!rl.five_hour;
+  let haveWeek = !!rl.seven_day;
   const quota = wall5 ? wall5.pct : 0;
-  const week = wall7 ? wall7.pct : 0;
+  let week = wall7 ? wall7.pct : 0;
 
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
   // sum at the real window start instead of a blind rolling 7d — see weekLo below.
   try { if (liveRL && haveQuota) writeFileSync(MAXX("rl.json"), JSON.stringify({ quota, week, fiveResetAt: rl.five_hour.resets_at || 0, weekResetAt: haveWeek ? rl.seven_day.resets_at : 0, ts: Date.now(), account: sessAccount })); } catch {}
+  // rl history: append every CHANGE in the observed walls (not every tick) — the audit trail that
+  // lets a "bar said 55%, /usage said 100%" incident be reconstructed after the fact.
+  try {
+    const w7r = haveWeek ? rl.seven_day.resets_at : 0, w5r = haveQuota ? rl.five_hour.resets_at || 0 : 0;
+    if (liveRL && haveQuota && (!rlCache || rlCache.quota !== quota || rlCache.week !== week || rlCache.fiveResetAt !== w5r || rlCache.weekResetAt !== w7r))
+      appendFileSync(path.join(HOME, ".maxx", `rl-history${SUF}.jsonl`), JSON.stringify({ quota, week, fiveResetAt: w5r, weekResetAt: w7r, ts: Date.now(), account: sessAccount }) + "\n");
+  } catch {}
+  // weekly-limit banner override — AFTER the rl.json stamp so the observation cache stays pure
+  // payload. A synthetic "hit your weekly limit" turn is ground truth over the payload (seen live:
+  // payload 55% while /usage read 100% and cloud tasks were blocked). Until the banner's own reset
+  // passes, the week rail reads 100%.
+  const limitHit = readJSON(MAXX("limit-hit.json"), null);
+  if (limitHit && limitHit.resetAt * 1000 > Date.now() && limitHit.at <= Date.now()) {
+    week = 1;
+    haveWeek = true;
+    rl.seven_day = { used_percentage: 100, resets_at: limitHit.resetAt };
+  }
   // session-reset flag: the 5h wall's resets_at jumps forward when a fresh block starts. Track
   // the last one; when it leaps (>5min later), the window just cleared — flag it for ~5 min.
   const marksPath = MAXX("marks.json");
