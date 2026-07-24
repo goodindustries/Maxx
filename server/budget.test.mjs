@@ -236,3 +236,27 @@ test("a fresh anchor is unaffected and still reads ok", () => {
   assert.equal(b.verdict, "ok");
   assert.ok(b.session_to_spend > 0);
 });
+
+// A CAP is a capacity; a READING is not. The 5h path already refuses an anchor whose
+// window has since died (windowCurrent). The WEEK path did not: an anchor taken just
+// before week_reset carries week_used ≈ cap, and the server kept adding to it AFTER the
+// wall reset — so weekPct pinned at 1 and every cloud routine read "budget over" on a
+// week that had just gone to zero. Blocked reif_tgp's whole fleet 2026-07-23 19:11–20:44
+// CDT, until a fresh anchor happened to land.
+test("week reset while anchor is stale: pre-reset week_used does not carry over", () => {
+  const s = emptyStore();
+  const wr = T - 600;              // week reset 10 min ago
+  s.events.push(
+    { surface: "laptop:a", root: "r1", ts: T - 3 * H, billed: 900e6 },  // pre-reset burn
+    { surface: "laptop:a", root: "r2", ts: T - 300, billed: 2e6 },      // post-reset burn
+  );
+  // last anchor is 2h old (past TRUST, inside DEGRADE) and describes the DEAD week
+  s.anchors.push({
+    ts: T - 2 * H, five_pct: 0.1, week_pct: 0.99, five_reset: T + 2 * H, week_reset: wr,
+    sl: { five_used: 8e6, five_cap: 80e6, to_spend: 30e6, week_used: 1290e6, week_cap: 1300e6 },
+  });
+  const b = computeBudget(s, T);
+  assert.equal(b.week_used_tokens, 2e6, "week counts only post-reset burn");
+  assert.notEqual(b.verdict, "over");
+  assert.ok(b.session_to_spend > 0, `expected headroom, got ${b.session_to_spend}`);
+});

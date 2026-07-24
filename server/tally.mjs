@@ -210,7 +210,12 @@ export function computeBudget(store, now) {
     const windowCurrent = fr > now;
     if (windowCurrent && a.sl.five_cap > 0) { fiveCap = a.sl.five_cap; five = a.sl.five_used + since; }
     weekCap = a.sl.week_cap;
-    week = a.sl.week_used + since;
+    // Same rule as the 5h window: a CAP survives the reset, a READING does not. Once
+    // week_reset has passed, the anchor's week_used describes a DEAD week — adding
+    // since-anchor burn to it pinned weekPct at 1 and every cloud routine read "over"
+    // on a week that had just gone to zero. Post-reset the ledger's fixed-window sum
+    // (weekLoFor, rolled forward above) is the truth until the next anchor lands.
+    if (wr > now) week = a.sl.week_used + since;
     quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
     weekPct = weekCap > 0 ? Math.min(1, week / weekCap) : weekPct;
     if (fresh) {
