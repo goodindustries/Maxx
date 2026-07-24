@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { weekPaceToken } from "./pace.mjs";
 import { weighUsage } from "./limit.mjs";
 
 // ─── color: one HSL→hex + an rgb→hsl round-trip for shading ────────────────────
@@ -896,18 +897,22 @@ function main() {
           if (fits(s, pr)) s += pr;
         }
       } else {
-        // WEEK = the reserve. LEFT = tokens remaining. bank = standing vs even-burn (cap7 × elapsed −
-        // used7): + banked (green, ahead of pace) / − over (red, burning too fast). burn = drain rate.
-        // LEFT + OVER in k (thousands), comma-grouped — same odometer scale as the session line, and the
-        // low k-digits are exposed (vs compact "93.2M" which hid them). LEFT scrolls as you spend; OVER
-        // drifts ~0.6k/sec on its own as the week's elapsed-time creeps, so its k digit ticks live too.
+        // WEEK line answers ONE question: am I over? LEFT = tokens remaining against the
+        // weekly cap — that IS the over/under answer (LEFT > 0 → not over). The second token
+        // is a PACE signal, not the budget: bank = cap7×elapsed − used7 = ahead of / behind a
+        // straight-line burn through the week. It used the word "over" in RED — the same word
+        // and colour the fleet-killing cap verdict uses — so a −3.6M pace wobble against a 289M
+        // week (1.3%, noise) read as "you breached your weekly cap" while 91% of the tank
+        // remained. Fixed: "ahead pace"/"behind pace" (never "over"), AMBER not RED (RED belongs
+        // only to the real verdict), and dead-banded so a sub-5%-of-cap wobble prints nothing.
         const leftK = step1("wkleft", stat.headroom / 1000);
         const d = fg(DIM, "  ") + fg(INK, kstr(leftK)) + fg(DIM, " left"); if (fits(s, d)) s += d;
-        if (cap7s) {
-          const bankK = step1("wkbank", (cap7s * e7 - used7) / 1000);
-          const b = bankK >= 0
-            ? fg(DIM, "  ·  ") + fg(GREEN, "+" + kstr(bankK) + " banked")
-            : fg(DIM, "  ·  ") + fg(RED, "−" + kstr(bankK) + " over");
+        // pace token (weekPaceToken): decided on the RAW bank so it's deterministic; the
+        // odometer only rolls the shown digits. See pace.mjs for why it's never "over"/red.
+        const pace = weekPaceToken(cap7s * e7 - used7, cap7s);
+        if (pace) {
+          const bankK = step1("wkbank", pace.magnitude / 1000);
+          const b = fg(DIM, "  ·  ") + fg(pace.role === "good" ? GREEN : AMBER, (pace.ahead ? "+" : "−") + kstr(bankK) + " " + pace.label);
           if (fits(s, b)) s += b;
         }
         if (stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }
