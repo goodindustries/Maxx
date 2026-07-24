@@ -911,8 +911,7 @@ function main() {
         // odometer only rolls the shown digits. See pace.mjs for why it's never "over"/red.
         const pace = weekPaceToken(cap7s * e7 - used7, cap7s);
         if (pace) {
-          const bankK = step1("wkbank", pace.magnitude / 1000);
-          const b = fg(DIM, "  ·  ") + fg(pace.role === "good" ? GREEN : AMBER, (pace.ahead ? "+" : "−") + kstr(bankK) + " " + pace.label);
+          const b = fg(DIM, "  ·  ") + fg(pace.role === "good" ? GREEN : AMBER, (pace.ahead ? "+" : "−") + pace.pct + "% pace");
           if (fits(s, b)) s += b;
         }
         if (stat.resetIn) { const d = fg(DIM, "  ·  ") + fg(DIM, stat.resetIn); if (fits(s, d)) s += d; }

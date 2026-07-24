@@ -13,23 +13,21 @@ test("the reproducer: a 3.6M behind-pace wobble is NOT called 'over' and is NOT 
   assert.equal(t, null, "sub-band pace noise must print nothing, not a red 'over'");
 });
 
-test("behind pace beyond the band: amber, worded 'behind pace', never 'over'", () => {
+test("behind pace beyond the band: amber, compact signed %, never 'over'/red", () => {
   const t = weekPaceToken(-30e6, CAP); // ~10% behind
   assert.ok(t, "a real deviation renders");
-  assert.equal(t.label, "behind pace");
-  assert.equal(/over/.test(t.label), false, "the word 'over' must never appear");
   assert.equal(t.role, "warn", "behind pace is amber (warn), never red (danger)");
   assert.notEqual(t.role, "danger");
   assert.equal(t.ahead, false);
-  assert.equal(t.magnitude, 30e6);
+  assert.equal(t.pct, 10, "30M / 289M ≈ 10% — the compact display unit");
+  assert.equal(/over/.test(t.label), false, "the word 'over' must never appear");
 });
 
-test("ahead of pace beyond the band: green, worded 'ahead pace'", () => {
+test("ahead of pace beyond the band: green, signed % of cap", () => {
   const t = weekPaceToken(40e6, CAP);
-  assert.equal(t.label, "ahead pace");
   assert.equal(t.role, "good");
   assert.equal(t.ahead, true);
-  assert.equal(t.magnitude, 40e6);
+  assert.equal(t.pct, 14, "40M / 289M ≈ 14%");
 });
 
 test("dead-band: anything within ±5% of cap prints nothing (on pace)", () => {

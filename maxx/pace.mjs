@@ -17,6 +17,9 @@
  *  - dead-banded: a deviation under 5% of the weekly cap is even-pace noise → show nothing.
  *
  * bankTokens and capTokens are in the same units. Returns null when nothing should render.
+ * `pct` is the deviation as a signed whole-percent of the weekly cap — the compact display
+ * unit ("−9%"): the raw k-magnitude ("−60,323k behind pace") was long AND meaningless to a
+ * human, where "9% behind an even burn" is instantly legible in a third the width.
  */
 export function weekPaceToken(bankTokens, capTokens) {
   if (!capTokens || capTokens <= 0) return null;
@@ -27,5 +30,6 @@ export function weekPaceToken(bankTokens, capTokens) {
     label: ahead ? "ahead pace" : "behind pace",
     role: ahead ? "good" : "warn", // good→green, warn→amber — never "danger"/red
     magnitude: Math.abs(bankTokens),
+    pct: Math.round((Math.abs(bankTokens) / capTokens) * 100), // signed via `ahead`
   };
 }
