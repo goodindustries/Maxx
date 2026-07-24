@@ -1051,6 +1051,7 @@ td{padding:8px;border-bottom:1px solid #f0f1f6;font-variant-numeric:tabular-nums
 td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-25)}
 td.num,th.num{text-align:right}
 td b{font-weight:700}
+.cmeta{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:3px;letter-spacing:0}
 /* a directive hangs under the channel it is waiting on, indented and quieter than the row above */
 tr.dirrow td{background:#faf8f2;border-bottom:1px solid #f0f1f6;padding-left:22px;font-size:12px;line-height:1.5}
 .empty{color:var(--ink-3);padding:10px;font-size:13.5px}
@@ -1515,7 +1516,9 @@ if(location.search)history.replaceState(null,'',location.pathname);
       var k=keyOf(e.surface,e.project);
       var c=by[k]||(by[k]={surface:k,b5:0,last:0,h1:0});
       var ts=new Date(e.ts).getTime()/1000;
-      if(ts>c.last)c.last=ts;
+      // the channel's own live state = its most-recent emit: where the session is
+      // (turn), what the last turn cost, and how full the context is (the danger signal).
+      if(ts>=c.last){c.last=ts;if(e.turn_end>0)c.turn=e.turn_end;if(e.ctx>0)c.ctx=e.ctx;if(e.billed>0)c.lastTurn=e.billed;}
       if(ts>t-3600)c.h1+=e.billed;
     });
     var rows=Object.keys(by).map(function(k){return by[k]}).sort(function(a,b2){return b2.b5-a.b5});
@@ -1544,7 +1547,16 @@ if(location.search)history.replaceState(null,'',location.pathname);
     });
     var body=rows.map(function(c){
       var mine=dirs.filter(function(d){return assign[d.id]===c.surface});
-      return '<tr><td class="mono">'+surfIcon(c.surface)+' '+esc(c.surface)+'</td>'+
+      // live-state sub-line: turn · last-turn cost · context, ctx colored as the danger
+      // rail (red past the 250k /fenix wall, amber past 120k) — same thresholds the feed uses.
+      var meta='';
+      if(c.turn||c.ctx){
+        var cc=c.ctx>250e3?'var(--red, #d23b3b)':c.ctx>120e3?'#d08a2a':'var(--ink-3)';
+        meta='<div class="cmeta">'+(c.turn?'t'+c.turn:'')+
+          (c.lastTurn?' · +'+hum(c.lastTurn)+' last':'')+
+          (c.ctx?' · <span style="color:'+cc+'">ctx'+hum(c.ctx)+(c.ctx>250e3?' ⚠':'')+'</span>':'')+'</div>';
+      }
+      return '<tr><td class="mono">'+surfIcon(c.surface)+' '+esc(c.surface)+meta+'</td>'+
         '<td>'+(c.last?ago(Math.max(0,t-c.last))+' ago':'—')+'</td>'+
         '<td class="num">'+(c.h1>0?'<b>+'+hum(c.h1)+'</b>':'idle')+'</td>'+
         '<td class="num">'+hum(c.b5)+'</td>'+
