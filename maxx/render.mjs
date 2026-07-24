@@ -921,8 +921,13 @@ function main() {
   };
 
   // one calm meta line, lowercase, airy dot separators. ctx + cache carry contextual color.
+  // The session tag is the FIRST 4 chars of this session's id — the exact same slice the
+  // owner-dashboard feed tags a row with when 2+ sessions share a project (handler.mjs
+  // `String(e.root).slice(0,4)`). Two agents in one directory now name themselves: read the
+  // tag here, match it to the burning row there. Only shown when we know the session id.
   const ctxCol = ctxPct >= 85 ? RED : ctxPct >= 65 ? AMBER : DIM;
-  let metaRow = fg(DIM, fam.toLowerCase() + (branch ? "  ·  " + trunc(branch, 34) : "") + `  ·  $${Math.round(usd)}  ·  ctx `)
+  const sidTag = sid ? `id ${String(sid).slice(0, 4)}  ·  ` : "";
+  let metaRow = fg(DIM, fam.toLowerCase() + "  ·  " + sidTag + (branch ? trunc(branch, 34) + "  ·  " : "") + `$${Math.round(usd)}  ·  ctx `)
     + fg(ctxCol, `${Math.floor(ctxPct)}%`) + fg(DIM, "  ·  cache ") + fg(cacheCol, cacheV);
 
   // per-turn cost, averaged over the last 3 turns of THIS session. The 5h and weekly
