@@ -37,6 +37,7 @@ import { createInterface } from "node:readline";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { extractSetupToken } from "./token.mjs";
 
 const HOME = homedir();
 const DEFAULT_DIR = path.join(HOME, ".claude", "projects");
@@ -57,6 +58,7 @@ function parseArgs(argv) {
     else if (a === "--dir") out.dir = argv[++i];
     else if (a === "--signup" || a === "signup") { const n = argv[i + 1]; out.signup = n && !n.startsWith("-") ? argv[++i] : true; }
     else if (a === "--install-agent") out.installAgent = true;
+    else if (a === "--set-token") out.setToken = true;
     else if (a === "--watchdog") out.watchdog = true;
     else if (a === "--dash" || a === "dash") out.dash = true;
   }
@@ -276,6 +278,42 @@ if (args.signup) {
   console.log(`\n  Laptop live-ship (start at login):\n    node ${fileURLToPath(import.meta.url)} --install-agent`);
   console.log(`\n  Watch it with your own eyes:\n    node ${path.join(path.dirname(fileURLToPath(import.meta.url)), "watch.mjs")}\n`);
   process.exit(0);
+}
+
+// --set-token: mint a long-lived probe credential per account and register it server-side,
+// so the tally can PULL a fresh limit anchor whenever that account's laptop stops pushing
+// one (asleep/off). Run at onboarding (installer calls this) or any time to (re)set it.
+// `claude setup-token` is interactive (browser) — best-effort: a missing binary or a
+// non-interactive shell skips cleanly with the manual one-liner, never blocks the install.
+if (args.setToken) {
+  const { spawnSync } = await import("node:child_process");
+  const targets = resolveRoots();
+  if (!targets.length) { console.error("maxx: no linked account — run --signup first."); process.exit(1); }
+  let ok = 0;
+  for (const r of targets) {
+    // CLAUDE_CONFIG_DIR is the account's config DIR. For the default login that's
+    // ~/.claude (its .claude.json sits at ~/.claude.json, so dirname would wrongly give
+    // HOME); non-default logins keep their .claude-<x>/ dir.
+    const cfgDir = r.isDefault ? path.join(HOME, ".claude") : path.dirname(r.acctFile);
+    process.stdout.write(`maxx: minting probe token for @${r.handle} (${r.email || cfgDir}) — complete the browser login…\n`);
+    // inherit stdin/stderr so the user can drive the OAuth prompt; capture stdout for the token
+    const run = spawnSync("claude", ["setup-token"], {
+      env: { ...process.env, CLAUDE_CONFIG_DIR: cfgDir },
+      encoding: "utf8", stdio: ["inherit", "pipe", "inherit"],
+    });
+    if (run.error) { console.error(`  skip @${r.handle}: cannot run \`claude setup-token\` (${run.error.code || run.error.message}). Set later: node ${fileURLToPath(import.meta.url)} --set-token`); continue; }
+    const token = extractSetupToken(run.stdout);
+    if (!token) { console.error(`  skip @${r.handle}: no token in setup-token output.`); continue; }
+    const res = await fetch(`${base}/api/u/${encodeURIComponent(r.handle)}/config?k=${encodeURIComponent(r.secret)}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ probe_token: token }), signal: AbortSignal.timeout(15000),
+    }).catch((e) => ({ ok: false, status: 0, _err: e }));
+    const j = res.ok ? await res.json().catch(() => ({})) : {};
+    if (res.ok && j.probe) { console.log(`  ✓ @${r.handle}: probe token registered (server pulls an anchor when this laptop is away).`); ok++; }
+    else console.error(`  ✗ @${r.handle}: server rejected the token (${res.status || res._err?.message || "?"}).`);
+  }
+  console.log(`maxx: probe token set for ${ok}/${targets.length} account(s).`);
+  process.exit(ok ? 0 : 1);
 }
 
 // --install-agent: run `emit.mjs --watch` at login. launchd on macOS; prints a

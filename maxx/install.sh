@@ -33,12 +33,31 @@ place() {
   rm -f "$2"
   if [ "$MODE" = "--link" ]; then ln -s "$1" "$2"; else cp "$1" "$2"; fi
 }
+
+# Probe-token onboarding: mint the long-lived credential that lets the tally pull a fresh
+# limit anchor when this laptop is away. `claude setup-token` needs a browser + a TTY, so a
+# piped `curl | bash` install (stdin is the script, not a terminal) can't drive it — in that
+# case we surface the one command to run. Run directly (./install.sh) and we set it now.
+offer_token_setup() {
+  H="$1"
+  if [ -t 0 ] && command -v claude >/dev/null 2>&1; then
+    echo ""
+    echo "maxx: setting up account-wide token management (server stays live when this laptop sleeps)…"
+    node "$SKILL/emit.mjs" --set-token || echo "  (set it later: node $SKILL/emit.mjs --set-token)"
+  else
+    echo ""
+    echo "  keep your tally live even when this laptop is off — run once:"
+    echo "    node $SKILL/emit.mjs --set-token"
+  fi
+}
 place "$SRC/SKILL.md"     "$SKILL/SKILL.md"
 place "$SRC/render.mjs"   "$SKILL/render.mjs"
 place "$SRC/tracker.mjs"  "$SKILL/tracker.mjs"
 place "$SRC/limit.mjs"    "$SKILL/limit.mjs"
 place "$SRC/agents.mjs"   "$SKILL/agents.mjs"
 place "$SRC/emit.mjs"     "$SKILL/emit.mjs"
+place "$SRC/pace.mjs"     "$SKILL/pace.mjs"
+place "$SRC/token.mjs"    "$SKILL/token.mjs"
 place "$SRC/watch.mjs"    "$SKILL/watch.mjs"
 place "$SRC/gate.mjs"     "$SKILL/gate.mjs"
 place "$SRC/fenix.mjs"    "$SKILL/fenix.mjs"
@@ -114,6 +133,7 @@ JS
       echo "    https://meetmaxx.co/u/$H?k=$MAXX_SECRET"
       echo ""
       echo "  binge-watch your tokens → https://meetmaxx.co/u/$H"
+      offer_token_setup "$H"
       ;;
     KEPT:*)
       echo ""
@@ -134,6 +154,7 @@ else
     node "$SKILL/emit.mjs" --send >/dev/null 2>&1 || true
     NEWH=$(node -e 'try{process.stdout.write(require(process.env.HOME+"/.maxx/config.json").handle||"")}catch{}' 2>/dev/null || true)
     [ -n "$NEWH" ] && echo "  binge-watch your tokens → https://meetmaxx.co/u/$NEWH   (want a different name? node $SKILL/emit.mjs --signup <handle>)"
+    [ -n "$NEWH" ] && offer_token_setup "$NEWH"
   else
     echo ""
     echo "Optional — central budget tally (cloud + all machines, one number):"
