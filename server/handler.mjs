@@ -14,7 +14,8 @@
  * The Netlify function and a local node http server are both thin wrappers.
  */
 import { randomBytes } from "node:crypto";
-import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives, logOp, autoAdvise } from "./tally.mjs";
+import { applyEnvelope, computeBudget, transitionEvents, addDirective, pendingDirectives, logOp, autoAdvise, anchorAgeSec, ANCHOR_TRUST_SEC } from "./tally.mjs";
+import { probeAnchor } from "./probe.mjs";
 
 const TOOLS = [
   {
@@ -1662,7 +1663,7 @@ const rpcErr = (id, code, message) => json(200, { jsonrpc: "2.0", id, error: { c
 // secretFor(handle) = PER-HANDLE secret only (e.g. MAXX_SECRET_<HANDLE> env);
 // fallbackSecret = shared operator secret that also gates unclaimed handles on a
 // public deploy — it must NOT make handles look "taken" to signup.
-export function createHandler({ store, secretFor = () => null, fallbackSecret = null, now = () => Date.now() / 1000 }) {
+export function createHandler({ store, secretFor = () => null, fallbackSecret = null, now = () => Date.now() / 1000, probe = probeAnchor }) {
   const bearer = (headers) => {
     const h = headers.authorization || headers.Authorization || "";
     const m = /^Bearer\s+(.+)$/i.exec(h);
@@ -1752,9 +1753,32 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     await store.save(handle, s);
     return advised.length ? { ...res, advised: advised.length } : res;
   }
+  // Pull-on-miss: the anchor is a cache of Anthropic's limit state that the laptop
+  // normally PUSHES. When the push is missing (asleep, off, account switched) the
+  // anchor ages past TRUST and the fleet reads stale/over on an untouched budget.
+  // So pull one. Costs ~1 token, and only ever fires while the push is already gone.
+  // Rate-limited by probe_at, which is stamped BEFORE the call so a failing probe
+  // (dead token, network) backs off exactly like a successful one.
+  const PROBE_MIN_INTERVAL = 300;
+  async function maybeRefreshAnchor(handle, s, t) {
+    const token = s.probe?.token;
+    if (!token) return false;
+    if (anchorAgeSec(s, t) <= ANCHOR_TRUST_SEC) return false;
+    if (t - (s.probe.at || 0) < PROBE_MIN_INTERVAL) return false;
+    s.probe.at = t;
+    const anchor = await probe(token, { now: t });
+    if (!anchor) { logOp(s, "probe", "failed — no usable ratelimit headers", t); return false; }
+    s.anchors.push(anchor);
+    if (s.anchors.length > 500) s.anchors = s.anchors.slice(-500);
+    logOp(s, "probe", `pulled anchor · 5h ${Math.round(anchor.five_pct * 100)}% · 7d ${Math.round(anchor.week_pct * 100)}%`, t);
+    return true;
+  }
+
   async function budget(handle) {
     const s = await store.load(handle);
-    return computeBudget(s, now());
+    const t = now();
+    if (await maybeRefreshAnchor(handle, s, t)) await store.save(handle, s);
+    return computeBudget(s, t);
   }
 
   // #4: grant a lease against the CURRENT allowance (which already subtracts
@@ -1765,6 +1789,7 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
     const s = await store.load(handle);
     const t = now();
     s.leases = (s.leases || []).filter((l) => l.expires > t);
+    await maybeRefreshAnchor(handle, s, t);   // a fan-out must not be sized off a dead anchor
     const b = computeBudget(s, t);
     const avail = b.session_to_spend ?? 0;
     // degraded (no fresh /usage anchor, weekly standing still live) still grants —
@@ -2104,8 +2129,12 @@ export function createHandler({ store, secretFor = () => null, fallbackSecret = 
       const s = await store.load(h);
       s.config = { ...(s.config || {}) };
       for (const k of ["runaway_rate_5m", "runaway_min"]) if (b[k] != null) s.config[k] = Number(b[k]);
+      // Probe credential: WRITE-ONLY. Kept off s.config so it can never ride out in the
+      // config echo below. "" clears it. A setup-token (sk-ant-oat…, user:inference) —
+      // it lets the server pull an anchor when the laptop stops pushing one.
+      if (b.probe_token != null) s.probe = b.probe_token ? { token: String(b.probe_token), at: 0 } : null;
       await store.save(h, s);
-      return json(200, { ok: true, config: s.config });
+      return json(200, { ok: true, config: s.config, probe: !!s.probe });
     }
     // ---- directive channel: queue a command / agent-side consume ----
     m = p.match(/^\/api\/u\/([^/]+)\/directive$/);

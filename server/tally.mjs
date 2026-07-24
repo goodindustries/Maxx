@@ -22,7 +22,7 @@
 
 const FIVE_H = 5 * 3600;
 const WEEK = 7 * 24 * 3600;
-const ANCHOR_TRUST_SEC = 45 * 60; // matches the routines' staleness gate
+export const ANCHOR_TRUST_SEC = 45 * 60; // matches the routines' staleness gate
 // Past ANCHOR_TRUST_SEC the anchor no longer describes the live 5h window, but the
 // weekly caps it calibrated move on a 7-day window — hours-old calibration still
 // prices the weekly tank fine, and the server owns the full billed ledger from every
@@ -124,8 +124,15 @@ export function applyEnvelope(store, env, now = Math.floor(Date.now() / 1000)) {
   return { accepted, deduped, billed };
 }
 
-const latestAnchor = (store) =>
+export const latestAnchor = (store) =>
   store.anchors.length ? store.anchors.reduce((a, b) => (b.ts > a.ts ? b : a)) : null;
+
+// Seconds since the freshest anchor (Infinity when never anchored). Exported so the
+// handler can decide to PULL one (server/probe.mjs) before the push goes stale.
+export const anchorAgeSec = (store, now) => {
+  const a = latestAnchor(store);
+  return a ? now - a.ts : Infinity;
+};
 
 // Sum billed across all surfaces whose effective ts is within (lo, now].
 const windowedBilled = (events, now, win, lo = now - win) => {
