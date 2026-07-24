@@ -509,14 +509,21 @@ input:focus{outline:none;border-color:var(--accent);background:#fff}
 button{width:100%;margin-top:12px;padding:12px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:var(--sans)}
 button:hover{filter:brightness(1.08)}
 .err{color:#c23a3a;font-size:13.5px;margin-top:10px;display:none}
-.hint{color:var(--ink-3);font-size:12.5px;margin-top:14px}
+.hint{color:var(--ink-3);font-size:12.5px;margin-top:12px}
 .hint code{font-family:var(--mono);background:#f0f0fa;padding:2px 6px;border-radius:6px;font-size:11.5px}
+.or{color:var(--ink-3);font-size:12.5px;margin-top:18px}
+.cmd{display:flex;align-items:center;gap:10px;margin-top:8px;padding:10px 12px;background:#f0f0fa;border:1px solid #e3e2f4;border-radius:12px;cursor:pointer;transition:border-color .12s}
+.cmd:hover{border-color:var(--accent)}
+.cmd .ct{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);overflow-x:auto;white-space:nowrap;flex:1}
+.cmd .cp{font-family:var(--sans);font-size:11px;font-weight:600;color:var(--accent);background:#fff;border:1px solid #e3e2f4;border-radius:7px;padding:3px 8px;flex-shrink:0}
 @media(prefers-color-scheme:dark){
 :root{color-scheme:dark;--bg:#0d1420;--card:#171f30;--ink:#e7eaf3;--ink-2:#c2c9d6;--ink-3:#8b94a8;--accent:#8079f2}
 .card{box-shadow:0 30px 70px -30px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.30)}
 input{background:#1b2333;border-color:#2c3652}
 input:focus{background:#0d1420}
 .hint code{background:#232c40}
+.cmd{background:#1b2333;border-color:#2c3652}
+.cmd .cp{background:#0d1420;border-color:#2c3652}
 }
 </style></head><body>
 <form class="card" id="f">
@@ -525,7 +532,9 @@ input:focus{background:#0d1420}
  <input id="s" type="password" placeholder="your maxx secret" autocomplete="current-password" autofocus>
  <button>Sign in</button>
  <div class="err" id="err">Wrong secret.</div>
- <div class="hint">On your machine it lives in <code>~/.maxx/config.json</code></div>
+ <div class="or">No secret handy? Open it straight from your terminal — one command, nothing to paste:</div>
+ <div class="cmd" id="cmd" title="click to copy"><span class="ct">node ~/.claude/skills/maxx/emit.mjs --dash</span><span class="cp" id="cp">copy</span></div>
+ <div class="hint">It mints a single-use link and opens your dashboard. The secret above still lives in <code>~/.maxx/config.json</code>.</div>
 </form>
 <script>
 document.getElementById('f').addEventListener('submit',function(ev){
@@ -534,6 +543,12 @@ document.getElementById('f').addEventListener('submit',function(ev){
     body:JSON.stringify({secret:document.getElementById('s').value.trim()})})
   .then(function(r){if(r.ok)location.replace('/u/${h}/dash');else document.getElementById('err').style.display='block';})
   .catch(function(){document.getElementById('err').style.display='block';});
+});
+document.getElementById('cmd').addEventListener('click',function(){
+  var cmd=document.querySelector('#cmd .ct').textContent,cp=document.getElementById('cp');
+  var done=function(){cp.textContent='copied';setTimeout(function(){cp.textContent='copy';},1400);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(cmd).then(done).catch(done);}
+  else{var r=document.createRange();r.selectNodeContents(document.querySelector('#cmd .ct'));var sel=getSelection();sel.removeAllRanges();sel.addRange(r);try{document.execCommand('copy');}catch(e){}done();}
 });
 </script>
 </body></html>`;
