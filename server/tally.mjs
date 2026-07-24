@@ -127,6 +127,17 @@ export function applyEnvelope(store, env, now = Math.floor(Date.now() / 1000)) {
 export const latestAnchor = (store) =>
   store.anchors.length ? store.anchors.reduce((a, b) => (b.ts > a.ts ? b : a)) : null;
 
+// The most recent anchor that carried the CLI's absolute caps (`sl`). A CAP is a weekly
+// constant; a probe anchor (pct-only, from server/probe.mjs) or any sl-less anchor must
+// NOT wipe it and force the server back to deriving cap = billed ÷ pct — that derivation
+// is a DIFFERENT number than the CLI shows, and the two disagreeing was the whole bug.
+// Caps are sticky (carried until a newer sl updates them); only readings are live.
+export const latestSlAnchor = (store) => {
+  let best = null;
+  for (const x of store.anchors) if (x.sl && Number(x.sl.week_cap) > 0 && (!best || x.ts > best.ts)) best = x;
+  return best;
+};
+
 // Seconds since the freshest anchor (Infinity when never anchored). Exported so the
 // handler can decide to PULL one (server/probe.mjs) before the push goes stale.
 export const anchorAgeSec = (store, now) => {
@@ -209,33 +220,40 @@ export function computeBudget(store, now) {
   // A laptop napping ~3h therefore halted the whole fleet while the ledger was intact.
   // Caps and the weekly standing now survive to the 12h degrade horizon; only the
   // freshness-sensitive readings below stay behind `fresh`.
-  if (a && a.sl && anchorAge <= ANCHOR_DEGRADE_SEC) {
-    const since = windowedBilled(store.events, now, WEEK, a.ts);
+  // Use the last anchor that CARRIED sl caps — not necessarily the latest anchor. A probe
+  // (pct-only) landing after a laptop sl anchor must keep showing the CLI's cap, never
+  // re-derive a divergent one. Resets/quota still come from the latest anchor (`a`); only
+  // the caps (and the sl-derived readings) come from `aSl`.
+  const aSl = latestSlAnchor(store);
+  if (aSl && now - aSl.ts <= ANCHOR_DEGRADE_SEC) {
+    const slFresh = now - aSl.ts <= ANCHOR_TRUST_SEC;
+    const since = windowedBilled(store.events, now, WEEK, aSl.ts);
     // 5h-window fields are only valid while the window the anchor described is still
     // current (fr ahead of now) — after a wall reset they describe a dead window and
     // the fixed-window sum above (events since fr) is the truth until the next anchor.
     const windowCurrent = fr > now;
-    if (windowCurrent && a.sl.five_cap > 0) { fiveCap = a.sl.five_cap; five = a.sl.five_used + since; }
-    weekCap = a.sl.week_cap;
+    if (windowCurrent && aSl.sl.five_cap > 0) { fiveCap = aSl.sl.five_cap; five = aSl.sl.five_used + since; }
+    weekCap = aSl.sl.week_cap;
     // Same rule as the 5h window: a CAP survives the reset, a READING does not. Once
     // week_reset has passed, the anchor's week_used describes a DEAD week — adding
     // since-anchor burn to it pinned weekPct at 1 and every cloud routine read "over"
     // on a week that had just gone to zero. Post-reset the ledger's fixed-window sum
     // (weekLoFor, rolled forward above) is the truth until the next anchor lands.
-    if (wr > now) week = a.sl.week_used + since;
+    if (wr > now) week = aSl.sl.week_used + since;
     quota = fiveCap ? Math.min(1, five / fiveCap) : quota;
     weekPct = weekCap > 0 ? Math.min(1, week / weekCap) : weekPct;
-    if (fresh) {
+    if (slFresh) {
       // weekly even-pace bank: spend-since-anchor eats it, elapsed-time creep refills it
-      if (a.sl.bank != null) slBank = Math.round(a.sl.bank - since + (a.sl.week_cap * anchorAge) / (7 * 24 * 3600));
-      if (a.sl.net_per_min != null) slNet = a.sl.net_per_min;
+      const slAge = now - aSl.ts;
+      if (aSl.sl.bank != null) slBank = Math.round(aSl.sl.bank - since + (aSl.sl.week_cap * slAge) / (7 * 24 * 3600));
+      if (aSl.sl.net_per_min != null) slNet = aSl.sl.net_per_min;
       // the CLI's roll-session numbers are the governor's — reconstruct its realMax
       // (five_used + toSpend − over covers both sides of the share) and re-derive
       // toSpend/over at NOW, so the gate and the bars agree with the CLI exactly.
       // Stays behind `fresh`: an aged anchor's to_spend describes a window that has
       // since moved on, and must not govern the live one.
       if (windowCurrent) {
-        const realMax = a.sl.five_used + a.sl.to_spend - (a.sl.over || 0);
+        const realMax = aSl.sl.five_used + aSl.sl.to_spend - (aSl.sl.over || 0);
         // realMax 0 is a DEGENERATE share, not a verdict: a first anchor from a
         // barely-used account extrapolates cap = burned ÷ pct ≈ 0 and ships
         // to_spend 0, which read as "over" and hard-blocked a brand-new user.

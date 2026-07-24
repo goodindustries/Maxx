@@ -260,3 +260,29 @@ test("week reset while anchor is stale: pre-reset week_used does not carry over"
   assert.notEqual(b.verdict, "over");
   assert.ok(b.session_to_spend > 0, `expected headroom, got ${b.session_to_spend}`);
 });
+
+// CLI and server must NEVER disagree on the cap. The CLI ships its absolute caps as `sl`;
+// the server uses them as the ruler. The bug: a probe anchor (pct-only, no sl) landing
+// AFTER the laptop's sl anchor made the server DROP the sl cap and re-derive cap = billed
+// ÷ pct — a different number (670M vs the CLI's, or 1278M in the field). A cap is a weekly
+// constant: it must stick until a newer sl updates it.
+test("a probe anchor after an sl anchor keeps the CLI's cap, does not re-derive one", () => {
+  const s = emptyStore();
+  const wr = T + 3 * 86400;
+  // account has burned 60M this week (the ledger the server would divide by pct)
+  s.events.push({ surface: "laptop:a", root: "r1", ts: T - 3600, billed: 60e6 });
+  // laptop sl anchor: the CLI's authoritative weekly cap is 670M
+  s.anchors.push({
+    ts: T - 1800, five_pct: 0.05, week_pct: 0.09, five_reset: T + 3 * H, week_reset: wr,
+    sl: { five_used: 5e6, five_cap: 130e6, to_spend: 20e6, over: 0, week_used: 60e6, week_cap: 670e6 },
+  });
+  const before = computeBudget(s, T);
+  assert.equal(before.week_cap_tokens, 670e6, "sl cap is the ruler");
+  // now a probe lands 20 min later — pct only, NO sl (server/probe.mjs shape)
+  s.anchors.push({ ts: T + 1200, five_pct: 0.05, week_pct: 0.09, five_reset: T + 3 * H, week_reset: wr, sl: null, src: "probe" });
+  const after = computeBudget(s, T + 1200);
+  assert.equal(after.week_cap_tokens, 670e6, "cap must still be the CLI's 670M, not billed/pct");
+  assert.equal(after.week_used_tokens, before.week_used_tokens + 0, "used tracks the same ledger, no cap jump");
+  // the CLI (limit.mjs) at this moment would show left = 670M − 60M = 610M. Server must match.
+  assert.equal(after.weekly_left_tokens, 610e6);
+});
