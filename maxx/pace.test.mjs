@@ -3,7 +3,7 @@
 // "263M left · −3.6M over" read as a weekly breach when 91% of the tank remained.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { weekPaceToken } from "./pace.mjs";
+import { weekPaceToken, plausibleReset } from "./pace.mjs";
 
 const CAP = 289e6; // reif_tgp's real weekly cap the day of the bug
 
@@ -41,4 +41,25 @@ test("dead-band: anything within ±5% of cap prints nothing (on pace)", () => {
 test("no cap (uncalibrated) → no token, never a divide-by-zero deviation", () => {
   assert.equal(weekPaceToken(-30e6, 0), null);
   assert.equal(weekPaceToken(-30e6, null), null);
+});
+
+// The 2026-07-24 gmail incident: a setup-token probe payload carried resets_at = 9999999999,
+// which rendered "95082d" and — because elapsed collapsed to ≈0 — a phantom "−9% behind pace"
+// on an account /usage showed at 10% used, UNDER pace. plausibleReset is the guard.
+test("the reproducer: a 9999999999 sentinel reset is rejected (→ 0)", () => {
+  const now = 1784901980; // the incident's clock
+  assert.equal(plausibleReset(9999999999, now), 0, "a 260-year-out reset is a sentinel, not a window");
+});
+
+test("a real weekly reset (~6 days out) passes through unchanged", () => {
+  const now = 1784901980;
+  const realReset = 1785456000; // reif_tgp's live reset that day — ~6.4d out
+  assert.equal(plausibleReset(realReset, now), realReset, "a plausible reset must survive intact");
+});
+
+test("plausibleReset boundary: ≤8d passes, >8d is a sentinel", () => {
+  const now = 1_000_000;
+  assert.equal(plausibleReset(now + 8 * 86400, now), now + 8 * 86400, "exactly 8d out is still real");
+  assert.equal(plausibleReset(now + 8 * 86400 + 1, now), 0, "one second past 8d is a sentinel");
+  assert.equal(plausibleReset(0, now), 0, "no reset → 0");
 });

@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { weekPaceToken } from "./pace.mjs";
+import { weekPaceToken, plausibleReset } from "./pace.mjs";
 import { weighUsage } from "./limit.mjs";
 
 // ─── color: one HSL→hex + an rgb→hsl round-trip for shading ────────────────────
@@ -519,10 +519,15 @@ function main() {
   // writes to the shared cache made every gauge flap and every cap anchor balloon. Merge rule:
   // the LATER resets_at wins (newest window); within the same window used% is monotonic, so
   // take the MAX. A session with no stdin payload rides the fresh cache entirely.
-  const mergeWall = (live, cPct, cReset) => {
+  // A far-future resets_at is a "not-limited" sentinel, not a newer window — reject it on both
+  // the live payload and the cache before the "later reset wins" race, or it renders 95082d and
+  // a phantom pace flip. The % is still ground truth, so we keep it; only the bogus reset dies.
+  const mergeWall = (live, cPct, cReset0) => {
+    const nowSec = Date.now() / 1000;
+    const cReset = plausibleReset(cReset0, nowSec);
     const havePrev = cacheFresh && cReset > 0;
     if (!live) return havePrev ? { pct: cPct || 0, reset: cReset } : null;
-    const lPct = (live.used_percentage || 0) / 100, lReset = live.resets_at || 0;
+    const lPct = (live.used_percentage || 0) / 100, lReset = plausibleReset(live.resets_at || 0, nowSec);
     if (havePrev && cReset > lReset) return { pct: cPct || 0, reset: cReset };
     if (havePrev && cReset === lReset) return { pct: Math.max(lPct, cPct || 0), reset: lReset };
     return { pct: lPct, reset: lReset };
@@ -535,6 +540,10 @@ function main() {
   let haveWeek = !!rl.seven_day;
   const quota = wall5 ? wall5.pct : 0;
   let week = wall7 ? wall7.pct : 0;
+  // mergeWall zeroes a sentinel reset but keeps the wall (its % is real). When the reset is
+  // unknown the pace bank (cap×elapsed − used) is meaningless — elapsed collapses — so suppress
+  // the pace token rather than print a sign-flipped phantom off a fabricated elapsed.
+  const weekResetOk = haveWeek && rl.seven_day.resets_at > 0;
 
   // hand the authoritative %s to limit.mjs (the brain reruns it) so it can anchor token caps.
   // stash seven_day.resets_at too: limit.mjs (no stdin of its own) needs it to cut the weekly
@@ -909,7 +918,7 @@ function main() {
         const d = fg(DIM, "  ") + fg(INK, kstr(leftK)) + fg(DIM, " left"); if (fits(s, d)) s += d;
         // pace token (weekPaceToken): decided on the RAW bank so it's deterministic; the
         // odometer only rolls the shown digits. See pace.mjs for why it's never "over"/red.
-        const pace = weekPaceToken(cap7s * e7 - used7, cap7s);
+        const pace = weekResetOk ? weekPaceToken(cap7s * e7 - used7, cap7s) : null;
         if (pace) {
           const b = fg(DIM, "  ·  ") + fg(pace.role === "good" ? GREEN : AMBER, (pace.ahead ? "+" : "−") + pace.pct + "% pace");
           if (fits(s, b)) s += b;

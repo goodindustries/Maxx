@@ -33,3 +33,17 @@ export function weekPaceToken(bankTokens, capTokens) {
     pct: Math.round((Math.abs(bankTokens) / capTokens) * 100), // signed via `ahead`
   };
 }
+
+/**
+ * A real rate-limit window never resets more than ~8 days out (the widest wall is 7d). A
+ * resets_at beyond that is a "not-limited" sentinel — seen live on 2026-07-24 when a
+ * setup-token probe payload carried resets_at = 9999999999 (year 2286). Left to stand it
+ * poisoned the week row two ways: the days label rendered "95082d", and elapsed computed as
+ * ≈0 so `cap×elapsed − used` turned 9% used into a phantom "−9% behind pace" (sign flipped —
+ * the account was actually UNDER pace). It also won mergeWall's "later reset wins" race and
+ * overwrote the real cached reset. Returns 0 for a sentinel, the reset unchanged otherwise.
+ */
+export function plausibleReset(reset, nowSec) {
+  if (!reset || reset <= 0) return 0;
+  return reset - nowSec <= 8 * 24 * 3600 ? reset : 0;
+}
