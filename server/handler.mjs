@@ -1583,17 +1583,16 @@ if(location.search)history.replaceState(null,'',location.pathname);
     // in that case, so the common case stays clean.
     var rootsBy={};
     (window.__ev||[]).forEach(function(e){var p=projOf(e);(rootsBy[p]=rootsBy[p]||{})[e.root]=1});
-    // Oldest-first so "did the session change since the row above?" is answerable. Printing
-    // the tag on every row would just swap one repeated constant for another; it earns its
-    // place only where the lane actually switches.
-    var lastKey='';
+    // When 2+ sessions share a project, tag EVERY one of that project's rows — not just the
+    // switch points. The 4-char id (= the statusline's "id abcd") is how the owner reads a row
+    // back to a specific terminal; a gap of untagged rows between switches leaves them
+    // ambiguous, which is exactly the "which agent is burning?" question the tag exists to
+    // answer. Single-session projects stay clean (no collision, nothing to disambiguate).
     (window.__ev||[]).slice().filter(function(e){return new Date(e.ts).getTime()>0})
       .sort(function(a,b){return new Date(a.ts)-new Date(b.ts)}).forEach(function(e){
       var ms=new Date(e.ts).getTime();
       var proj=projOf(e);
-      var key=proj+'|'+e.root;
-      var tag=(Object.keys(rootsBy[proj]||{}).length>1&&key!==lastKey)?String(e.root).slice(0,4):'';
-      lastKey=key;
+      var tag=(Object.keys(rootsBy[proj]||{}).length>1)?String(e.root).slice(0,4):'';
       // The session NAME was printed on every row — identical for every emit of a
       // session, so the widest column repeated a constant. Turn numbers go there
       // instead: where this session is, and which turns this batch covered.
